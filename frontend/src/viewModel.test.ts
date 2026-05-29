@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
-import { canOpenSurface, isSetupGated, preferredSurface, spotifyAuthViewModel } from "./viewModel";
+import { canOpenSurface, idlePresentation, isSetupGated, preferredSurface, shouldEnterIdleMode, spotifyAuthViewModel } from "./viewModel";
 
 describe("kiosk shell view model", () => {
   it("gates daily-use surfaces during first setup", () => {
@@ -76,5 +76,40 @@ describe("kiosk shell view model", () => {
     expect(spotifyAuthViewModel(snapshot, baseSession).actions).toEqual(["retry"]);
     expect(spotifyAuthViewModel(snapshot, { ...baseSession, status: "failed", failureReason: "spotify_error" }).actions).toEqual(["retry"]);
     expect(spotifyAuthViewModel(snapshot, { ...baseSession, status: "cancelled", failureReason: "cancelled" }).actions).toEqual(["retry"]);
+  });
+
+  it("enters idle only after the configured timeout on ready surfaces", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      settings: { ...localScenarios.ready_healthy.snapshot.settings, idleTimeoutSeconds: 60 },
+    };
+
+    expect(shouldEnterIdleMode(snapshot, 1_000, 60_999)).toBe(false);
+    expect(shouldEnterIdleMode(snapshot, 1_000, 61_000)).toBe(true);
+  });
+
+  it("does not enter idle during setup or when idle mode is off", () => {
+    const setupSnapshot = localScenarios.first_boot_empty.snapshot;
+    const disabledSnapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      settings: { ...localScenarios.ready_healthy.snapshot.settings, idleMode: "off" as const },
+    };
+
+    expect(shouldEnterIdleMode(setupSnapshot, 1_000, 1_000_000)).toBe(false);
+    expect(shouldEnterIdleMode(disabledSnapshot, 1_000, 1_000_000)).toBe(false);
+  });
+
+  it("keeps idle clock-first unless artwork is enabled by settings or mode", () => {
+    const clock = localScenarios.idle_clock.snapshot;
+    const artwork = localScenarios.idle_with_artwork.snapshot;
+    const settingArtwork = {
+      ...localScenarios.ready_healthy.snapshot,
+      settings: { ...localScenarios.ready_healthy.snapshot.settings, artworkInIdle: true },
+    };
+
+    expect(idlePresentation(clock).showArtwork).toBe(false);
+    expect(idlePresentation(artwork).showArtwork).toBe(true);
+    expect(idlePresentation(settingArtwork).showArtwork).toBe(true);
+    expect(idlePresentation(clock).brightness).toBe(clock.settings.bedtimeBrightness);
   });
 });

@@ -213,7 +213,8 @@ button:disabled {
 .checklist,
 .health-list,
 .actions,
-.spotify-panel {
+.spotify-panel,
+.idle-settings {
   border-radius: 8px;
   border: 1px solid #d4d0c5;
   background: #fffdf7;
@@ -453,28 +454,123 @@ button:disabled {
   font-weight: 800;
 }
 
+.idle-settings {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, 0.45fr)) minmax(190px, 0.55fr) minmax(220px, 0.7fr);
+  gap: 12px;
+  align-items: center;
+  padding: 18px;
+}
+
+.idle-settings h2 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.idle-settings p {
+  margin: 0;
+  color: #65716b;
+  line-height: 1.35;
+}
+
+.idle-settings label {
+  display: grid;
+  gap: 6px;
+}
+
+.idle-settings select,
+.idle-settings input[type="range"] {
+  min-height: 48px;
+}
+
+.idle-settings select {
+  width: 100%;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fffdf7;
+}
+
+.idle-settings .checkbox-row {
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+}
+
+.idle-settings .checkbox-row input {
+  width: 22px;
+  height: 22px;
+}
+
 .idle-surface {
   display: grid;
   place-items: center;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 580px;
   border-radius: 8px;
-  background: #101514;
+  padding: 36px;
+  background:
+    radial-gradient(circle at center, rgba(38, 55, 50, 0.42), transparent 66%),
+    #080b0a;
   color: #f8f1dd;
   text-align: center;
+  filter: brightness(var(--idle-brightness, 0.42));
 }
 
 .idle-surface.with-art {
   grid-template-columns: 1fr 260px 1fr;
+  grid-template-rows: 1fr;
   gap: 24px;
+}
+
+.idle-surface.active-idle {
+  width: 100%;
+  min-height: 100vh;
+  border-radius: 0;
+  cursor: none;
+}
+
+.idle-clock-stack {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .clock {
   font-size: clamp(84px, 15vw, 178px);
   font-weight: 900;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
 }
 
-.idle-surface p {
+.idle-status {
+  margin: 0;
+  color: #bcc9bd;
+  font-size: 18px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.idle-now-playing {
+  width: min(760px, 100%);
+  margin: 16px 0 0;
   font-size: 22px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.idle-surface.with-art .idle-now-playing {
+  grid-column: 1 / -1;
+}
+
+.idle-surface.with-art.active-idle .idle-now-playing {
+  grid-column: auto;
+}
+
+.idle-active {
+  padding: 0;
+  background: #080b0a;
 }
 
 @media (max-width: 900px) {
@@ -482,7 +578,8 @@ button:disabled {
   .developer-panel,
   .shell,
   .surface-grid,
-  .spotify-panel {
+  .spotify-panel,
+  .idle-settings {
     grid-template-columns: 1fr;
   }
 
@@ -516,6 +613,7 @@ button:disabled {
 
   .idle-surface.with-art {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
   }
 }
 

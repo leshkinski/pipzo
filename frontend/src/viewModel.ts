@@ -1,4 +1,4 @@
-import type { AppSnapshot, SpotifyAuthSession, SurfaceId } from "./contracts";
+import type { AppSnapshot, IdleMode, SpotifyAuthSession, SurfaceId } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
 
@@ -53,6 +53,38 @@ export function formatMs(ms?: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export type IdlePresentation = {
+  enabled: boolean;
+  showArtwork: boolean;
+  brightness: number;
+  mode: IdleMode;
+  statusLabel: string;
+};
+
+export function idlePresentation(snapshot: AppSnapshot): IdlePresentation {
+  const mode = snapshot.settings.idleMode;
+  const enabled = mode !== "off" && !isSetupGated(snapshot);
+  const showArtwork = enabled && (snapshot.settings.artworkInIdle || mode === "clock_with_artwork");
+  const isPlaying = Boolean(snapshot.nowPlaying?.isPlaying);
+
+  return {
+    enabled,
+    showArtwork,
+    brightness: snapshot.settings.bedtimeBrightness,
+    mode,
+    statusLabel: snapshot.nowPlaying ? (isPlaying ? "Playing" : "Paused") : "Clock",
+  };
+}
+
+export function shouldEnterIdleMode(snapshot: AppSnapshot, lastActivityAtMs: number, nowMs: number): boolean {
+  const presentation = idlePresentation(snapshot);
+  if (!presentation.enabled) {
+    return false;
+  }
+  const timeoutMs = snapshot.settings.idleTimeoutSeconds * 1000;
+  return nowMs - lastActivityAtMs >= timeoutMs;
 }
 
 export type SpotifyAuthAction = "start" | "open" | "refresh" | "cancel" | "retry" | "logout" | "reconnect";

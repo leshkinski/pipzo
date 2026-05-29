@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import {
   activateBackendScenario,
@@ -9,16 +9,19 @@ import {
   fetchSpotifyAuthSession,
   logoutSpotifyAuth,
   patchDisplay,
+  patchSettings,
 } from "./api";
-import type { AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   canOpenSurface,
   formatMs,
+  idlePresentation,
   isSetupGated,
   labelFromId,
   preferredSurface,
   primarySurfaces,
+  shouldEnterIdleMode,
   spotifyAuthViewModel,
 } from "./viewModel";
 
@@ -55,6 +58,8 @@ export function App() {
   const [spotifyAuthSession, setSpotifyAuthSession] = useState<SpotifyAuthSession | null>(null);
   const [spotifyAuthBusy, setSpotifyAuthBusy] = useState(false);
   const [spotifyAuthMessage, setSpotifyAuthMessage] = useState("Use local Chromium on this device to connect Spotify.");
+  const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
+  const [idleActive, setIdleActive] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +101,43 @@ export function App() {
   }, [snapshot.health.spotifyAuth.status]);
 
   useEffect(() => {
+    function wake() {
+      setLastActivityAt(Date.now());
+      setIdleActive(false);
+    }
+
+    window.addEventListener("pointerdown", wake, { passive: true });
+    window.addEventListener("touchstart", wake, { passive: true });
+    window.addEventListener("keydown", wake);
+    return () => {
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("touchstart", wake);
+      window.removeEventListener("keydown", wake);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!idlePresentation(snapshot).enabled) {
+      setIdleActive(false);
+      return;
+    }
+    if (idleActive) {
+      return;
+    }
+
+    const now = Date.now();
+    const timeoutMs = snapshot.settings.idleTimeoutSeconds * 1000;
+    const remainingMs = Math.max(0, lastActivityAt + timeoutMs - now);
+    const timeoutId = window.setTimeout(() => {
+      setIdleActive(shouldEnterIdleMode(snapshot, lastActivityAt, Date.now()));
+    }, remainingMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [idleActive, lastActivityAt, snapshot]);
+
+  useEffect(() => {
     if (!spotifyAuthSession || !["waiting", "callback_received"].includes(spotifyAuthSession.status)) {
       return;
     }
@@ -112,7 +154,7 @@ export function App() {
   }, [spotifyAuthSession?.sessionId, spotifyAuthSession?.status]);
 
   const gated = isSetupGated(snapshot);
-  const activeSurface = gated ? "setup" : selectedSurface;
+  const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
   const visibleWarnings = snapshot.warnings;
   const currentScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
@@ -120,6 +162,8 @@ export function App() {
   );
 
   async function switchScenario(scenarioId: string) {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
     setSelectedScenario(scenarioId);
     if (dataSource === "backend") {
       try {
@@ -159,6 +203,34 @@ export function App() {
       settings: { ...current.settings, brightness },
     }));
     setStatusText("Local display mock updated.");
+  }
+
+  async function updateIdleSettings(patch: AppSettingsPatch) {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    if (dataSource === "backend") {
+      try {
+        const settings = await patchSettings(patch);
+        setSnapshot((current) => ({
+          ...current,
+          settings,
+          surfaces: { ...current.surfaces, idleMode: settings.idleMode },
+        }));
+        setStatusText("Backend idle settings updated.");
+        return;
+      } catch {
+        setDataSource("local");
+      }
+    }
+    setSnapshot((current) => {
+      const settings = { ...current.settings, ...patch };
+      return {
+        ...current,
+        settings,
+        surfaces: { ...current.surfaces, idleMode: settings.idleMode },
+      };
+    });
+    setStatusText("Local idle settings updated.");
   }
 
   async function refreshSnapshot() {
@@ -287,7 +359,11 @@ export function App() {
   };
 
   return (
-    <div className={`app phase-${snapshot.appPhase}`}>
+    <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
+      {idleActive ? (
+        <IdleSurface snapshot={snapshot} active />
+      ) : (
+        <>
       <header className="topbar">
         <div>
           <div className="brand">Pipzo</div>
@@ -345,10 +421,12 @@ export function App() {
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
           {activeSurface === "now_playing" && <NowPlayingSurface snapshot={snapshot} />}
-          {activeSurface === "settings" && <SettingsSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} />}
+          {activeSurface === "settings" && <SettingsSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} onIdleSettingsChange={updateIdleSettings} />}
           {activeSurface === "idle" && <IdleSurface snapshot={snapshot} />}
         </section>
       </main>
+        </>
+      )}
     </div>
   );
 }
@@ -500,7 +578,15 @@ function NowPlayingSurface({ snapshot }: { snapshot: AppSnapshot }) {
   );
 }
 
-function SettingsSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls }) {
+function SettingsSurface({
+  snapshot,
+  spotifyAuth,
+  onIdleSettingsChange,
+}: {
+  snapshot: AppSnapshot;
+  spotifyAuth: SpotifyAuthControls;
+  onIdleSettingsChange: (patch: AppSettingsPatch) => void;
+}) {
   return (
     <div className="settings-layout">
       <section className="hero-panel">
@@ -513,6 +599,7 @@ function SettingsSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spo
           <small>{labelFromId(snapshot.health.display.status)}{snapshot.health.display.reason ? ` / ${labelFromId(snapshot.health.display.reason)}` : ""}</small>
         </div>
       </section>
+      <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
       <HealthRows snapshot={snapshot} />
       <section className="actions">
@@ -524,6 +611,61 @@ function SettingsSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spo
         ))}
       </section>
     </div>
+  );
+}
+
+function IdleSettingsPanel({
+  snapshot,
+  onChange,
+}: {
+  snapshot: AppSnapshot;
+  onChange: (patch: AppSettingsPatch) => void;
+}) {
+  return (
+    <section className="idle-settings" aria-label="Display and idle settings">
+      <div>
+        <p className="eyebrow">Display and idle</p>
+        <h2>Bedtime idle mode</h2>
+        <p>Clock-first by default, with artwork only when the setting is enabled.</p>
+      </div>
+      <label>
+        <span>Mode</span>
+        <select value={snapshot.settings.idleMode} onChange={(event) => onChange({ idleMode: event.target.value as AppSnapshot["settings"]["idleMode"] })}>
+          <option value="clock">Clock</option>
+          <option value="clock_with_artwork">Clock with artwork</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+      <label>
+        <span>Timeout</span>
+        <select value={snapshot.settings.idleTimeoutSeconds} onChange={(event) => onChange({ idleTimeoutSeconds: Number(event.target.value) })}>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+          <option value="600">10 minutes</option>
+        </select>
+      </label>
+      <label className="checkbox-row">
+        <input
+          checked={snapshot.settings.artworkInIdle}
+          type="checkbox"
+          onChange={(event) => onChange({ artworkInIdle: event.target.checked })}
+        />
+        <span>Show album art in idle</span>
+      </label>
+      <label>
+        <span>Bedtime brightness</span>
+        <input
+          min="0"
+          max="60"
+          type="range"
+          value={snapshot.settings.bedtimeBrightness}
+          onChange={(event) => onChange({ bedtimeBrightness: Number(event.target.value) })}
+        />
+        <strong>{snapshot.settings.bedtimeBrightness}%</strong>
+      </label>
+    </section>
   );
 }
 
@@ -596,13 +738,25 @@ function SpotifyAuthPanel({
   );
 }
 
-function IdleSurface({ snapshot }: { snapshot: AppSnapshot }) {
-  const artwork = snapshot.settings.artworkInIdle || snapshot.surfaces.idleMode === "clock_with_artwork";
+function IdleSurface({ snapshot, active = false }: { snapshot: AppSnapshot; active?: boolean }) {
+  const [clockNow, setClockNow] = useState(() => new Date());
+  const presentation = idlePresentation(snapshot);
+  const playing = snapshot.nowPlaying;
+  const style = { "--idle-brightness": `${Math.max(0.22, presentation.brightness / 100)}` } as CSSProperties;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setClockNow(new Date()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   return (
-    <div className={`idle-surface ${artwork ? "with-art" : ""}`}>
-      <div className="clock">{new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date())}</div>
-      {artwork && <div className="idle-art">{snapshot.nowPlaying?.title?.slice(0, 1) ?? "P"}</div>}
-      <p>{snapshot.nowPlaying ? `${snapshot.nowPlaying.title} / ${snapshot.nowPlaying.artist}` : "Clock-first idle mode"}</p>
+    <div className={`idle-surface ${presentation.showArtwork ? "with-art" : ""}${active ? " active-idle" : ""}`} style={style}>
+      <div className="idle-clock-stack">
+        <div className="clock">{new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(clockNow)}</div>
+        <p className="idle-status">{presentation.statusLabel}</p>
+      </div>
+      {presentation.showArtwork && <div className="idle-art">{playing?.artworkUrl ? "Art" : playing?.title?.slice(0, 1) ?? "P"}</div>}
+      <p className="idle-now-playing">{playing ? `${playing.title} / ${playing.artist}` : "Clock-first idle mode"}</p>
     </div>
   );
 }
