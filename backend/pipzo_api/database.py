@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,16 @@ def initialize_database(db_path: Union[str, Path]) -> DatabaseInitializationResu
                 last_refresh_at text,
                 last_refresh_error_code text,
                 revoked_at text
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists app_settings (
+                id integer primary key check (id = 1),
+                settings_json text not null,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
             )
             """
         )

@@ -419,6 +419,12 @@ class MockScenarioStore:
     def get_settings(self) -> AppSettings:
         return self.get_snapshot().settings
 
+    def apply_settings(self, settings: AppSettings) -> None:
+        self._snapshot.settings = settings
+        self._snapshot.surfaces.idle_mode = settings.idle_mode
+        self._snapshot.health.display.brightness = settings.brightness
+        self._snapshot.updated_at = utc_now()
+
     def patch_settings(self, patch: AppSettingsPatch) -> AppSettings:
         current = self._snapshot.settings.model_dump()
         updates = patch.model_dump(exclude_unset=True)

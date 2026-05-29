@@ -152,6 +152,55 @@ export type HealthState = {
   kiosk: { phase: KioskBootPhase; lastRestartAt?: string };
 };
 
+export type WifiSecurity = "open" | "wpa" | "wpa2" | "wpa3" | "unknown";
+
+export type WifiNetwork = {
+  ssid: string;
+  signal: number;
+  security: WifiSecurity;
+  known: boolean;
+};
+
+export type WifiScanResults = {
+  networks: WifiNetwork[];
+  scannedAt: string;
+};
+
+export type NetworkConnectRequest = {
+  ssid: string;
+  password?: string;
+  hidden?: boolean;
+};
+
+export type NetworkForgetRequest = {
+  ssid: string;
+  confirm: true;
+};
+
+export type SpeakerDevice = {
+  address: string;
+  displayName: string;
+  alias?: string;
+  paired: boolean;
+  connected: boolean;
+  signal?: number | null;
+};
+
+export type SpeakerScanResults = {
+  devices: SpeakerDevice[];
+  scannedAt: string;
+};
+
+export type SpeakerPairRequest = {
+  address: string;
+  displayName?: string;
+};
+
+export type SpeakerForgetRequest = {
+  address: string;
+  confirm: true;
+};
+
 export type SurfaceState = {
   current: SurfaceId;
   route?: string;

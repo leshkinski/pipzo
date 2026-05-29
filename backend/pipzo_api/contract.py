@@ -274,6 +274,37 @@ class NetworkHealth(ContractModel):
     internet_reachable: Optional[bool] = None
 
 
+class WifiSecurity(str, Enum):
+    OPEN = "open"
+    WPA = "wpa"
+    WPA2 = "wpa2"
+    WPA3 = "wpa3"
+    UNKNOWN = "unknown"
+
+
+class WifiNetwork(ContractModel):
+    ssid: str
+    signal: int = Field(ge=0, le=100)
+    security: WifiSecurity
+    known: bool
+
+
+class WifiScanResults(ContractModel):
+    networks: List[WifiNetwork]
+    scanned_at: datetime
+
+
+class NetworkConnectRequest(ContractModel):
+    ssid: str
+    password: Optional[str] = None
+    hidden: bool = False
+
+
+class NetworkForgetRequest(ContractModel):
+    ssid: str
+    confirm: Literal[True]
+
+
 class SpotifyAuthHealth(ContractModel):
     status: SpotifyAuthStatus
     reason: Optional[SpotifyAuthReason] = None
@@ -284,6 +315,30 @@ class SpeakerHealth(ContractModel):
     status: SpeakerStatus
     reason: Optional[SpeakerReason] = None
     primary: Optional[SpeakerSummary] = None
+
+
+class SpeakerDevice(ContractModel):
+    address: str
+    display_name: str
+    alias: Optional[str] = None
+    paired: bool
+    connected: bool
+    signal: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class SpeakerScanResults(ContractModel):
+    devices: List[SpeakerDevice]
+    scanned_at: datetime
+
+
+class SpeakerPairRequest(ContractModel):
+    address: str
+    display_name: Optional[str] = None
+
+
+class SpeakerForgetRequest(ContractModel):
+    address: str
+    confirm: Literal[True]
 
 
 class PlaybackDeviceHealth(ContractModel):

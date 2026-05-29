@@ -5,13 +5,19 @@ import type {
   AppSnapshot,
   DisplayPatch,
   HealthState,
+  NetworkConnectRequest,
+  NetworkForgetRequest,
   PlaybackControlRequest,
   RecoveryAction,
   RunRecoveryActionRequest,
   ScenarioSummary,
+  SpeakerForgetRequest,
+  SpeakerPairRequest,
+  SpeakerScanResults,
   SetupPlaybackTestRequest,
   SetupState,
   SpotifyAuthSession,
+  WifiScanResults,
 } from "./contracts";
 
 const headers = { "Content-Type": "application/json" };
@@ -62,6 +68,54 @@ export function patchDisplay(body: DisplayPatch): Promise<HealthState["display"]
 
 export function controlPlayback(body: PlaybackControlRequest): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/playback/control", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchNetworkStatus(): Promise<HealthState["network"]> {
+  return request<HealthState["network"]>("/api/v1/network/status");
+}
+
+export function scanNetwork(): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/network/scan", { method: "POST" });
+}
+
+export function fetchNetworkScanResults(): Promise<WifiScanResults> {
+  return request<WifiScanResults>("/api/v1/network/scan-results");
+}
+
+export function connectNetwork(body: NetworkConnectRequest): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/network/connect", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function forgetNetwork(body: NetworkForgetRequest): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/network/forget", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function retryInternetProbe(): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/network/retry-internet-probe", { method: "POST" });
+}
+
+export function fetchSpeakerStatus(): Promise<HealthState["speaker"]> {
+  return request<HealthState["speaker"]>("/api/v1/speaker/status");
+}
+
+export function scanSpeakers(): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/speaker/scan", { method: "POST" });
+}
+
+export function fetchSpeakerScanResults(): Promise<SpeakerScanResults> {
+  return request<SpeakerScanResults>("/api/v1/speaker/scan-results");
+}
+
+export function pairSpeaker(body: SpeakerPairRequest): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/speaker/pair", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function reconnectSpeaker(): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/speaker/reconnect", { method: "POST" });
+}
+
+export function forgetSpeaker(body: SpeakerForgetRequest): Promise<RecoveryAction> {
+  return request<RecoveryAction>("/api/v1/speaker/forget", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function fetchRecoveryActions(): Promise<RecoveryAction[]> {

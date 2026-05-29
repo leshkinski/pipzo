@@ -113,7 +113,7 @@ def test_database_initialization_creates_schema_marker_and_is_idempotent(tmp_pat
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute("select key, value from schema_metadata").fetchall()
 
-    assert rows == [("schema_version", "2")]
+    assert rows == [("schema_version", "3")]
 
 
 def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_path):
@@ -285,6 +285,42 @@ def test_settings_get_and_patch_existing_fields(tmp_path):
     assert state_response.json()["settings"]["idleTimeoutSeconds"] == 120
 
 
+def test_settings_persist_in_sqlite_across_app_instances(tmp_path):
+    settings = Settings(db_path=str(tmp_path / "durable-settings.sqlite3"))
+
+    with make_client(settings) as client:
+        patch_response = client.patch(
+            "/api/v1/settings",
+            json={"idleMode": "clock_with_artwork", "brightness": 33, "artworkInIdle": True},
+        )
+
+    with make_client(settings) as client:
+        get_response = client.get("/api/v1/settings")
+        state_response = client.get("/api/v1/app/state")
+
+    assert patch_response.status_code == 200
+    assert get_response.status_code == 200
+    assert get_response.json()["idleMode"] == "clock_with_artwork"
+    assert get_response.json()["brightness"] == 33
+    assert state_response.json()["settings"]["artworkInIdle"] is True
+    assert state_response.json()["surfaces"]["idleMode"] == "clock_with_artwork"
+    assert state_response.json()["health"]["display"]["brightness"] == 33
+
+
+def test_settings_are_available_in_hardware_mode_without_faking_device_actions(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-settings.sqlite3"))
+
+    with make_client(settings) as client:
+        get_response = client.get("/api/v1/settings")
+        patch_response = client.patch("/api/v1/settings", json={"idleTimeoutSeconds": 180})
+        display_response = client.patch("/api/v1/display", json={"brightness": 10})
+
+    assert get_response.status_code == 200
+    assert patch_response.status_code == 200
+    assert patch_response.json()["idleTimeoutSeconds"] == 180
+    assert display_response.status_code == 501
+
+
 def test_display_mock_state_can_be_adjusted(tmp_path):
     with make_client(Settings(db_path=str(tmp_path / "display.sqlite3"))) as client:
         client.post("/api/v1/mock/scenarios/ready_healthy/activate")
@@ -359,9 +395,18 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
             client.post("/api/v1/setup/start"),
             client.post("/api/v1/setup/complete"),
             client.post("/api/v1/setup/playback-test", json={"action": "start"}),
-            client.patch("/api/v1/settings", json={"idleMode": "off"}),
             client.patch("/api/v1/display", json={"brightness": 10}),
             client.post("/api/v1/playback/control", json={"action": "pause"}),
+            client.post("/api/v1/network/scan"),
+            client.get("/api/v1/network/scan-results"),
+            client.post("/api/v1/network/connect", json={"ssid": "PipzoNet", "password": "secret"}),
+            client.post("/api/v1/network/forget", json={"ssid": "PipzoNet", "confirm": True}),
+            client.post("/api/v1/network/retry-internet-probe"),
+            client.post("/api/v1/speaker/scan"),
+            client.get("/api/v1/speaker/scan-results"),
+            client.post("/api/v1/speaker/pair", json={"address": "AA:BB:CC:DD:EE:FF"}),
+            client.post("/api/v1/speaker/reconnect"),
+            client.post("/api/v1/speaker/forget", json={"address": "AA:BB:CC:DD:EE:FF", "confirm": True}),
             client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True}),
         ]
 

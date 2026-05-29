@@ -16,10 +16,17 @@ from .contract import (
     DisplayHealth,
     DisplayPatch,
     HealthResponse,
+    NetworkConnectRequest,
+    NetworkForgetRequest,
+    NetworkHealth,
     PlaybackControlRequest,
     RecoveryAction,
     RunRecoveryActionRequest,
     ScenarioSummary,
+    SpeakerForgetRequest,
+    SpeakerHealth,
+    SpeakerPairRequest,
+    SpeakerScanResults,
     SetupPlaybackTestRequest,
     SetupState,
     SpotifyAuthSession,
@@ -27,12 +34,14 @@ from .contract import (
     SpotifyAuthReason,
     SpotifyAuthStatus,
     Warning,
+    WifiScanResults,
     utc_now,
 )
 from .database import initialize_database
 from .events import EventHub
 from .logging import configure_logging, get_logger
 from .mock_scenarios import MockScenarioStore
+from .settings_store import AppSettingsStore
 from .spotify_auth import (
     SpotifyAuthCallbackError,
     SpotifyAuthSessionService,
@@ -54,6 +63,9 @@ def create_app(
     event_hub = EventHub()
     spotify_auth_sessions = spotify_auth_sessions_override or SpotifyAuthSessionService()
     spotify_client = spotify_client_override or UrlLibSpotifyClient()
+
+    def settings_store() -> AppSettingsStore:
+        return AppSettingsStore(resolve_settings().db_path)
 
     def resolve_settings() -> Settings:
         if settings_override is not None:
@@ -107,12 +119,12 @@ def create_app(
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:
-        return read_snapshot(settings, mock_store)
+        return read_snapshot(settings, mock_store, settings_store())
 
     @app.websocket("/api/v1/events/ws")
     async def events_ws(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
         try:
-            initial_snapshot = read_snapshot(settings, mock_store)
+            initial_snapshot = read_snapshot(settings, mock_store, settings_store())
         except HTTPException as exc:
             await websocket.close(code=1011, reason=str(exc.detail))
             return
@@ -145,20 +157,22 @@ def create_app(
 
     @app.get("/api/v1/settings", response_model=AppSettings)
     def settings_get(settings: Settings = Depends(get_settings)) -> AppSettings:
-        require_action_mock_mode(settings)
-        return mock_store.get_settings()
+        return AppSettingsStore(settings.db_path).get_settings()
 
     @app.patch("/api/v1/settings", response_model=AppSettings)
     def settings_patch(body: AppSettingsPatch, settings: Settings = Depends(get_settings)) -> AppSettings:
-        require_action_mock_mode(settings)
-        updated = mock_store.patch_settings(body)
+        updated = AppSettingsStore(settings.db_path).patch_settings(body)
+        mock_store.apply_settings(updated)
         event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
+        if settings.app_mode == "mock":
+            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store()).model_dump(mode="json", by_alias=True))
         return updated
 
     @app.patch("/api/v1/display", response_model=DisplayHealth)
     def display_patch(body: DisplayPatch, settings: Settings = Depends(get_settings)) -> DisplayHealth:
         require_action_mock_mode(settings)
         updated = mock_store.patch_display(body)
+        AppSettingsStore(settings.db_path).save_settings(mock_store.get_settings())
         event_hub.publish("display.changed", updated.model_dump(mode="json", by_alias=True))
         event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
         return updated
@@ -169,6 +183,54 @@ def create_app(
         result = mock_store.control_playback(body.action)
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
+
+    @app.get("/api/v1/network/status", response_model=NetworkHealth)
+    def network_status(settings: Settings = Depends(get_settings)) -> NetworkHealth:
+        return read_snapshot(settings, mock_store, settings_store()).health.network
+
+    @app.post("/api/v1/network/scan", response_model=RecoveryAction)
+    def network_scan(settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Wi-Fi scan")
+
+    @app.get("/api/v1/network/scan-results", response_model=WifiScanResults)
+    def network_scan_results(settings: Settings = Depends(get_settings)) -> WifiScanResults:
+        raise_device_adapter_unavailable("Wi-Fi scan results")
+
+    @app.post("/api/v1/network/connect", response_model=RecoveryAction)
+    def network_connect(body: NetworkConnectRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Wi-Fi connect")
+
+    @app.post("/api/v1/network/forget", response_model=RecoveryAction)
+    def network_forget(body: NetworkForgetRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Wi-Fi forget")
+
+    @app.post("/api/v1/network/retry-internet-probe", response_model=RecoveryAction)
+    def network_retry_internet_probe(settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("internet probe retry")
+
+    @app.get("/api/v1/speaker/status", response_model=SpeakerHealth)
+    def speaker_status(settings: Settings = Depends(get_settings)) -> SpeakerHealth:
+        return read_snapshot(settings, mock_store, settings_store()).health.speaker
+
+    @app.post("/api/v1/speaker/scan", response_model=RecoveryAction)
+    def speaker_scan(settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Bluetooth speaker scan")
+
+    @app.get("/api/v1/speaker/scan-results", response_model=SpeakerScanResults)
+    def speaker_scan_results(settings: Settings = Depends(get_settings)) -> SpeakerScanResults:
+        raise_device_adapter_unavailable("Bluetooth speaker scan results")
+
+    @app.post("/api/v1/speaker/pair", response_model=RecoveryAction)
+    def speaker_pair(body: SpeakerPairRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Bluetooth speaker pair")
+
+    @app.post("/api/v1/speaker/reconnect", response_model=RecoveryAction)
+    def speaker_reconnect(settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Bluetooth speaker reconnect")
+
+    @app.post("/api/v1/speaker/forget", response_model=RecoveryAction)
+    def speaker_forget(body: SpeakerForgetRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        raise_device_adapter_unavailable("Bluetooth speaker forget")
 
     @app.post("/api/v1/spotify/auth/session", response_model=SpotifyAuthSession)
     def spotify_auth_session_create(settings: Settings = Depends(get_settings)) -> SpotifyAuthSession:
@@ -310,6 +372,13 @@ def require_action_mock_mode(settings: Settings) -> None:
         )
 
 
+def raise_device_adapter_unavailable(action: str) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=f"{action} is not implemented until the platform adapter is available.",
+    )
+
+
 def require_spotify_oauth_config(settings: Settings) -> None:
     if not settings.spotify_client_id:
         raise HTTPException(
@@ -318,7 +387,7 @@ def require_spotify_oauth_config(settings: Settings) -> None:
         )
 
 
-def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnapshot:
+def read_snapshot(settings: Settings, mock_store: MockScenarioStore, app_settings_store: AppSettingsStore) -> AppSnapshot:
     adapter = create_app_state_adapter(settings, mock_store)
     try:
         snapshot = adapter.get_snapshot()
@@ -327,6 +396,9 @@ def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnaps
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Hardware adapters are not implemented yet; run with PIPZO_MODE=mock for desktop scenarios.",
         ) from exc
+    snapshot.settings = app_settings_store.get_settings()
+    snapshot.surfaces.idle_mode = snapshot.settings.idle_mode
+    snapshot.health.display.brightness = snapshot.settings.brightness
     try:
         auth_record = SpotifyAuthStore.from_settings(settings).get_auth_record()
     except SpotifyAuthTokenStorageError:
@@ -369,7 +441,7 @@ def clear_spotify_auth_state(
     spotify_auth_sessions.clear_sessions()
     health = SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
     event_hub.publish("spotify.auth_changed", health.model_dump(mode="json", by_alias=True))
-    event_hub.publish("app.snapshot", read_snapshot(settings, mock_store).model_dump(mode="json", by_alias=True))
+    event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, AppSettingsStore(settings.db_path)).model_dump(mode="json", by_alias=True))
     return health
 
 

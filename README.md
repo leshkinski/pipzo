@@ -35,7 +35,7 @@ docs/           Architecture, setup, product, and runbook docs
 
 ## Local Contract API
 
-The skeleton exposes the app-state contract, a WebSocket event channel, desktop mock scenarios, and initial mutation/action endpoints for frontend development.
+The skeleton exposes the app-state contract, a WebSocket event channel, desktop mock scenarios, durable app settings, and initial mutation/action endpoints for frontend development.
 
 ```bash
 python3 -m venv .venv
@@ -71,6 +71,18 @@ Useful endpoints:
 - `GET/PATCH http://127.0.0.1:8000/api/v1/settings`
 - `PATCH http://127.0.0.1:8000/api/v1/display`
 - `POST http://127.0.0.1:8000/api/v1/playback/control`
+- `GET http://127.0.0.1:8000/api/v1/network/status`
+- `POST http://127.0.0.1:8000/api/v1/network/scan`
+- `GET http://127.0.0.1:8000/api/v1/network/scan-results`
+- `POST http://127.0.0.1:8000/api/v1/network/connect`
+- `POST http://127.0.0.1:8000/api/v1/network/forget`
+- `POST http://127.0.0.1:8000/api/v1/network/retry-internet-probe`
+- `GET http://127.0.0.1:8000/api/v1/speaker/status`
+- `POST http://127.0.0.1:8000/api/v1/speaker/scan`
+- `GET http://127.0.0.1:8000/api/v1/speaker/scan-results`
+- `POST http://127.0.0.1:8000/api/v1/speaker/pair`
+- `POST http://127.0.0.1:8000/api/v1/speaker/reconnect`
+- `POST http://127.0.0.1:8000/api/v1/speaker/forget`
 - `POST http://127.0.0.1:8000/api/v1/spotify/auth/session`
 - `GET http://127.0.0.1:8000/api/v1/spotify/auth/session/{sessionId}`
 - `POST http://127.0.0.1:8000/api/v1/spotify/auth/session/{sessionId}/cancel`
@@ -90,8 +102,10 @@ The React Setup and Settings surfaces expose local-device controls to start auth
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
+App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Settings updates are app-owned preferences; hardware actions such as display brightness writes, Wi-Fi connect/forget, Bluetooth scan/pair/reconnect/forget, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
+
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify, playback, display, or reset success.
+The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify playback, display, or reset success. Wi-Fi and Bluetooth endpoint shapes are present for contract work, but their operation endpoints also return `501` until NetworkManager/BlueZ adapters are implemented and validated on the Pi.
 
 Backend tests:
 
