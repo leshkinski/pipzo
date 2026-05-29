@@ -70,32 +70,42 @@ class ProductionAppStateAdapter:
             raise
         except Exception:
             network = self._network_error()
+        try:
+            speaker = self._adapters.bluetooth.status()
+        except ProductionAdapterNotImplemented:
+            speaker = SpeakerHealth(status=SpeakerStatus.ERROR, reason=SpeakerReason.ADAPTER_UNAVAILABLE)
+        except Exception:
+            speaker = SpeakerHealth(status=SpeakerStatus.ERROR, reason=SpeakerReason.UNKNOWN)
 
         network_ready = network.status in {NetworkStatus.ONLINE, NetworkStatus.LOCAL_ONLY}
+        speaker_ready = speaker.status == SpeakerStatus.CONNECTED
         minimum_ready = False
         now = utc_now()
         return AppSnapshot(
             app_phase=AppPhase.SETUP,
-            setup=SetupState(blocking_step=SetupStepId.SPOTIFY_AUTH if network_ready else SetupStepId.WIFI, steps=self._setup_steps(network_ready)),
+            setup=SetupState(blocking_step=self._blocking_step(network_ready, False, speaker_ready, False), steps=self._setup_steps(network_ready, False, speaker_ready, False)),
             readiness=ReadinessState(
                 network_configured=network_ready,
                 spotify_authorized=False,
-                primary_speaker_saved=False,
+                primary_speaker_saved=speaker_ready,
                 playback_test_passed=False,
                 minimum_ready=minimum_ready,
             ),
             health=HealthState(
                 network=network,
                 spotify_auth=SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION),
-                speaker=SpeakerHealth(status=SpeakerStatus.NONE_SAVED, reason=SpeakerReason.PRIMARY_MISSING),
-                playback_device=PlaybackDeviceHealth(status=PlaybackDeviceStatus.UNAVAILABLE, reason=PlaybackDeviceReason.AUTH_REQUIRED),
-                volume=VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BLUETOOTH_SINK_MISSING),
+                speaker=speaker,
+                playback_device=PlaybackDeviceHealth(
+                    status=PlaybackDeviceStatus.UNAVAILABLE,
+                    reason=PlaybackDeviceReason.AUTH_REQUIRED if not network_ready else PlaybackDeviceReason.SPEAKER_UNAVAILABLE,
+                ),
+                volume=VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=None if speaker_ready else VolumeReason.BLUETOOTH_SINK_MISSING),
                 display=DisplayHealth(status="normal", brightness=80),
                 kiosk=KioskHealth(phase=KioskBootPhase.APP_READY),
             ),
             surfaces=SurfaceState(
                 current=SurfaceId.SETUP,
-                route="/setup/spotify" if network_ready else "/setup/wifi",
+                route=self._route_for_blocking(self._blocking_step(network_ready, False, speaker_ready, False)),
                 idle_mode=IdleMode.CLOCK,
             ),
             warnings=[] if network.status == NetworkStatus.ONLINE else [self._network_warning(network)],
@@ -123,8 +133,29 @@ class ProductionAppStateAdapter:
             updated_at=now,
         )
 
-    def _setup_steps(self, network_ready: bool) -> list[SetupStep]:
-        blocking = SetupStepId.SPOTIFY_AUTH if network_ready else SetupStepId.WIFI
+    def _blocking_step(self, network_ready: bool, spotify_ready: bool, speaker_ready: bool, playback_ready: bool) -> SetupStepId:
+        if not network_ready:
+            return SetupStepId.WIFI
+        if not spotify_ready:
+            return SetupStepId.SPOTIFY_AUTH
+        if not speaker_ready:
+            return SetupStepId.SPEAKER
+        if not playback_ready:
+            return SetupStepId.PLAYBACK_TEST
+        return SetupStepId.NONE
+
+    def _route_for_blocking(self, blocking: SetupStepId) -> str:
+        routes = {
+            SetupStepId.WIFI: "/setup/wifi",
+            SetupStepId.SPOTIFY_AUTH: "/setup/spotify",
+            SetupStepId.SPEAKER: "/setup/speaker",
+            SetupStepId.PLAYBACK_TEST: "/setup/playback-test",
+            SetupStepId.NONE: "/",
+        }
+        return routes.get(blocking, "/setup")
+
+    def _setup_steps(self, network_ready: bool, spotify_ready: bool, speaker_ready: bool, playback_ready: bool) -> list[SetupStep]:
+        blocking = self._blocking_step(network_ready, spotify_ready, speaker_ready, playback_ready)
         order = [
             SetupStepId.WELCOME,
             SetupStepId.WIFI,

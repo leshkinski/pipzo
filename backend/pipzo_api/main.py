@@ -8,8 +8,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .adapters import create_app_state_adapter
+from .adapters.bluez import BlueZCommandError, BlueZUnavailable, BluetoothctlAdapter
 from .adapters.network_manager import NetworkCommandError, NetworkManagerUnavailable, NmcliNetworkAdapter
-from .adapters.production import NetworkManagerAdapter, ProductionAdapterNotImplemented, ProductionAdapters
+from .adapters.production import BlueZAdapter, NetworkManagerAdapter, ProductionAdapterNotImplemented, ProductionAdapters
+from .bluetooth_store import BluetoothSpeakerStore
 from .config import Settings, get_settings
 from .contract import (
     ActionResult,
@@ -34,9 +36,14 @@ from .contract import (
     SpeakerForgetRequest,
     SpeakerHealth,
     SpeakerPairRequest,
+    SpeakerReason,
     SpeakerScanResults,
+    SpeakerStatus,
     SetupPlaybackTestRequest,
     SetupState,
+    SetupStep,
+    SetupStepId,
+    SetupStepStatus,
     SpotifyAuthSession,
     SpotifyAuthHealth,
     SpotifyAuthReason,
@@ -72,6 +79,7 @@ def create_app(
     spotify_auth_sessions_override: Optional[SpotifyAuthSessionService] = None,
     spotify_client_override: Optional[SpotifyClient] = None,
     network_adapter_override: Optional[NetworkManagerAdapter] = None,
+    bluetooth_adapter_override: Optional[BlueZAdapter] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
@@ -80,6 +88,9 @@ def create_app(
 
     def network_adapter(settings: Settings) -> NetworkManagerAdapter:
         return network_adapter_override or NmcliNetworkAdapter(internet_probe_url=settings.pipzo_internet_probe_url)
+
+    def bluetooth_adapter(settings: Settings) -> BlueZAdapter:
+        return bluetooth_adapter_override or BluetoothctlAdapter(BluetoothSpeakerStore(settings.db_path))
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)
@@ -136,12 +147,12 @@ def create_app(
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:
-        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings))
+        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings))
 
     @app.websocket("/api/v1/events/ws")
     async def events_ws(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
         try:
-            initial_snapshot = read_snapshot(settings, mock_store, settings_store(), network_adapter(settings))
+            initial_snapshot = read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings))
         except HTTPException as exc:
             await websocket.close(code=1011, reason=str(exc.detail))
             return
@@ -182,7 +193,7 @@ def create_app(
         mock_store.apply_settings(updated)
         event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
         if settings.app_mode == "mock":
-            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store(), network_adapter(settings)).model_dump(mode="json", by_alias=True))
+            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings)).model_dump(mode="json", by_alias=True))
         return updated
 
     @app.patch("/api/v1/display", response_model=DisplayHealth)
@@ -286,27 +297,84 @@ def create_app(
 
     @app.get("/api/v1/speaker/status", response_model=SpeakerHealth)
     def speaker_status(settings: Settings = Depends(get_settings)) -> SpeakerHealth:
-        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings)).health.speaker
+        if settings.app_mode == "mock":
+            return mock_store.speaker_status()
+        try:
+            return bluetooth_adapter(settings).status()
+        except BlueZUnavailable as exc:
+            raise_bluetooth_adapter_unavailable("Bluetooth speaker status", exc)
+        except BlueZCommandError as exc:
+            return SpeakerHealth(status=SpeakerStatus.ERROR, reason=exc.reason)
 
     @app.post("/api/v1/speaker/scan", response_model=RecoveryAction)
     def speaker_scan(settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Bluetooth speaker scan")
+        if settings.app_mode == "mock":
+            action = mock_store.scan_speakers()
+        else:
+            try:
+                action = bluetooth_adapter(settings).scan()
+            except BlueZUnavailable as exc:
+                raise_bluetooth_adapter_unavailable("Bluetooth speaker scan", exc)
+            except BlueZCommandError as exc:
+                action = speaker_failed_action("speaker-scan", exc.reason)
+        event_hub.publish("speaker.scan_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.get("/api/v1/speaker/scan-results", response_model=SpeakerScanResults)
     def speaker_scan_results(settings: Settings = Depends(get_settings)) -> SpeakerScanResults:
-        raise_device_adapter_unavailable("Bluetooth speaker scan results")
+        if settings.app_mode == "mock":
+            return mock_store.speaker_scan_results()
+        try:
+            return bluetooth_adapter(settings).scan_results()
+        except BlueZUnavailable as exc:
+            raise_bluetooth_adapter_unavailable("Bluetooth speaker scan results", exc)
+        except BlueZCommandError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.reason.value) from exc
 
     @app.post("/api/v1/speaker/pair", response_model=RecoveryAction)
     def speaker_pair(body: SpeakerPairRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Bluetooth speaker pair")
+        if settings.app_mode == "mock":
+            action = mock_store.pair_speaker(body.address, body.display_name)
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = bluetooth_adapter(settings).pair(body.address, body.display_name)
+            except BlueZUnavailable as exc:
+                raise_bluetooth_adapter_unavailable("Bluetooth speaker pair", exc)
+            except BlueZCommandError as exc:
+                action = speaker_failed_action("speaker-pair", exc.reason)
+        event_hub.publish("speaker.pair_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.post("/api/v1/speaker/reconnect", response_model=RecoveryAction)
     def speaker_reconnect(settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Bluetooth speaker reconnect")
+        if settings.app_mode == "mock":
+            action = mock_store.reconnect_speaker()
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = bluetooth_adapter(settings).reconnect()
+            except BlueZUnavailable as exc:
+                raise_bluetooth_adapter_unavailable("Bluetooth speaker reconnect", exc)
+            except BlueZCommandError as exc:
+                action = speaker_failed_action("speaker-reconnect", exc.reason)
+        event_hub.publish("speaker.reconnect_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.post("/api/v1/speaker/forget", response_model=RecoveryAction)
     def speaker_forget(body: SpeakerForgetRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Bluetooth speaker forget")
+        if settings.app_mode == "mock":
+            action = mock_store.forget_speaker(body.address)
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = bluetooth_adapter(settings).forget(body.address)
+            except BlueZUnavailable as exc:
+                raise_bluetooth_adapter_unavailable("Bluetooth speaker forget", exc)
+            except BlueZCommandError as exc:
+                action = speaker_failed_action("speaker-forget", exc.reason)
+        event_hub.publish("speaker.forget_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.post("/api/v1/spotify/auth/session", response_model=SpotifyAuthSession)
     def spotify_auth_session_create(settings: Settings = Depends(get_settings)) -> SpotifyAuthSession:
@@ -497,11 +565,34 @@ def raise_network_adapter_unavailable(action: str, exc: Exception) -> None:
     ) from exc
 
 
+def raise_bluetooth_adapter_unavailable(action: str, exc: Exception) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=f"{action} is unavailable because BlueZ/bluetoothctl is not installed or not accessible.",
+    ) from exc
+
+
 def network_failed_action(action_id: str, reason: NetworkReason) -> RecoveryAction:
     now = utc_now()
     return RecoveryAction(
         id=action_id,
         kind=RecoveryActionKind.FORGET_WIFI if action_id == "network-forget" else RecoveryActionKind.CONNECT_WIFI,
+        state=RecoveryActionState.FAILED,
+        reason=reason,
+        requires_confirmation=False,
+        started_at=now,
+        completed_at=now,
+    )
+
+
+def speaker_failed_action(action_id: str, reason: SpeakerReason) -> RecoveryAction:
+    now = utc_now()
+    kind = RecoveryActionKind.RECONNECT_SPEAKER
+    if action_id == "speaker-forget":
+        kind = RecoveryActionKind.FORGET_SPEAKER
+    return RecoveryAction(
+        id=action_id,
+        kind=kind,
         state=RecoveryActionState.FAILED,
         reason=reason,
         requires_confirmation=False,
@@ -523,8 +614,15 @@ def read_snapshot(
     mock_store: MockScenarioStore,
     app_settings_store: AppSettingsStore,
     network_adapter: Optional[NetworkManagerAdapter] = None,
+    bluetooth_adapter: Optional[BlueZAdapter] = None,
 ) -> AppSnapshot:
-    production_adapters = ProductionAdapters(network=network_adapter) if network_adapter is not None else None
+    if network_adapter is not None or bluetooth_adapter is not None:
+        production_adapters = ProductionAdapters(
+            network=network_adapter if network_adapter is not None else ProductionAdapters().network,
+            bluetooth=bluetooth_adapter if bluetooth_adapter is not None else ProductionAdapters().bluetooth,
+        )
+    else:
+        production_adapters = None
     adapter = create_app_state_adapter(settings, mock_store, production_adapters)
     try:
         snapshot = adapter.get_snapshot()
@@ -544,6 +642,7 @@ def read_snapshot(
             reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
         )
         snapshot.readiness.spotify_authorized = False
+        project_setup_readiness(snapshot)
         snapshot.warnings.append(
             Warning(
                 code="spotify_reconnect_required",
@@ -556,6 +655,7 @@ def read_snapshot(
     if auth_record is not None:
         snapshot.health.spotify_auth = spotify_auth_health_from_record(auth_record)
         snapshot.readiness.spotify_authorized = snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED
+        project_setup_readiness(snapshot)
         if snapshot.health.spotify_auth.status == SpotifyAuthStatus.RECONNECT_REQUIRED:
             snapshot.warnings.append(
                 Warning(
@@ -565,7 +665,77 @@ def read_snapshot(
                     action="spotify_reconnect",
                 )
             )
+    else:
+        project_setup_readiness(snapshot)
     return snapshot
+
+
+def project_setup_readiness(snapshot: AppSnapshot) -> None:
+    speaker_ready = snapshot.health.speaker.status == SpeakerStatus.CONNECTED and bool(snapshot.health.speaker.primary)
+    snapshot.readiness.primary_speaker_saved = speaker_ready
+    snapshot.readiness.minimum_ready = (
+        snapshot.readiness.network_configured
+        and snapshot.readiness.spotify_authorized
+        and speaker_ready
+        and snapshot.readiness.playback_test_passed
+    )
+    blocking = setup_blocking_step(
+        snapshot.readiness.network_configured,
+        snapshot.readiness.spotify_authorized,
+        speaker_ready,
+        snapshot.readiness.playback_test_passed,
+    )
+    snapshot.setup.blocking_step = blocking
+    snapshot.setup.steps = setup_steps_for_blocking(blocking)
+    if not snapshot.readiness.minimum_ready and snapshot.app_phase != "starting":
+        snapshot.app_phase = "setup"
+        snapshot.surfaces.current = "setup"
+        snapshot.surfaces.route = route_for_blocking(blocking)
+
+
+def setup_blocking_step(network_ready: bool, spotify_ready: bool, speaker_ready: bool, playback_ready: bool) -> SetupStepId:
+    if not network_ready:
+        return SetupStepId.WIFI
+    if not spotify_ready:
+        return SetupStepId.SPOTIFY_AUTH
+    if not speaker_ready:
+        return SetupStepId.SPEAKER
+    if not playback_ready:
+        return SetupStepId.PLAYBACK_TEST
+    return SetupStepId.NONE
+
+
+def route_for_blocking(blocking: SetupStepId) -> str:
+    return {
+        SetupStepId.WIFI: "/setup/wifi",
+        SetupStepId.SPOTIFY_AUTH: "/setup/spotify",
+        SetupStepId.SPEAKER: "/setup/speaker",
+        SetupStepId.PLAYBACK_TEST: "/setup/playback-test",
+        SetupStepId.NONE: "/",
+    }.get(blocking, "/setup")
+
+
+def setup_steps_for_blocking(blocking: SetupStepId) -> list[SetupStep]:
+    order = [
+        SetupStepId.WELCOME,
+        SetupStepId.WIFI,
+        SetupStepId.SPOTIFY_AUTH,
+        SetupStepId.SPEAKER,
+        SetupStepId.PLAYBACK_TEST,
+        SetupStepId.COMPLETE,
+    ]
+    steps: list[SetupStep] = []
+    blocked = False
+    for step_id in order:
+        if step_id == blocking:
+            blocked = True
+            step_status = SetupStepStatus.ACTION_REQUIRED
+        elif blocked:
+            step_status = SetupStepStatus.BLOCKED
+        else:
+            step_status = SetupStepStatus.READY
+        steps.append(SetupStep(id=step_id, status=step_status, required=step_id != SetupStepId.WELCOME))
+    return steps
 
 
 def clear_spotify_auth_state(

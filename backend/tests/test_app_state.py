@@ -6,7 +6,19 @@ from typing import Optional
 from fastapi.testclient import TestClient
 
 from pipzo_api.config import Settings, get_settings
-from pipzo_api.contract import NetworkHealth, RecoveryAction, RecoveryActionKind, RecoveryActionState, WifiNetwork, WifiScanResults, utc_now
+from pipzo_api.contract import (
+    NetworkHealth,
+    RecoveryAction,
+    RecoveryActionKind,
+    RecoveryActionState,
+    SpeakerDevice,
+    SpeakerHealth,
+    SpeakerScanResults,
+    SpeakerSummary,
+    WifiNetwork,
+    WifiScanResults,
+    utc_now,
+)
 from pipzo_api.database import initialize_database
 from pipzo_api.main import create_app
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
@@ -58,6 +70,72 @@ class FakeNetworkAdapter:
         return RecoveryAction(
             id=action_id,
             kind=RecoveryActionKind.CONNECT_WIFI,
+            state=state,
+            requires_confirmation=False,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+
+
+class FakeBluetoothAdapter:
+    def __init__(self) -> None:
+        self.primary = SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Pipzo Speaker",
+            alias="Bedroom speaker",
+            connected=True,
+        )
+        self.connected = True
+
+    def probe(self) -> None:
+        return None
+
+    def status(self) -> SpeakerHealth:
+        primary = self.primary.model_copy(update={"connected": self.connected})
+        return SpeakerHealth(status="connected" if self.connected else "saved_disconnected", reason=None if self.connected else "device_out_of_range", primary=primary)
+
+    def scan(self) -> RecoveryAction:
+        return self._action("speaker-scan", "succeeded")
+
+    def scan_results(self) -> SpeakerScanResults:
+        return SpeakerScanResults(
+            devices=[
+                SpeakerDevice(
+                    address=self.primary.address,
+                    display_name=self.primary.display_name,
+                    alias=self.primary.alias,
+                    paired=True,
+                    connected=self.connected,
+                    signal=88,
+                )
+            ],
+            scanned_at=utc_now(),
+        )
+
+    def pair(self, address: str, display_name: Optional[str] = None) -> RecoveryAction:
+        self.primary = SpeakerSummary(address=address, display_name=display_name or "Selected Speaker", connected=True)
+        self.connected = True
+        return self._action("speaker-pair", "succeeded")
+
+    def reconnect(self) -> RecoveryAction:
+        self.connected = True
+        return self._action("speaker-reconnect", "succeeded")
+
+    def forget(self, address: str) -> RecoveryAction:
+        self.connected = False
+        return RecoveryAction(
+            id="speaker-forget",
+            kind=RecoveryActionKind.FORGET_SPEAKER,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+
+    def _action(self, action_id: str, state: str) -> RecoveryAction:
+        return RecoveryAction(
+            id=action_id,
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
             state=state,
             requires_confirmation=False,
             started_at=utc_now(),
@@ -163,7 +241,7 @@ def test_database_initialization_creates_schema_marker_and_is_idempotent(tmp_pat
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute("select key, value from schema_metadata").fetchall()
 
-    assert rows == [("schema_version", "3")]
+    assert rows == [("schema_version", "4")]
 
 
 def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_path):
@@ -472,6 +550,33 @@ def test_network_mock_scan_connect_retry_and_forget_update_state(tmp_path):
     assert forgotten_state["setup"]["blockingStep"] == "wifi"
 
 
+def test_speaker_mock_scan_pair_reconnect_and_forget_update_state(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "speaker-mock.sqlite3"))) as client:
+        scan_response = client.post("/api/v1/speaker/scan")
+        scan_results_response = client.get("/api/v1/speaker/scan-results")
+        pair_response = client.post(
+            "/api/v1/speaker/pair",
+            json={"address": "AA:BB:CC:DD:EE:FF", "displayName": "Bedroom speaker"},
+        )
+        paired_state = client.get("/api/v1/app/state").json()
+        reconnect_response = client.post("/api/v1/speaker/reconnect")
+        forget_response = client.post("/api/v1/speaker/forget", json={"address": "AA:BB:CC:DD:EE:FF", "confirm": True})
+        forgotten_state = client.get("/api/v1/app/state").json()
+
+    assert scan_response.status_code == 200
+    assert scan_response.json()["state"] == "succeeded"
+    assert scan_results_response.status_code == 200
+    assert scan_results_response.json()["devices"][0]["displayName"] == "Pipzo Speaker"
+    assert pair_response.status_code == 200
+    assert pair_response.json()["state"] == "succeeded"
+    assert paired_state["health"]["speaker"]["status"] == "connected"
+    assert paired_state["readiness"]["primarySpeakerSaved"] is True
+    assert reconnect_response.json()["state"] == "succeeded"
+    assert forget_response.json()["state"] == "succeeded"
+    assert forgotten_state["health"]["speaker"]["status"] == "none_saved"
+    assert forgotten_state["readiness"]["minimumReady"] is False
+
+
 def test_network_mock_maps_bad_password_without_echoing_secret(tmp_path):
     with make_client(Settings(db_path=str(tmp_path / "network-bad-password.sqlite3"))) as client:
         response = client.post("/api/v1/network/connect", json={"ssid": "Bad Password", "password": "wrong"})
@@ -493,11 +598,6 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
             client.post("/api/v1/setup/playback-test", json={"action": "start"}),
             client.patch("/api/v1/display", json={"brightness": 10}),
             client.post("/api/v1/playback/control", json={"action": "pause"}),
-            client.post("/api/v1/speaker/scan"),
-            client.get("/api/v1/speaker/scan-results"),
-            client.post("/api/v1/speaker/pair", json={"address": "AA:BB:CC:DD:EE:FF"}),
-            client.post("/api/v1/speaker/reconnect"),
-            client.post("/api/v1/speaker/forget", json={"address": "AA:BB:CC:DD:EE:FF", "confirm": True}),
             client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True}),
         ]
 
@@ -544,3 +644,32 @@ def test_hardware_network_adapter_success_path_projects_readiness(tmp_path):
     assert status_response.json()["ssid"] == "BedroomNet"
     assert retry_response.json()["state"] == "succeeded"
     assert "secret" not in str(connect_response.json())
+
+
+def test_hardware_bluetooth_adapter_success_path_projects_speaker_readiness(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-bluetooth-success.sqlite3"))
+    bluetooth = FakeBluetoothAdapter()
+    app = create_app(
+        settings_override=settings,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=bluetooth,
+    )
+
+    with TestClient(app) as client:
+        state_response = client.get("/api/v1/app/state")
+        scan_response = client.post("/api/v1/speaker/scan")
+        scan_results_response = client.get("/api/v1/speaker/scan-results")
+        pair_response = client.post("/api/v1/speaker/pair", json={"address": "11:22:33:44:55:66", "displayName": "New Speaker"})
+        status_response = client.get("/api/v1/speaker/status")
+        reconnect_response = client.post("/api/v1/speaker/reconnect")
+        forget_response = client.post("/api/v1/speaker/forget", json={"address": "11:22:33:44:55:66", "confirm": True})
+
+    assert state_response.status_code == 200
+    assert state_response.json()["readiness"]["primarySpeakerSaved"] is True
+    assert state_response.json()["setup"]["blockingStep"] == "spotify_auth"
+    assert scan_response.json()["state"] == "succeeded"
+    assert scan_results_response.json()["devices"][0]["displayName"] == "Pipzo Speaker"
+    assert pair_response.json()["state"] == "succeeded"
+    assert status_response.json()["status"] == "connected"
+    assert reconnect_response.json()["state"] == "succeeded"
+    assert forget_response.json()["state"] == "succeeded"

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from pipzo_api.contract import NetworkHealth, RecoveryAction, WifiScanResults
+from pipzo_api.contract import NetworkHealth, RecoveryAction, SpeakerHealth, SpeakerScanResults, WifiScanResults
 
 
 class ProductionAdapterNotImplemented(NotImplementedError):
@@ -33,6 +33,24 @@ class NetworkManagerAdapter(Protocol):
 
 class BlueZAdapter(Protocol):
     def probe(self) -> None:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def status(self) -> SpeakerHealth:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def scan(self) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def scan_results(self) -> SpeakerScanResults:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def pair(self, address: str, display_name: Optional[str] = None) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def reconnect(self) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
+
+    def forget(self, address: str) -> RecoveryAction:
         raise ProductionAdapterNotImplemented("BlueZ adapter is not implemented")
 
 

@@ -9,16 +9,21 @@ import {
   fetchBackendScenarios,
   fetchHealth,
   fetchNetworkScanResults,
+  fetchSpeakerScanResults,
   fetchSpotifyAuthSession,
+  forgetSpeaker,
   forgetNetwork,
   logoutSpotifyAuth,
   patchDisplay,
   patchSettings,
+  pairSpeaker,
   retryInternetProbe,
+  reconnectSpeaker,
+  scanSpeakers,
   scanNetwork,
   connectNetwork,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -36,6 +41,7 @@ import {
   preferredSurface,
   primarySurfaces,
   shouldEnterIdleMode,
+  speakerSetupViewModel,
   spotifyAuthViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
@@ -68,6 +74,18 @@ type WifiControls = {
   onForget: () => void;
 };
 
+type SpeakerControls = {
+  devices: SpeakerDevice[];
+  selectedAddress: string;
+  busy: boolean;
+  message: string;
+  onScan: () => void;
+  onSelect: (address: string) => void;
+  onPair: () => void;
+  onReconnect: () => void;
+  onForget: () => void;
+};
+
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
@@ -93,6 +111,10 @@ export function App() {
   const [wifiPassword, setWifiPassword] = useState("");
   const [wifiBusy, setWifiBusy] = useState(false);
   const [wifiMessage, setWifiMessage] = useState("Scan for Wi-Fi networks to start.");
+  const [speakerDevices, setSpeakerDevices] = useState<SpeakerDevice[]>([]);
+  const [selectedSpeakerAddress, setSelectedSpeakerAddress] = useState("");
+  const [speakerBusy, setSpeakerBusy] = useState(false);
+  const [speakerMessage, setSpeakerMessage] = useState("Scan for a Bluetooth speaker after Wi-Fi and Spotify are ready.");
   const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
   const [idleActive, setIdleActive] = useState(false);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
@@ -444,6 +466,134 @@ export function App() {
     }
   }
 
+  async function scanBluetoothSpeakers() {
+    setSpeakerBusy(true);
+    setSpeakerMessage("Scanning for Bluetooth speakers.");
+    try {
+      if (dataSource === "backend") {
+        await scanSpeakers();
+        const results = await fetchSpeakerScanResults();
+        setSpeakerDevices(results.devices);
+        setSelectedSpeakerAddress((current) => current || results.devices[0]?.address || "");
+        setSpeakerMessage(results.devices.length > 0 ? "Choose one speaker and pair it." : "No Bluetooth speakers found. Put the speaker in pairing mode and scan again.");
+      } else {
+        const fallback = [
+          { address: "AA:BB:CC:DD:EE:FF", displayName: "Pipzo Speaker", alias: "Bedroom speaker", paired: snapshot.readiness.primarySpeakerSaved, connected: snapshot.health.speaker.status === "connected", signal: 88 },
+          { address: "11:22:33:44:55:66", displayName: "Kitchen Speaker", paired: false, connected: false, signal: 62 },
+        ];
+        setSpeakerDevices(fallback);
+        setSelectedSpeakerAddress((current) => current || fallback[0].address);
+        setSpeakerMessage("Local Bluetooth mock speakers loaded.");
+      }
+    } catch {
+      setSpeakerMessage("Bluetooth scan is unavailable on this device.");
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }
+
+  async function submitSpeakerPair() {
+    if (!selectedSpeakerAddress) {
+      setSpeakerMessage("Select a Bluetooth speaker first.");
+      return;
+    }
+    const selected = speakerDevices.find((device) => device.address === selectedSpeakerAddress);
+    setSpeakerBusy(true);
+    setSpeakerMessage(`Pairing ${selected?.displayName ?? selectedSpeakerAddress}.`);
+    try {
+      if (dataSource === "backend") {
+        const action = await pairSpeaker({ address: selectedSpeakerAddress, displayName: selected?.displayName });
+        await refreshSnapshot().catch(() => undefined);
+        setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker connected." : `Speaker pairing failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: {
+            ...current.health,
+            speaker: {
+              status: "connected",
+              primary: {
+                address: selectedSpeakerAddress,
+                displayName: selected?.displayName ?? "Pipzo Speaker",
+                alias: selected?.alias,
+                connected: true,
+              },
+            },
+          },
+          readiness: { ...current.readiness, primarySpeakerSaved: true },
+          setup: { ...current.setup, blockingStep: current.setup.blockingStep === "speaker" ? "playback_test" : current.setup.blockingStep },
+        }));
+        setSpeakerMessage("Local Bluetooth mock connected.");
+      }
+    } catch {
+      setSpeakerMessage("Bluetooth pair is unavailable on this device.");
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }
+
+  async function reconnectBluetoothSpeaker() {
+    setSpeakerBusy(true);
+    setSpeakerMessage("Reconnecting Bluetooth speaker.");
+    try {
+      if (dataSource === "backend") {
+        const action = await reconnectSpeaker();
+        await refreshSnapshot().catch(() => undefined);
+        setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker reconnected." : `Reconnect failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: {
+            ...current.health,
+            speaker: {
+              status: "connected",
+              primary: {
+                address: current.health.speaker.primary?.address ?? "AA:BB:CC:DD:EE:FF",
+                displayName: current.health.speaker.primary?.displayName ?? "Pipzo Speaker",
+                alias: current.health.speaker.primary?.alias,
+                connected: true,
+              },
+            },
+          },
+          readiness: { ...current.readiness, primarySpeakerSaved: true },
+        }));
+        setSpeakerMessage("Local Bluetooth mock reconnected.");
+      }
+    } catch {
+      setSpeakerMessage("Bluetooth reconnect is unavailable on this device.");
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }
+
+  async function forgetBluetoothSpeaker() {
+    const address = snapshot.health.speaker.primary?.address ?? selectedSpeakerAddress;
+    if (!address) {
+      setSpeakerMessage("No Bluetooth speaker is selected or saved.");
+      return;
+    }
+    setSpeakerBusy(true);
+    setSpeakerMessage("Forgetting Bluetooth speaker.");
+    try {
+      if (dataSource === "backend") {
+        const action = await forgetSpeaker({ address, confirm: true });
+        await refreshSnapshot().catch(() => undefined);
+        setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker forgotten." : `Forget failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: { ...current.health, speaker: { status: "none_saved", reason: "user_forgot" }, playbackDevice: { status: "unavailable", reason: "speaker_unavailable" } },
+          readiness: { ...current.readiness, primarySpeakerSaved: false, minimumReady: false },
+        }));
+        setSpeakerMessage("Local Bluetooth mock forgotten.");
+      }
+    } catch {
+      setSpeakerMessage("Bluetooth forget is unavailable on this device.");
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }
+
   async function startSpotifyAuth() {
     setSpotifyAuthBusy(true);
     setSpotifyAuthMessage("Starting local Spotify setup.");
@@ -603,6 +753,17 @@ export function App() {
     onRetry: retryWifiProbe,
     onForget: forgetWifi,
   };
+  const speakerControls = {
+    devices: speakerDevices,
+    selectedAddress: selectedSpeakerAddress,
+    busy: speakerBusy,
+    message: speakerMessage,
+    onScan: scanBluetoothSpeakers,
+    onSelect: setSelectedSpeakerAddress,
+    onPair: submitSpeakerPair,
+    onReconnect: reconnectBluetoothSpeaker,
+    onForget: forgetBluetoothSpeaker,
+  };
 
   return (
     <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
@@ -663,7 +824,7 @@ export function App() {
         </nav>
 
         <section className="surface" aria-live="polite">
-          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} />}
+          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} speaker={speakerControls} />}
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
           {activeSurface === "now_playing" && (
@@ -680,6 +841,7 @@ export function App() {
               snapshot={snapshot}
               spotifyAuth={spotifyAuthControls}
               wifi={wifiControls}
+              speaker={speakerControls}
               spotifySdk={spotifySdkState}
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
@@ -743,7 +905,17 @@ function DeveloperPanel(props: {
   );
 }
 
-function SetupSurface({ snapshot, spotifyAuth, wifi }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls; wifi: WifiControls }) {
+function SetupSurface({
+  snapshot,
+  spotifyAuth,
+  wifi,
+  speaker,
+}: {
+  snapshot: AppSnapshot;
+  spotifyAuth: SpotifyAuthControls;
+  wifi: WifiControls;
+  speaker: SpeakerControls;
+}) {
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -752,7 +924,7 @@ function SetupSurface({ snapshot, spotifyAuth, wifi }: { snapshot: AppSnapshot; 
         <p>
           Current blocker: <strong>{labelFromId(snapshot.setup.blockingStep)}</strong>
         </p>
-        <p>Spotify must be connected locally in Chromium before setup can complete.</p>
+        <p>Wi-Fi, Spotify, and one connected Bluetooth speaker are required before setup can complete.</p>
       </section>
       <div className="setup-side">
         <section className="checklist">
@@ -768,6 +940,7 @@ function SetupSurface({ snapshot, spotifyAuth, wifi }: { snapshot: AppSnapshot; 
         </section>
         <WifiPanel snapshot={snapshot} controls={wifi} context="setup" />
         <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="setup" />
+        <SpeakerPanel snapshot={snapshot} controls={speaker} context="setup" />
       </div>
     </div>
   );
@@ -865,6 +1038,7 @@ function SettingsSurface({
   snapshot,
   spotifyAuth,
   wifi,
+  speaker,
   spotifySdk,
   playbackGateDetail,
   onActivateSpotify,
@@ -873,6 +1047,7 @@ function SettingsSurface({
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
   wifi: WifiControls;
+  speaker: SpeakerControls;
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
@@ -893,6 +1068,7 @@ function SettingsSurface({
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
       <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
+      <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
       <SpotifyPlaybackPanel
         playbackGateDetail={playbackGateDetail}
         spotifySdk={spotifySdk}
@@ -1033,6 +1209,74 @@ function WifiPanel({
           {view.actions.includes("retry") && (
             <button disabled={controls.busy} type="button" onClick={controls.onRetry}>
               Retry internet
+            </button>
+          )}
+          {view.actions.includes("forget") && (
+            <button disabled={controls.busy} type="button" onClick={controls.onForget}>
+              Forget
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SpeakerPanel({
+  snapshot,
+  controls,
+  context,
+}: {
+  snapshot: AppSnapshot;
+  controls: SpeakerControls;
+  context: "setup" | "settings";
+}) {
+  const view = speakerSetupViewModel(snapshot, controls.devices);
+  const selected = controls.devices.find((device) => device.address === controls.selectedAddress);
+  const primary = snapshot.health.speaker.primary;
+
+  return (
+    <section className={`speaker-panel speaker-${view.tone}`} aria-label="Bluetooth speaker setup">
+      <div className="speaker-heading">
+        <p className="eyebrow">{context === "setup" ? "Setup step" : "Bluetooth speaker"}</p>
+        <h2>{view.title}</h2>
+        <p>{view.detail}</p>
+        <div className="wifi-status-grid">
+          <div className="spotify-status">
+            <span>Status</span>
+            <strong>{labelFromId(snapshot.health.speaker.status)}</strong>
+          </div>
+          <div className="spotify-status">
+            <span>Primary</span>
+            <strong>{primary?.displayName ?? selected?.displayName ?? "Not selected"}</strong>
+          </div>
+        </div>
+        <p className="subtle">{controls.message}</p>
+      </div>
+      <div className="speaker-form">
+        <label>
+          <span>Speaker</span>
+          <select value={controls.selectedAddress} onChange={(event) => controls.onSelect(event.target.value)}>
+            <option value="">Select speaker</option>
+            {controls.devices.map((device) => (
+              <option key={device.address} value={device.address}>
+                {device.displayName} / {device.connected ? "Connected" : device.paired ? "Paired" : "New"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="speaker-actions">
+          <button disabled={controls.busy} type="button" onClick={controls.onScan}>
+            Scan
+          </button>
+          {view.actions.includes("pair") && (
+            <button disabled={controls.busy || !controls.selectedAddress} type="button" onClick={controls.onPair}>
+              Pair and connect
+            </button>
+          )}
+          {view.actions.includes("reconnect") && (
+            <button disabled={controls.busy} type="button" onClick={controls.onReconnect}>
+              Reconnect
             </button>
           )}
           {view.actions.includes("forget") && (

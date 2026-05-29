@@ -18,6 +18,7 @@ fi
 
 "${SUDO_CMD[@]}" apt-get update
 "${SUDO_CMD[@]}" apt-get install -y \
+  bluez \
   ca-certificates \
   curl \
   git \
@@ -30,6 +31,10 @@ fi
   nodejs \
   npm \
   xdg-utils
+
+if apt-cache show pi-bluetooth >/dev/null 2>&1; then
+  "${SUDO_CMD[@]}" apt-get install -y pi-bluetooth
+fi
 
 if ! command -v chromium-browser >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1; then
   if apt-cache show chromium-browser >/dev/null 2>&1; then

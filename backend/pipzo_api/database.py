@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,18 @@ def initialize_database(db_path: Union[str, Path]) -> DatabaseInitializationResu
             create table if not exists app_settings (
                 id integer primary key check (id = 1),
                 settings_json text not null,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists bluetooth_speaker (
+                id integer primary key check (id = 1),
+                address text not null,
+                display_name text not null,
+                alias text,
                 created_at text not null default current_timestamp,
                 updated_at text not null default current_timestamp
             )

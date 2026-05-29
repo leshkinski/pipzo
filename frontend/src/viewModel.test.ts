@@ -8,6 +8,7 @@ import {
   isSetupGated,
   preferredSurface,
   shouldEnterIdleMode,
+  speakerSetupViewModel,
   spotifyAuthViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
@@ -52,6 +53,21 @@ describe("kiosk shell view model", () => {
     ).toEqual(["scan", "connect"]);
     expect(wifiSetupViewModel(ready).actions).toEqual(["scan", "forget"]);
     expect(wifiSetupViewModel(localOnly).actions).toEqual(["retry", "scan", "forget"]);
+  });
+
+  it("describes Bluetooth speaker setup actions from speaker health and scan results", () => {
+    const firstBoot = localScenarios.first_boot_empty.snapshot;
+    const ready = localScenarios.ready_healthy.snapshot;
+    const disconnected = localScenarios.speaker_saved_disconnected.snapshot;
+
+    expect(speakerSetupViewModel(firstBoot).actions).toEqual(["scan"]);
+    expect(
+      speakerSetupViewModel(firstBoot, [
+        { address: "AA:BB:CC:DD:EE:FF", displayName: "Pipzo Speaker", paired: false, connected: false, signal: 88 },
+      ]).actions,
+    ).toEqual(["scan", "pair"]);
+    expect(speakerSetupViewModel(ready).actions).toEqual(["scan", "reconnect", "forget"]);
+    expect(speakerSetupViewModel(disconnected).actions).toEqual(["reconnect", "scan", "forget"]);
   });
 
   it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {

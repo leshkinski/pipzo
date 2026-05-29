@@ -58,6 +58,10 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$STATE_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
+if getent group bluetooth >/dev/null 2>&1; then
+  usermod -a -G bluetooth "$SERVICE_USER"
+fi
+
 if ! id "$KIOSK_USER" >/dev/null 2>&1; then
   echo "Kiosk user '$KIOSK_USER' does not exist." >&2
   exit 1

@@ -39,7 +39,7 @@ See [Raspberry Pi Provisioning](docs/provisioning.md) for the repeatable Pi inst
 
 ## Local Contract API
 
-The skeleton exposes the app-state contract, a WebSocket event channel, desktop mock scenarios, durable app settings, and initial mutation/action endpoints for frontend development.
+The skeleton exposes the app-state contract, a WebSocket event channel, desktop mock scenarios, durable app settings, and mutation/action endpoints for frontend development.
 
 ```bash
 python3 -m venv .venv
@@ -115,10 +115,10 @@ This SDK slice registers and selects the browser playback device only. Bluetooth
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
-App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, Bluetooth scan/pair/reconnect/forget, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
+App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
 
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-Wi-Fi status, scan, connect, forget, and internet-probe retry are implemented in hardware mode through NetworkManager/nmcli. Missing `nmcli` or missing NetworkManager authorization returns unavailable responses rather than fake success. Bluetooth endpoint shapes are present for contract work, but their operation endpoints still return `501` until the BlueZ adapter is implemented and validated on the Pi.
+Wi-Fi status, scan, connect, forget, and internet-probe retry are implemented in hardware mode through NetworkManager/nmcli. Missing `nmcli` or missing NetworkManager authorization returns unavailable responses rather than fake success. Bluetooth speaker status, scan, pair/trust/connect, reconnect, and forget are implemented in hardware mode through BlueZ/bluetoothctl with one persisted primary speaker record in SQLite. Missing `bluetoothctl`, missing adapter access, disabled Bluetooth, pairing rejection, and connect failures map to coarse safe contract states instead of fake success. Setup readiness requires Wi-Fi, Spotify auth, a connected primary Bluetooth speaker, and playback-test readiness; desktop mock/local flows keep deterministic simulated speaker behavior.
 
 Backend tests:
 

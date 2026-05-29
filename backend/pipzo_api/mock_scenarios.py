@@ -34,7 +34,9 @@ from .contract import (
     SetupStepId,
     SetupStepStatus,
     SpeakerHealth,
+    SpeakerDevice,
     SpeakerReason,
+    SpeakerScanResults,
     SpeakerStatus,
     SpeakerSummary,
     SpotifyAuthHealth,
@@ -548,6 +550,118 @@ class MockScenarioStore:
             completed_at=now,
         )
 
+    def speaker_status(self) -> SpeakerHealth:
+        return self.get_snapshot().health.speaker
+
+    def scan_speakers(self) -> RecoveryAction:
+        now = utc_now()
+        return RecoveryAction(
+            id="speaker-scan",
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def speaker_scan_results(self) -> SpeakerScanResults:
+        primary = self._snapshot.health.speaker.primary
+        return SpeakerScanResults(
+            devices=[
+                SpeakerDevice(
+                    address="AA:BB:CC:DD:EE:FF",
+                    display_name="Pipzo Speaker",
+                    alias="Bedroom speaker",
+                    paired=bool(primary),
+                    connected=self._snapshot.health.speaker.status == SpeakerStatus.CONNECTED,
+                    signal=88,
+                ),
+                SpeakerDevice(
+                    address="11:22:33:44:55:66",
+                    display_name="Kitchen Speaker",
+                    paired=False,
+                    connected=False,
+                    signal=62,
+                ),
+            ],
+            scanned_at=utc_now(),
+        )
+
+    def pair_speaker(self, address: str, display_name: Optional[str]) -> RecoveryAction:
+        now = utc_now()
+        if address.upper() == "00:00:00:00:00:00":
+            return RecoveryAction(
+                id="speaker-pair",
+                kind=RecoveryActionKind.RECONNECT_SPEAKER,
+                state=RecoveryActionState.FAILED,
+                reason=SpeakerReason.PAIR_REJECTED,
+                requires_confirmation=False,
+                started_at=now,
+                completed_at=now,
+            )
+        speaker = SpeakerSummary(
+            address=address.upper(),
+            display_name=display_name or "Pipzo Speaker",
+            alias=display_name,
+            connected=True,
+        )
+        self._snapshot.health.speaker = SpeakerHealth(status=SpeakerStatus.CONNECTED, primary=speaker)
+        self._snapshot.health.volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.UNKNOWN)
+        self._snapshot.readiness.primary_speaker_saved = True
+        self._recompute_setup_progress()
+        self._snapshot.updated_at = now
+        return RecoveryAction(
+            id="speaker-pair",
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def reconnect_speaker(self) -> RecoveryAction:
+        now = utc_now()
+        primary = self._snapshot.health.speaker.primary or SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Pipzo Speaker",
+            alias="Bedroom speaker",
+            connected=True,
+        )
+        primary.connected = True
+        self._snapshot.health.speaker = SpeakerHealth(status=SpeakerStatus.CONNECTED, primary=primary)
+        self._snapshot.readiness.primary_speaker_saved = True
+        self._recompute_setup_progress()
+        self._snapshot.updated_at = now
+        return RecoveryAction(
+            id="speaker-reconnect",
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def forget_speaker(self, address: str) -> RecoveryAction:
+        now = utc_now()
+        self._snapshot.health.speaker = SpeakerHealth(status=SpeakerStatus.NONE_SAVED, reason=SpeakerReason.USER_FORGOT)
+        self._snapshot.health.playback_device = PlaybackDeviceHealth(
+            status=PlaybackDeviceStatus.UNAVAILABLE,
+            reason=PlaybackDeviceReason.SPEAKER_UNAVAILABLE,
+        )
+        self._snapshot.health.volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BLUETOOTH_SINK_MISSING)
+        self._snapshot.readiness.primary_speaker_saved = False
+        self._snapshot.readiness.minimum_ready = False
+        self._recompute_setup_progress()
+        self._snapshot.updated_at = now
+        return RecoveryAction(
+            id="speaker-forget",
+            kind=RecoveryActionKind.FORGET_SPEAKER,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
     def run_playback_test(self, action: str) -> RecoveryAction:
         now = utc_now()
         can_run = (
@@ -558,6 +672,7 @@ class MockScenarioStore:
         reason = None if can_run else self._snapshot.health.playback_device.reason
         if can_run and action == "start":
             self._snapshot.readiness.playback_test_passed = True
+            self._recompute_setup_progress()
         return RecoveryAction(
             id="setup-playback-test",
             kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
@@ -619,3 +734,26 @@ class MockScenarioStore:
             self._scenario_id = "ready_healthy"
             self._snapshot = _base_snapshot()
         return completed
+
+    def _recompute_setup_progress(self) -> None:
+        speaker_ready = self._snapshot.health.speaker.status == SpeakerStatus.CONNECTED
+        self._snapshot.readiness.minimum_ready = (
+            self._snapshot.readiness.network_configured
+            and self._snapshot.readiness.spotify_authorized
+            and speaker_ready
+            and self._snapshot.readiness.playback_test_passed
+        )
+        if not self._snapshot.readiness.network_configured:
+            blocking = SetupStepId.WIFI
+        elif not self._snapshot.readiness.spotify_authorized:
+            blocking = SetupStepId.SPOTIFY_AUTH
+        elif not speaker_ready:
+            blocking = SetupStepId.SPEAKER
+        elif not self._snapshot.readiness.playback_test_passed:
+            blocking = SetupStepId.PLAYBACK_TEST
+        else:
+            blocking = SetupStepId.NONE
+        self._snapshot.setup = SetupState(blocking_step=blocking, steps=_ready_steps() if blocking == SetupStepId.NONE else _setup_steps(blocking))
+        if blocking != SetupStepId.NONE:
+            self._snapshot.app_phase = AppPhase.SETUP
+            self._snapshot.surfaces = SurfaceState(current=SurfaceId.SETUP, route=f"/setup/{blocking.value.replace('_auth', '')}", idle_mode=self._snapshot.settings.idle_mode)

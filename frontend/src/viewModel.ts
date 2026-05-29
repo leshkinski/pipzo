@@ -1,4 +1,4 @@
-import type { AppSnapshot, IdleMode, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSnapshot, IdleMode, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
 
@@ -203,6 +203,57 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
   return {
     title: "Connect Wi-Fi",
     detail: network.reason ? `Current state: ${labelFromId(network.reason)}.` : "Scan for nearby Wi-Fi networks.",
+    tone: "attention",
+    actions: ["scan"],
+  };
+}
+
+export type SpeakerAction = "scan" | "pair" | "reconnect" | "forget";
+
+export type SpeakerSetupViewModel = {
+  title: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention";
+  actions: SpeakerAction[];
+};
+
+export function speakerSetupViewModel(snapshot: AppSnapshot, devices: SpeakerDevice[] = []): SpeakerSetupViewModel {
+  const speaker = snapshot.health.speaker;
+  if (speaker.status === "connected") {
+    return {
+      title: speaker.primary?.displayName ? `${speaker.primary.displayName} connected` : "Speaker connected",
+      detail: "Pipzo has a primary Bluetooth speaker ready for playback.",
+      tone: "ready",
+      actions: ["scan", "reconnect", "forget"],
+    };
+  }
+  if (speaker.status === "saved_disconnected") {
+    return {
+      title: speaker.primary?.displayName ? `${speaker.primary.displayName} is disconnected` : "Speaker disconnected",
+      detail: "Reconnect the saved speaker or scan to choose a different one.",
+      tone: "attention",
+      actions: ["reconnect", "scan", "forget"],
+    };
+  }
+  if (speaker.status === "scanning" || speaker.status === "pairing" || speaker.status === "reconnecting" || speaker.status === "starting") {
+    return {
+      title: "Checking speaker",
+      detail: "Pipzo is waiting for the Bluetooth adapter to finish the current operation.",
+      tone: "waiting",
+      actions: ["scan"],
+    };
+  }
+  if (devices.length > 0) {
+    return {
+      title: "Choose a Bluetooth speaker",
+      detail: "Select one speaker for V1. Pipzo will trust it and use it as the primary output.",
+      tone: "attention",
+      actions: ["scan", "pair"],
+    };
+  }
+  return {
+    title: "Pair Bluetooth speaker",
+    detail: speaker.reason ? `Current state: ${labelFromId(speaker.reason)}.` : "Scan for nearby Bluetooth audio devices.",
     tone: "attention",
     actions: ["scan"],
   };
