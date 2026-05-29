@@ -1,0 +1,22 @@
+[Unit]
+Description=Pipzo FastAPI backend
+Documentation=https://github.com/leshkinski/pipzo
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pipzo
+Group=pipzo
+WorkingDirectory=/opt/pipzo/app
+EnvironmentFile=/etc/pipzo/pipzo.env
+ExecStart=/opt/pipzo/venv/bin/uvicorn pipzo_api.main:app --app-dir /opt/pipzo/app/backend --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+StateDirectory=pipzo
+LogsDirectory=pipzo
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

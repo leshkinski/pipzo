@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 from typing import AsyncIterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, status
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .adapters import create_app_state_adapter
 from .adapters.production import ProductionAdapterNotImplemented
@@ -356,7 +358,17 @@ def create_app(
         event_hub.publish("mock.scenario_activated", snapshot.model_dump(mode="json", by_alias=True))
         return snapshot
 
+    mount_frontend_assets(app, resolve_settings().pipzo_frontend_dist)
     return app
+
+
+def mount_frontend_assets(app: FastAPI, frontend_dist: str) -> None:
+    if not frontend_dist:
+        return
+    dist_path = Path(frontend_dist).expanduser()
+    if not (dist_path / "index.html").is_file():
+        return
+    app.mount("/", StaticFiles(directory=dist_path, html=True), name="frontend")
 
 
 def require_mock_mode(settings: Settings) -> None:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Pipzo Chromium kiosk
+Documentation=https://github.com/leshkinski/pipzo
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/pipzo/kiosk.env
+ExecStart=/usr/local/bin/pipzo-kiosk
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

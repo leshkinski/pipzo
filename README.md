@@ -35,6 +35,7 @@ data/           Local generated SQLite/key material; ignored by Git
 ```
 
 See [Contributing](docs/contributing.md) for local setup, validation commands, commit hygiene, issue sync, and documentation conventions.
+See [Raspberry Pi Provisioning](docs/provisioning.md) for the repeatable Pi install/update path, systemd service names, kiosk launcher, environment files, and reset notes.
 
 ## Local Contract API
 
@@ -59,6 +60,7 @@ Configuration is environment-driven:
 - `PIPZO_TOKEN_KEY_PATH=./data/spotify-token.key`; local Fernet key file used for Spotify token encryption.
 - `PIPZO_TOKEN_KEY_AUTO_CREATE=true`; when true, the backend creates the token key if it is missing.
 - `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
+- `PIPZO_FRONTEND_DIST`; optional built frontend asset directory served by the backend for kiosk installs, for example `/opt/pipzo/app/frontend/dist`.
 
 See [Spotify Developer Setup](docs/spotify-developer-setup.md) for app creation, redirect URI rules, scopes, Premium requirement, token-key caveats, and V1 deferred OAuth surfaces.
 

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:8000",
         validation_alias="PIPZO_PUBLIC_BASE_URL",
     )
+    pipzo_frontend_dist: str = Field(default="", validation_alias="PIPZO_FRONTEND_DIST")
     spotify_auth_session_ttl_seconds: int = Field(
         default=600,
         ge=1,
@@ -71,6 +72,7 @@ class Settings(BaseSettings):
         "spotify_token_url",
         "spotify_scopes",
         "pipzo_public_base_url",
+        "pipzo_frontend_dist",
         "spotify_token_storage_protection",
         "pipzo_token_key_path",
         mode="before",

@@ -226,6 +226,19 @@ def test_app_startup_initializes_configured_database(tmp_path):
     assert db_path.exists()
 
 
+def test_configured_frontend_dist_serves_built_index(tmp_path):
+    frontend_dist = tmp_path / "frontend-dist"
+    frontend_dist.mkdir()
+    (frontend_dist / "index.html").write_text("<!doctype html><title>Pipzo kiosk</title>", encoding="utf-8")
+    settings = Settings(db_path=str(tmp_path / "frontend.sqlite3"), pipzo_frontend_dist=str(frontend_dist))
+
+    with make_client(settings) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Pipzo kiosk" in response.text
+
+
 def test_config_drives_structured_logging_level(tmp_path):
     db_path = tmp_path / "logging.sqlite3"
     settings = Settings(db_path=str(db_path), log_level="DEBUG")
