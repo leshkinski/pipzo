@@ -440,12 +440,25 @@ class ActionResult(ContractModel):
     completed_at: Optional[datetime] = None
 
 
+class SpotifyPlaybackToken(ContractModel):
+    access_token: str
+    token_type: str = "Bearer"
+    expires_at: datetime
+    scope: str
+
+
 class SetupPlaybackTestRequest(ContractModel):
     action: Literal["start", "stop"]
 
 
 class PlaybackControlRequest(ContractModel):
     action: Literal["play", "pause", "next", "previous", "stop"]
+    device_id: Optional[str] = None
+
+
+class SpotifyPlaybackTransferRequest(ContractModel):
+    device_id: str
+    play: bool = False
 
 
 class RunRecoveryActionRequest(ContractModel):

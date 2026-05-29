@@ -283,6 +283,19 @@ export type DisplayPatch = {
 
 export type PlaybackControlRequest = {
   action: "play" | "pause" | "next" | "previous" | "stop";
+  deviceId?: string;
+};
+
+export type SpotifyPlaybackToken = {
+  accessToken: string;
+  tokenType: "Bearer" | string;
+  expiresAt: string;
+  scope: string;
+};
+
+export type SpotifyPlaybackTransferRequest = {
+  deviceId: string;
+  play?: boolean;
 };
 
 export type SetupPlaybackTestRequest = {

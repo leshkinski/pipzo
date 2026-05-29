@@ -10,6 +10,8 @@ from pipzo_api.main import create_app
 from pipzo_api.spotify_auth import (
     SpotifyAccountProfile,
     SpotifyAuthSessionService,
+    SpotifyPlaybackApiError,
+    SpotifyPlaybackApiFailure,
     SpotifyTokenRefreshError,
     SpotifyTokenRefreshFailure,
     SpotifyTokenExchangeError,
@@ -40,6 +42,7 @@ class FakeSpotifyClient:
         fail_profile: bool = False,
         refresh_response: Optional[SpotifyTokenResponse] = None,
         refresh_failure: Optional[SpotifyTokenRefreshFailure] = None,
+        playback_failure: Optional[SpotifyPlaybackApiFailure] = None,
     ) -> None:
         self.token_response = token_response or SpotifyTokenResponse(
             access_token="backend-access-token",
@@ -64,9 +67,12 @@ class FakeSpotifyClient:
             expires_in=3600,
         )
         self.refresh_failure = refresh_failure
+        self.playback_failure = playback_failure
         self.exchange_calls: list[dict] = []
         self.profile_tokens: list[str] = []
         self.refresh_calls: list[dict] = []
+        self.transfer_calls: list[dict] = []
+        self.playback_calls: list[dict] = []
 
     def exchange_authorization_code(
         self,
@@ -113,6 +119,44 @@ class FakeSpotifyClient:
         if self.refresh_failure is not None:
             raise SpotifyTokenRefreshError(self.refresh_failure)
         return self.refresh_response
+
+    def transfer_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        device_id: str,
+        play: bool,
+    ) -> None:
+        self.transfer_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "device_id": device_id,
+                "play": play,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+
+    def send_playback_control(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        action: str,
+        device_id: Optional[str],
+    ) -> None:
+        self.playback_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "action": action,
+                "device_id": device_id,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
 
 
 def make_client(
@@ -222,7 +266,7 @@ def test_authorize_redirect_contains_pkce_challenge_client_redirect_and_scopes(t
 
 
 def test_callback_rejects_missing_unknown_mismatched_and_expired_state(tmp_path):
-    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     service = SpotifyAuthSessionService(now=lambda: now)
     settings = make_settings(tmp_path, spotify_auth_session_ttl_seconds=60)
 
@@ -608,7 +652,7 @@ def test_near_expiry_detection_is_conservative(tmp_path):
 
 
 def test_cancel_and_expiry_are_reported_safely(tmp_path):
-    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     service = SpotifyAuthSessionService(now=lambda: now)
     settings = make_settings(tmp_path, spotify_auth_session_ttl_seconds=10)
 
@@ -669,6 +713,129 @@ def test_spotify_logout_deletes_tokens_clears_pending_sessions_and_emits_safe_st
     assert "stored-access-token" not in event_text
     assert "stored-refresh-token" not in event_text
     assert session["sessionId"] not in service._sessions
+
+
+def test_playback_token_endpoint_returns_short_lived_access_token_only_for_authenticated_premium(tmp_path):
+    settings = make_settings(tmp_path)
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="sdk-access-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="streaming user-modify-playback-state",
+            expires_in=3600,
+        )
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/spotify/playback/token")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accessToken"] == "sdk-access-token"
+    assert body["tokenType"] == "Bearer"
+    assert body["scope"] == "streaming user-modify-playback-state"
+    assert set(body) == {"accessToken", "tokenType", "expiresAt", "scope"}
+    assert "stored-refresh-token" not in str(body)
+    assert spotify_client.refresh_calls[0]["refresh_token"] == "stored-refresh-token"
+
+
+def test_playback_token_endpoint_blocks_missing_auth_and_non_premium_without_exposing_tokens(tmp_path):
+    no_auth_settings = make_settings(tmp_path / "no-auth")
+    free_settings = make_settings(tmp_path / "free")
+    now = datetime.now(timezone.utc)
+    SpotifyAuthStore(free_settings.db_path).upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="free-access-token",
+            refresh_token="free-refresh-token",
+            token_type="Bearer",
+            scope="streaming",
+            expires_at=now + timedelta(seconds=3600),
+            issued_at=now,
+            connected_at=now,
+            updated_at=now,
+            account=StoredSpotifyAccount(
+                account_id="free-user",
+                display_name="Free Account",
+                product="free",
+                country="GB",
+                is_premium=False,
+            ),
+        )
+    )
+
+    with make_client(no_auth_settings) as client:
+        missing = client.get("/api/v1/spotify/playback/token")
+    with make_client(free_settings) as client:
+        free = client.get("/api/v1/spotify/playback/token")
+
+    assert missing.status_code == 401
+    assert missing.json()["detail"] == "no_session"
+    assert free.status_code == 403
+    assert free.json()["detail"] == "premium_required"
+    assert "free-access-token" not in str(free.json())
+    assert "free-refresh-token" not in str(free.json())
+
+
+def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-access-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="streaming user-modify-playback-state",
+            expires_in=3600,
+        )
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        transfer = client.post(
+            "/api/v1/spotify/playback/transfer",
+            json={"deviceId": "pipzo-device-id", "play": False},
+        )
+        pause = client.post(
+            "/api/v1/playback/control",
+            json={"action": "pause", "deviceId": "pipzo-device-id"},
+        )
+
+    assert transfer.status_code == 200
+    assert transfer.json()["state"] == "succeeded"
+    assert transfer.json()["mock"] is False
+    assert pause.status_code == 200
+    assert pause.json()["state"] == "succeeded"
+    assert spotify_client.transfer_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "device_id": "pipzo-device-id",
+            "play": False,
+        }
+    ]
+    assert spotify_client.playback_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "action": "pause",
+            "device_id": "pipzo-device-id",
+        }
+    ]
+    assert "stored-refresh-token" not in str([transfer.json(), pause.json()])
+
+
+def test_hardware_playback_control_maps_spotify_errors_to_honest_blocked_state(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient(playback_failure=SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND)
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.post("/api/v1/playback/control", json={"action": "play", "deviceId": "missing-device"})
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "blocked"
+    assert response.json()["reason"] == "device_not_registered"
 
 
 def test_reset_app_clears_spotify_auth_state(tmp_path):

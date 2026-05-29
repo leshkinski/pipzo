@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="https://accounts.spotify.com/api/token",
         validation_alias="SPOTIFY_TOKEN_URL",
     )
+    spotify_api_base_url: str = Field(
+        default="https://api.spotify.com",
+        validation_alias="SPOTIFY_API_BASE_URL",
+    )
     spotify_scopes: str = Field(
         default=(
             "streaming user-read-playback-state user-modify-playback-state "
@@ -70,6 +74,7 @@ class Settings(BaseSettings):
         "spotify_redirect_uri",
         "spotify_auth_url",
         "spotify_token_url",
+        "spotify_api_base_url",
         "spotify_scopes",
         "pipzo_public_base_url",
         "pipzo_frontend_dist",

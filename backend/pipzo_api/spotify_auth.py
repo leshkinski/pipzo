@@ -117,6 +117,26 @@ class SpotifyClient(Protocol):
     ) -> SpotifyTokenResponse:
         ...
 
+    def transfer_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        device_id: str,
+        play: bool,
+    ) -> None:
+        ...
+
+    def send_playback_control(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        action: str,
+        device_id: Optional[str],
+    ) -> None:
+        ...
+
 
 class SpotifyTokenExchangeError(Exception):
     pass
@@ -131,6 +151,21 @@ class SpotifyTokenRefreshFailure(str, Enum):
 
 class SpotifyTokenRefreshError(Exception):
     def __init__(self, failure: SpotifyTokenRefreshFailure) -> None:
+        super().__init__(failure.value)
+        self.failure = failure
+
+
+class SpotifyPlaybackApiFailure(str, Enum):
+    AUTH = "auth"
+    PREMIUM_REQUIRED = "premium_required"
+    DEVICE_NOT_FOUND = "device_not_found"
+    RATE_LIMITED = "rate_limited"
+    NETWORK = "network"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class SpotifyPlaybackApiError(Exception):
+    def __init__(self, failure: SpotifyPlaybackApiFailure) -> None:
         super().__init__(failure.value)
         self.failure = failure
 
@@ -224,6 +259,60 @@ class UrlLibSpotifyClient:
         except (KeyError, TypeError, ValueError) as exc:
             raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.INVALID_RESPONSE) from exc
 
+    def transfer_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        device_id: str,
+        play: bool,
+    ) -> None:
+        request = Request(
+            f"{api_base_url.rstrip('/')}/v1/me/player",
+            data=json.dumps({"device_ids": [device_id], "play": play}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            method="PUT",
+        )
+        self._send_empty_spotify_api_request(request)
+
+    def send_playback_control(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        action: str,
+        device_id: Optional[str],
+    ) -> None:
+        if action == "next":
+            path = "/v1/me/player/next"
+            method = "POST"
+        elif action == "previous":
+            path = "/v1/me/player/previous"
+            method = "POST"
+        elif action == "play":
+            path = "/v1/me/player/play"
+            method = "PUT"
+        else:
+            path = "/v1/me/player/pause"
+            method = "PUT"
+
+        url = f"{api_base_url.rstrip('/')}{path}"
+        if device_id:
+            url = f"{url}?{urlencode({'device_id': device_id})}"
+        request = Request(
+            url,
+            data=b"{}" if method == "PUT" else None,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            method=method,
+        )
+        self._send_empty_spotify_api_request(request)
+
     def _send_json_request(self, request: Request) -> dict:
         try:
             with urlopen(request, timeout=10) as response:
@@ -258,6 +347,25 @@ class UrlLibSpotifyClient:
         if not isinstance(payload, dict):
             raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.INVALID_RESPONSE)
         return payload
+
+    def _send_empty_spotify_api_request(self, request: Request) -> None:
+        try:
+            with urlopen(request, timeout=10) as response:
+                response.read()
+        except HTTPError as exc:
+            if exc.code == 401:
+                failure = SpotifyPlaybackApiFailure.AUTH
+            elif exc.code == 403:
+                failure = SpotifyPlaybackApiFailure.PREMIUM_REQUIRED
+            elif exc.code == 404:
+                failure = SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND
+            elif exc.code == 429:
+                failure = SpotifyPlaybackApiFailure.RATE_LIMITED
+            else:
+                failure = SpotifyPlaybackApiFailure.INVALID_RESPONSE
+            raise SpotifyPlaybackApiError(failure) from exc
+        except (URLError, TimeoutError) as exc:
+            raise SpotifyPlaybackApiError(SpotifyPlaybackApiFailure.NETWORK) from exc
 
 
 class SpotifyAuthSessionService:

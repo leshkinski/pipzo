@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import {
   activateBackendScenario,
   cancelSpotifyAuthSession,
+  controlPlayback,
   createSpotifyAuthSession,
   fetchAppState,
   fetchBackendScenarios,
+  fetchHealth,
   fetchSpotifyAuthSession,
   logoutSpotifyAuth,
   patchDisplay,
@@ -13,6 +15,13 @@ import {
 } from "./api";
 import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
+import {
+  createSpotifyWebPlayer,
+  spotifySdkGate,
+  spotifySdkStatusLabel,
+  type SpotifyPlayerInstance,
+  type SpotifySdkState,
+} from "./spotifyWebPlayback";
 import {
   canOpenSurface,
   formatMs,
@@ -54,20 +63,28 @@ export function App() {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>(() => localScenarioSummaries());
   const [selectedScenario, setSelectedScenario] = useState("first_boot_empty");
   const [dataSource, setDataSource] = useState<DataSource>("local");
+  const [backendMode, setBackendMode] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("Using local fallback scenarios.");
   const [spotifyAuthSession, setSpotifyAuthSession] = useState<SpotifyAuthSession | null>(null);
   const [spotifyAuthBusy, setSpotifyAuthBusy] = useState(false);
   const [spotifyAuthMessage, setSpotifyAuthMessage] = useState("Use local Chromium on this device to connect Spotify.");
   const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
   const [idleActive, setIdleActive] = useState(false);
+  const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
+    status: "disabled",
+    activated: false,
+    transferred: false,
+  });
+  const spotifyPlayerRef = useRef<SpotifyPlayerInstance | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function boot() {
       try {
-        const [state, backendScenarios] = await Promise.all([fetchAppState(), fetchBackendScenarios()]);
+        const [health, state, backendScenarios] = await Promise.all([fetchHealth(), fetchAppState(), fetchBackendScenarios()]);
         if (cancelled) return;
+        setBackendMode(health.mode);
         setSnapshot(state);
         setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
         setDataSource("backend");
@@ -79,6 +96,7 @@ export function App() {
         setSnapshot(fallback);
         setScenarios(localScenarioSummaries());
         setDataSource("local");
+        setBackendMode(null);
         setStatusText("Backend unavailable. Showing local fallback scenarios.");
       }
     }
@@ -156,10 +174,57 @@ export function App() {
   const gated = isSetupGated(snapshot);
   const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
   const visibleWarnings = snapshot.warnings;
+  const spotifyPlaybackGate = useMemo(() => spotifySdkGate(snapshot, dataSource, backendMode ?? undefined), [snapshot, dataSource, backendMode]);
   const currentScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
     [scenarios, selectedScenario],
   );
+
+  useEffect(() => {
+    if (!spotifyPlaybackGate.enabled) {
+      spotifyPlayerRef.current?.disconnect();
+      spotifyPlayerRef.current = null;
+      setSpotifySdkState((current) => ({
+        status: spotifyPlaybackGate.status,
+        activated: current.activated,
+        transferred: false,
+      }));
+      return;
+    }
+    if (spotifyPlayerRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    setSpotifySdkState((current) => ({ ...current, status: "loading", error: undefined }));
+    void createSpotifyWebPlayer({
+      onState: (patch) => {
+        if (!cancelled) {
+          setSpotifySdkState((current) => ({ ...current, ...patch }));
+        }
+      },
+    })
+      .then((player) => {
+        if (cancelled) {
+          player.disconnect();
+          return;
+        }
+        spotifyPlayerRef.current = player;
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setSpotifySdkState((current) => ({
+            ...current,
+            status: "browser_not_ready",
+            error: error instanceof Error ? error.message : "spotify_sdk_unavailable",
+          }));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [spotifyPlaybackGate.enabled, spotifyPlaybackGate.status]);
 
   async function switchScenario(scenarioId: string) {
     setIdleActive(false);
@@ -346,6 +411,34 @@ export function App() {
     }
   }
 
+  async function activateSpotifyPlayer() {
+    const player = spotifyPlayerRef.current;
+    if (!player?.activateElement) {
+      setSpotifySdkState((current) => ({ ...current, activated: true }));
+      return;
+    }
+    try {
+      await player.activateElement();
+      setSpotifySdkState((current) => ({ ...current, activated: true }));
+    } catch {
+      setSpotifySdkState((current) => ({ ...current, status: "browser_not_ready", error: "spotify_activation_failed" }));
+    }
+  }
+
+  async function sendPlaybackAction(action: "play" | "pause" | "next" | "previous") {
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    if (dataSource === "backend") {
+      try {
+        const result = await controlPlayback({ action, deviceId });
+        setStatusText(result.state === "succeeded" ? `Playback ${action} sent.` : `Playback ${action} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        return;
+      } catch {
+        setStatusText("Playback command could not be sent.");
+      }
+    }
+    setStatusText("Local scenario playback controls do not call Spotify.");
+  }
+
   const spotifyAuthControls = {
     session: spotifyAuthSession,
     busy: spotifyAuthBusy,
@@ -420,8 +513,25 @@ export function App() {
           {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} />}
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
-          {activeSurface === "now_playing" && <NowPlayingSurface snapshot={snapshot} />}
-          {activeSurface === "settings" && <SettingsSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} onIdleSettingsChange={updateIdleSettings} />}
+          {activeSurface === "now_playing" && (
+            <NowPlayingSurface
+              snapshot={snapshot}
+              spotifySdk={spotifySdkState}
+              playbackGateDetail={spotifyPlaybackGate.detail}
+              onActivateSpotify={activateSpotifyPlayer}
+              onPlaybackAction={sendPlaybackAction}
+            />
+          )}
+          {activeSurface === "settings" && (
+            <SettingsSurface
+              snapshot={snapshot}
+              spotifyAuth={spotifyAuthControls}
+              spotifySdk={spotifySdkState}
+              playbackGateDetail={spotifyPlaybackGate.detail}
+              onActivateSpotify={activateSpotifyPlayer}
+              onIdleSettingsChange={updateIdleSettings}
+            />
+          )}
           {activeSurface === "idle" && <IdleSurface snapshot={snapshot} />}
         </section>
       </main>
@@ -546,9 +656,22 @@ function BrowseSurface({ snapshot }: { snapshot: AppSnapshot }) {
   );
 }
 
-function NowPlayingSurface({ snapshot }: { snapshot: AppSnapshot }) {
+function NowPlayingSurface({
+  snapshot,
+  spotifySdk,
+  playbackGateDetail,
+  onActivateSpotify,
+  onPlaybackAction,
+}: {
+  snapshot: AppSnapshot;
+  spotifySdk: SpotifySdkState;
+  playbackGateDetail: string;
+  onActivateSpotify: () => void;
+  onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
+}) {
   const playing = snapshot.nowPlaying;
   const progress = playing?.durationMs ? Math.min(100, ((playing.progressMs ?? 0) / playing.durationMs) * 100) : 0;
+  const canSendControls = snapshot.capabilities.canControlPlayback && spotifySdk.status === "ready";
   return (
     <div className="surface-grid">
       <section className="art-panel" aria-label="Artwork placeholder">
@@ -564,15 +687,20 @@ function NowPlayingSurface({ snapshot }: { snapshot: AppSnapshot }) {
           <span>{formatMs(playing?.durationMs)}</span>
         </div>
         <div className="control-row">
-          <button disabled={!snapshot.capabilities.canControlPlayback} type="button">Previous</button>
-          <button disabled={!snapshot.capabilities.canControlPlayback} type="button">{playing?.isPlaying ? "Pause" : "Play"}</button>
-          <button disabled={!snapshot.capabilities.canControlPlayback} type="button">Next</button>
+          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")}>Previous</button>
+          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing?.isPlaying ? "pause" : "play")}>{playing?.isPlaying ? "Pause" : "Play"}</button>
+          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")}>Next</button>
         </div>
         <div className="volume-row">
           <span>Volume</span>
           <meter min="0" max="100" value={snapshot.health.volume.value ?? 0} />
           <strong>{snapshot.health.volume.status === "out_of_sync" ? "Out of sync" : `${snapshot.health.volume.value ?? 0}%`}</strong>
         </div>
+        <SpotifyPlaybackPanel
+          playbackGateDetail={playbackGateDetail}
+          spotifySdk={spotifySdk}
+          onActivateSpotify={onActivateSpotify}
+        />
       </section>
     </div>
   );
@@ -581,10 +709,16 @@ function NowPlayingSurface({ snapshot }: { snapshot: AppSnapshot }) {
 function SettingsSurface({
   snapshot,
   spotifyAuth,
+  spotifySdk,
+  playbackGateDetail,
+  onActivateSpotify,
   onIdleSettingsChange,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
+  spotifySdk: SpotifySdkState;
+  playbackGateDetail: string;
+  onActivateSpotify: () => void;
   onIdleSettingsChange: (patch: AppSettingsPatch) => void;
 }) {
   return (
@@ -601,6 +735,11 @@ function SettingsSurface({
       </section>
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
+      <SpotifyPlaybackPanel
+        playbackGateDetail={playbackGateDetail}
+        spotifySdk={spotifySdk}
+        onActivateSpotify={onActivateSpotify}
+      />
       <HealthRows snapshot={snapshot} />
       <section className="actions">
         {snapshot.recoveryActions.map((action) => (
@@ -733,6 +872,40 @@ function SpotifyAuthPanel({
             Reconnect
           </button>
         )}
+      </div>
+    </section>
+  );
+}
+
+function SpotifyPlaybackPanel({
+  spotifySdk,
+  playbackGateDetail,
+  onActivateSpotify,
+}: {
+  spotifySdk: SpotifySdkState;
+  playbackGateDetail: string;
+  onActivateSpotify: () => void;
+}) {
+  return (
+    <section className={`spotify-panel playback-${spotifySdk.status}`} aria-label="Spotify browser playback">
+      <div>
+        <p className="eyebrow">Browser playback</p>
+        <h2>{labelFromId(spotifySdk.status)}</h2>
+        <p>{spotifySdkStatusLabel(spotifySdk)}</p>
+        <div className="spotify-status">
+          <span>Device</span>
+          <strong>{spotifySdk.deviceId ?? "Not registered"}</strong>
+        </div>
+        <div className="spotify-status">
+          <span>Transfer</span>
+          <strong>{spotifySdk.transferred ? "Selected" : "Pending"}</strong>
+        </div>
+        <p className="subtle">{playbackGateDetail}</p>
+      </div>
+      <div className="spotify-actions">
+        <button disabled={spotifySdk.status === "disabled" || spotifySdk.status === "auth_required"} type="button" onClick={onActivateSpotify}>
+          Activate player
+        </button>
       </div>
     </section>
   );

@@ -22,6 +22,7 @@ from .contract import (
     NetworkForgetRequest,
     NetworkHealth,
     PlaybackControlRequest,
+    PlaybackDeviceReason,
     RecoveryAction,
     RunRecoveryActionRequest,
     ScenarioSummary,
@@ -35,6 +36,8 @@ from .contract import (
     SpotifyAuthHealth,
     SpotifyAuthReason,
     SpotifyAuthStatus,
+    SpotifyPlaybackToken,
+    SpotifyPlaybackTransferRequest,
     Warning,
     WifiScanResults,
     utc_now,
@@ -48,9 +51,12 @@ from .spotify_auth import (
     SpotifyAuthCallbackError,
     SpotifyAuthSessionService,
     SpotifyClient,
+    SpotifyPlaybackApiError,
+    SpotifyPlaybackApiFailure,
     SpotifyTokenExchangeError,
     UrlLibSpotifyClient,
     exchange_and_persist_spotify_callback,
+    refresh_spotify_access_token,
     spotify_auth_health_from_record,
 )
 from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
@@ -181,8 +187,10 @@ def create_app(
 
     @app.post("/api/v1/playback/control", response_model=ActionResult)
     def playback_control(body: PlaybackControlRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
-        require_action_mock_mode(settings)
-        result = mock_store.control_playback(body.action)
+        if settings.app_mode == "mock":
+            result = mock_store.control_playback(body.action)
+        else:
+            result = run_spotify_playback_control(settings, spotify_client, body)
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
 
@@ -316,6 +324,31 @@ def create_app(
     @app.post("/api/v1/spotify/auth/logout", response_model=SpotifyAuthHealth)
     def spotify_auth_logout(settings: Settings = Depends(get_settings)) -> SpotifyAuthHealth:
         return clear_spotify_auth_state(settings, spotify_auth_sessions, event_hub, mock_store)
+
+    @app.get("/api/v1/spotify/playback/token", response_model=SpotifyPlaybackToken)
+    def spotify_playback_token(settings: Settings = Depends(get_settings)) -> SpotifyPlaybackToken:
+        require_spotify_oauth_config(settings)
+        return issue_spotify_playback_token(settings, spotify_client)
+
+    @app.post("/api/v1/spotify/playback/transfer", response_model=ActionResult)
+    def spotify_playback_transfer(
+        body: SpotifyPlaybackTransferRequest,
+        settings: Settings = Depends(get_settings),
+    ) -> ActionResult:
+        if settings.app_mode == "mock":
+            result = ActionResult(
+                id="spotify-transfer-mock",
+                domain="playback",
+                action="transfer",
+                state="succeeded",
+                mock=True,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+        else:
+            result = transfer_spotify_playback(settings, spotify_client, body)
+        event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
+        return result
 
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
@@ -455,6 +488,129 @@ def clear_spotify_auth_state(
     event_hub.publish("spotify.auth_changed", health.model_dump(mode="json", by_alias=True))
     event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, AppSettingsStore(settings.db_path)).model_dump(mode="json", by_alias=True))
     return health
+
+
+def issue_spotify_playback_token(settings: Settings, spotify_client: SpotifyClient) -> SpotifyPlaybackToken:
+    store = SpotifyAuthStore.from_settings(settings)
+    health = refresh_spotify_access_token(settings=settings, spotify_client=spotify_client, store=store)
+    if health.status != SpotifyAuthStatus.CONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(health.reason) if health.reason else "spotify_auth_required",
+        )
+    if health.reason == SpotifyAuthReason.PREMIUM_REQUIRED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="premium_required")
+
+    try:
+        record = store.get_auth_record()
+    except SpotifyAuthTokenStorageError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token_refresh_failed") from exc
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="no_session")
+    if not record.account.is_premium:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="premium_required")
+    if not record.access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="spotify_auth_required")
+
+    return SpotifyPlaybackToken(
+        access_token=record.access_token,
+        token_type=record.token_type,
+        expires_at=record.expires_at,
+        scope=record.scope,
+    )
+
+
+def transfer_spotify_playback(
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    body: SpotifyPlaybackTransferRequest,
+) -> ActionResult:
+    started_at = utc_now()
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        spotify_client.transfer_playback(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+            device_id=body.device_id,
+            play=body.play,
+        )
+    except HTTPException as exc:
+        return _playback_action_result_from_http_error("transfer", started_at, exc)
+    except SpotifyPlaybackApiError as exc:
+        return _playback_action_result_from_api_error("transfer", started_at, exc)
+    return ActionResult(
+        id="spotify-transfer",
+        domain="playback",
+        action="transfer",
+        state="succeeded",
+        mock=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
+
+
+def run_spotify_playback_control(
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    body: PlaybackControlRequest,
+) -> ActionResult:
+    started_at = utc_now()
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        spotify_client.send_playback_control(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+            action="pause" if body.action == "stop" else body.action,
+            device_id=body.device_id,
+        )
+    except HTTPException as exc:
+        return _playback_action_result_from_http_error(body.action, started_at, exc)
+    except SpotifyPlaybackApiError as exc:
+        return _playback_action_result_from_api_error(body.action, started_at, exc)
+    return ActionResult(
+        id=f"playback-{body.action}",
+        domain="playback",
+        action=body.action,
+        state="succeeded",
+        mock=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
+
+
+def _playback_action_result_from_http_error(action: str, started_at, exc: HTTPException) -> ActionResult:
+    reason = PlaybackDeviceReason.PREMIUM_REQUIRED if exc.status_code == status.HTTP_403_FORBIDDEN else PlaybackDeviceReason.AUTH_REQUIRED
+    return ActionResult(
+        id=f"playback-{action}",
+        domain="playback",
+        action=action,
+        state="blocked",
+        reason=reason,
+        mock=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
+
+
+def _playback_action_result_from_api_error(action: str, started_at, exc: SpotifyPlaybackApiError) -> ActionResult:
+    reason_by_failure = {
+        SpotifyPlaybackApiFailure.AUTH: PlaybackDeviceReason.AUTH_REQUIRED,
+        SpotifyPlaybackApiFailure.PREMIUM_REQUIRED: PlaybackDeviceReason.PREMIUM_REQUIRED,
+        SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND: PlaybackDeviceReason.DEVICE_NOT_REGISTERED,
+        SpotifyPlaybackApiFailure.RATE_LIMITED: PlaybackDeviceReason.SPOTIFY_API_ERROR,
+        SpotifyPlaybackApiFailure.NETWORK: PlaybackDeviceReason.NETWORK_UNAVAILABLE,
+        SpotifyPlaybackApiFailure.INVALID_RESPONSE: PlaybackDeviceReason.SPOTIFY_API_ERROR,
+    }
+    return ActionResult(
+        id=f"playback-{action}",
+        domain="playback",
+        action=action,
+        state="blocked",
+        reason=reason_by_failure[exc.failure],
+        mock=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
 
 
 app = create_app()

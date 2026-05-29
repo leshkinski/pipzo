@@ -5,6 +5,7 @@ import type {
   AppSnapshot,
   DisplayPatch,
   HealthState,
+  HealthResponse,
   NetworkConnectRequest,
   NetworkForgetRequest,
   PlaybackControlRequest,
@@ -17,6 +18,8 @@ import type {
   SetupPlaybackTestRequest,
   SetupState,
   SpotifyAuthSession,
+  SpotifyPlaybackToken,
+  SpotifyPlaybackTransferRequest,
   WifiScanResults,
 } from "./contracts";
 
@@ -32,6 +35,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchAppState(): Promise<AppSnapshot> {
   return request<AppSnapshot>("/api/v1/app/state");
+}
+
+export function fetchHealth(): Promise<HealthResponse> {
+  return request<HealthResponse>("/api/v1/health");
 }
 
 export function fetchBackendScenarios(): Promise<ScenarioSummary[]> {
@@ -68,6 +75,14 @@ export function patchDisplay(body: DisplayPatch): Promise<HealthState["display"]
 
 export function controlPlayback(body: PlaybackControlRequest): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/playback/control", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchSpotifyPlaybackToken(): Promise<SpotifyPlaybackToken> {
+  return request<SpotifyPlaybackToken>("/api/v1/spotify/playback/token");
+}
+
+export function transferSpotifyPlayback(body: SpotifyPlaybackTransferRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/spotify/playback/transfer", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function fetchNetworkStatus(): Promise<HealthState["network"]> {

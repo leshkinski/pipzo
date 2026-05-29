@@ -423,4 +423,7 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
             client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True}),
         ]
 
-    assert all(response.status_code == 501 for response in responses)
+    assert responses[4].status_code == 200
+    assert responses[4].json()["state"] == "blocked"
+    assert responses[4].json()["reason"] == "auth_required"
+    assert all(response.status_code == 501 for index, response in enumerate(responses) if index != 4)

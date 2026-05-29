@@ -47,6 +47,7 @@ SPOTIFY_CLIENT_ID=
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/api/v1/spotify/auth/callback
 SPOTIFY_AUTH_URL=https://accounts.spotify.com/authorize
 SPOTIFY_TOKEN_URL=https://accounts.spotify.com/api/token
+SPOTIFY_API_BASE_URL=https://api.spotify.com
 SPOTIFY_SCOPES=streaming user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative user-library-read user-read-recently-played user-read-private
 SPOTIFY_TOKEN_STORAGE_PROTECTION=local_key_encrypted
 PIPZO_TOKEN_KEY_PATH=./data/spotify-token.key
@@ -77,6 +78,29 @@ Avoid adding write scopes unless a feature requires them. Queue editing, library
 ## Premium Requirement
 
 Pipzo is a playback appliance and requires a Spotify Premium account. Spotify player-control endpoints and Web Playback SDK playback are Premium surfaces. The backend stores safe profile metadata such as account ID, display name, product, country, Premium flag, scopes, and timestamps so the UI can show whether reconnect or Premium readiness is needed.
+
+## Web Playback SDK Runtime
+
+After local OAuth is complete, the kiosk frontend loads Spotify's Web Playback SDK once from `https://sdk.scdn.co/spotify-player.js` and registers a browser player named `Pipzo`.
+
+The SDK receives access tokens only through:
+
+```text
+GET /api/v1/spotify/playback/token
+```
+
+That endpoint refreshes access on the backend when needed, returns only the short-lived access token, token type, scope, and expiry, and rejects missing auth or non-Premium accounts. Refresh tokens, PKCE verifier/state, encrypted token values, key material, and raw Spotify token responses remain backend-only.
+
+When the SDK reports a ready browser device ID, the frontend asks the backend to transfer Spotify Connect playback to that device:
+
+```text
+POST /api/v1/spotify/playback/transfer
+{"deviceId":"<sdk device id>","play":false}
+```
+
+The `play:false` transfer selects Pipzo without claiming that audio output has been validated. Actual Bluetooth output is still a separate platform validation item.
+
+Playback controls use `POST /api/v1/playback/control` with an optional `deviceId`. In hardware mode, the backend maps play, pause/stop, next, and previous to Spotify Web API player endpoints using the backend-owned access-token boundary. In mock mode, existing simulated playback behavior remains available for desktop development.
 
 ## Token Key And Reset Caveats
 

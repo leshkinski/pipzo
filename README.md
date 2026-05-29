@@ -95,6 +95,8 @@ Useful endpoints:
 - `GET http://127.0.0.1:8000/api/v1/spotify/auth/start/{sessionId}`
 - `GET http://127.0.0.1:8000/api/v1/spotify/auth/callback`
 - `POST http://127.0.0.1:8000/api/v1/spotify/auth/logout`
+- `GET http://127.0.0.1:8000/api/v1/spotify/playback/token`
+- `POST http://127.0.0.1:8000/api/v1/spotify/playback/transfer`
 - `GET http://127.0.0.1:8000/api/v1/recovery/actions`
 - `POST http://127.0.0.1:8000/api/v1/recovery/actions/{actionId}/run`
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
@@ -104,14 +106,18 @@ The local Spotify OAuth flow creates transient in-memory PKCE sessions, redirect
 
 The SQLite DB and token key are a pair for backup and restore. Back up both together if preserving the Spotify connection matters. Losing, deleting, corrupting, or replacing the key makes the encrypted token fields unreadable; Pipzo will fail safe by treating Spotify auth as reconnect-required, and the user must reconnect Spotify. Logout and app reset delete the encrypted Spotify auth record but leave the local key in place so a future reconnect can use the same key. Deleting both the DB token record and key is safe, but it also requires Spotify reconnect.
 
-The React Setup and Settings surfaces expose local-device controls to start authorization, open/continue the local Chromium flow, poll status, cancel pending setup, and logout/reconnect an account using only safe session/account metadata. The backend has an explicit refresh helper for startup/pre-call integration: it uses the stored refresh token plus `client_id`, keeps the existing refresh token when Spotify omits a replacement, updates safe auth metadata, and maps network/revoked/key failures to safe `health.spotifyAuth` state. Periodic background refresh scheduling is deferred until the Spotify Web API call sites are implemented. Phone QR/relay OAuth remains follow-on work.
+The React Setup and Settings surfaces expose local-device controls to start authorization, open/continue the local Chromium flow, poll status, cancel pending setup, and logout/reconnect an account using only safe session/account metadata. The backend has an explicit refresh helper for startup/pre-call integration: it uses the stored refresh token plus `client_id`, keeps the existing refresh token when Spotify omits a replacement, updates safe auth metadata, and maps network/revoked/key failures to safe `health.spotifyAuth` state. Phone QR/relay OAuth remains follow-on work.
+
+The kiosk frontend loads Spotify's Web Playback SDK once when it is connected to the backend and Spotify auth is ready, registers the browser player as `Pipzo`, surfaces SDK readiness/device ID/error/transfer state in Now Playing and Settings, and requests backend playback transfer when Spotify reports the SDK device as ready. The backend exposes `GET /api/v1/spotify/playback/token` for the SDK's short-lived access-token callback; it refreshes access backend-side when needed and never returns refresh tokens, PKCE data, encryption key material, or raw token responses. Hardware-mode playback transfer and play/pause/next/previous controls call Spotify Web API through the backend token boundary. Mock/local modes remain usable without a live Spotify account.
+
+This SDK slice registers and selects the browser playback device only. Bluetooth speaker pairing/output and full audio validation are separate V1 platform work.
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
 App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, Wi-Fi connect/forget, Bluetooth scan/pair/reconnect/forget, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
 
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify playback, display, or reset success. Wi-Fi and Bluetooth endpoint shapes are present for contract work, but their operation endpoints also return `501` until NetworkManager/BlueZ adapters are implemented and validated on the Pi.
+The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, display, or reset success. Wi-Fi and Bluetooth endpoint shapes are present for contract work, but their operation endpoints also return `501` until NetworkManager/BlueZ adapters are implemented and validated on the Pi.
 
 Backend tests:
 
