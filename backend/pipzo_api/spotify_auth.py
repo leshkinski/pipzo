@@ -4,13 +4,21 @@ import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Callable, Dict, Optional, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import Settings
-from .contract import SpotifyAuthSession, SpotifyAuthSessionFailureReason, SpotifyAuthSessionStatus
+from .contract import (
+    SpotifyAuthHealth,
+    SpotifyAuthReason,
+    SpotifyAuthSession,
+    SpotifyAuthSessionFailureReason,
+    SpotifyAuthSessionStatus,
+    SpotifyAuthStatus,
+)
 from .spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
 
 
@@ -53,7 +61,7 @@ class PendingSpotifyAuthSession:
 @dataclass(frozen=True)
 class SpotifyTokenResponse:
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str]
     token_type: str
     scope: str
     expires_in: int
@@ -95,9 +103,31 @@ class SpotifyClient(Protocol):
     def fetch_current_user_profile(self, *, access_token: str) -> SpotifyAccountProfile:
         ...
 
+    def refresh_access_token(
+        self,
+        *,
+        token_url: str,
+        client_id: str,
+        refresh_token: str,
+    ) -> SpotifyTokenResponse:
+        ...
+
 
 class SpotifyTokenExchangeError(Exception):
     pass
+
+
+class SpotifyTokenRefreshFailure(str, Enum):
+    NETWORK = "network"
+    AUTH = "auth"
+    REVOKED = "revoked"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class SpotifyTokenRefreshError(Exception):
+    def __init__(self, failure: SpotifyTokenRefreshFailure) -> None:
+        super().__init__(failure.value)
+        self.failure = failure
 
 
 class UrlLibSpotifyClient:
@@ -157,6 +187,38 @@ class UrlLibSpotifyClient:
         except (KeyError, TypeError) as exc:
             raise SpotifyTokenExchangeError("spotify_profile_response_invalid") from exc
 
+    def refresh_access_token(
+        self,
+        *,
+        token_url: str,
+        client_id: str,
+        refresh_token: str,
+    ) -> SpotifyTokenResponse:
+        form = urlencode(
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+            }
+        ).encode("utf-8")
+        request = Request(
+            token_url,
+            data=form,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        payload = self._send_json_request_for_refresh(request)
+        try:
+            return SpotifyTokenResponse(
+                access_token=str(payload["access_token"]),
+                refresh_token=_optional_str(payload.get("refresh_token")),
+                token_type=str(payload.get("token_type", "Bearer")),
+                scope=str(payload.get("scope", "")),
+                expires_in=int(payload["expires_in"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.INVALID_RESPONSE) from exc
+
     def _send_json_request(self, request: Request) -> dict:
         try:
             with urlopen(request, timeout=10) as response:
@@ -171,6 +233,25 @@ class UrlLibSpotifyClient:
 
         if not isinstance(payload, dict):
             raise SpotifyTokenExchangeError("spotify_response_invalid")
+        return payload
+
+    def _send_json_request_for_refresh(self, request: Request) -> dict:
+        try:
+            with urlopen(request, timeout=10) as response:
+                body = response.read()
+        except HTTPError as exc:
+            failure = SpotifyTokenRefreshFailure.REVOKED if exc.code == 400 else SpotifyTokenRefreshFailure.AUTH
+            raise SpotifyTokenRefreshError(failure) from exc
+        except (URLError, TimeoutError) as exc:
+            raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.NETWORK) from exc
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.INVALID_RESPONSE) from exc
+
+        if not isinstance(payload, dict):
+            raise SpotifyTokenRefreshError(SpotifyTokenRefreshFailure.INVALID_RESPONSE)
         return payload
 
 
@@ -223,6 +304,14 @@ class SpotifyAuthSessionService:
             session.failure_reason = SpotifyAuthSessionFailureReason.CANCELLED
             session.code_verifier = None
         return session.safe_model()
+
+    def clear_sessions(self) -> None:
+        for session in self._sessions.values():
+            if session.status in {SpotifyAuthSessionStatus.WAITING, SpotifyAuthSessionStatus.CALLBACK_RECEIVED}:
+                session.status = SpotifyAuthSessionStatus.CANCELLED
+                session.failure_reason = SpotifyAuthSessionFailureReason.CANCELLED
+            session.code_verifier = None
+        self._sessions.clear()
 
     def build_authorize_url(self, session_id: str, settings: Settings) -> Optional[str]:
         session = self._sessions.get(session_id)
@@ -355,7 +444,7 @@ def exchange_and_persist_spotify_callback(
     store.upsert_auth_record(
         StoredSpotifyAuthRecord(
             access_token=token_response.access_token,
-            refresh_token=token_response.refresh_token,
+            refresh_token=token_response.refresh_token or "",
             token_type=token_response.token_type,
             scope=token_response.scope,
             expires_at=expires_at,
@@ -372,6 +461,111 @@ def exchange_and_persist_spotify_callback(
         )
     )
     return profile
+
+
+def should_refresh_spotify_access_token(
+    record: StoredSpotifyAuthRecord,
+    *,
+    now: Optional[datetime] = None,
+    window: timedelta = timedelta(minutes=5),
+) -> bool:
+    checked_at = now or _utc_now()
+    return record.expires_at <= checked_at + window
+
+
+def refresh_spotify_access_token(
+    *,
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    store: SpotifyAuthStore,
+    now: Callable[[], datetime] = _utc_now,
+    force: bool = False,
+) -> SpotifyAuthHealth:
+    record = store.get_auth_record()
+    if record is None:
+        return SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
+
+    checked_at = now()
+    if not force and not should_refresh_spotify_access_token(record, now=checked_at):
+        return spotify_auth_health_from_record(record, now=checked_at)
+
+    try:
+        token_response = spotify_client.refresh_access_token(
+            token_url=settings.spotify_token_url,
+            client_id=settings.spotify_client_id,
+            refresh_token=record.refresh_token,
+        )
+    except SpotifyTokenRefreshError as exc:
+        failed = _record_refresh_failure(record, exc.failure, checked_at)
+        store.upsert_auth_record(failed)
+        return spotify_auth_health_from_record(failed, now=checked_at)
+
+    refreshed = StoredSpotifyAuthRecord(
+        access_token=token_response.access_token,
+        refresh_token=token_response.refresh_token or record.refresh_token,
+        token_type=token_response.token_type,
+        scope=token_response.scope,
+        expires_at=checked_at + timedelta(seconds=token_response.expires_in),
+        issued_at=checked_at,
+        connected_at=record.connected_at,
+        updated_at=checked_at,
+        account=record.account,
+        last_refresh_at=checked_at,
+        last_refresh_error_code=None,
+        revoked_at=None,
+    )
+    store.upsert_auth_record(refreshed)
+    return spotify_auth_health_from_record(refreshed, now=checked_at)
+
+
+def _record_refresh_failure(
+    record: StoredSpotifyAuthRecord,
+    failure: SpotifyTokenRefreshFailure,
+    checked_at: datetime,
+) -> StoredSpotifyAuthRecord:
+    revoked_at = checked_at if failure in {SpotifyTokenRefreshFailure.AUTH, SpotifyTokenRefreshFailure.REVOKED} else record.revoked_at
+    access_token = "" if revoked_at is not None else record.access_token
+    return StoredSpotifyAuthRecord(
+        access_token=access_token,
+        refresh_token=record.refresh_token,
+        token_type=record.token_type,
+        scope=record.scope,
+        expires_at=record.expires_at,
+        issued_at=record.issued_at,
+        connected_at=record.connected_at,
+        updated_at=checked_at,
+        account=record.account,
+        last_refresh_at=record.last_refresh_at,
+        last_refresh_error_code=failure.value,
+        revoked_at=revoked_at,
+    )
+
+
+def spotify_auth_health_from_record(record: StoredSpotifyAuthRecord, *, now: Optional[datetime] = None) -> SpotifyAuthHealth:
+    checked_at = now or _utc_now()
+    if record.revoked_at is not None:
+        return SpotifyAuthHealth(status=SpotifyAuthStatus.RECONNECT_REQUIRED, reason=SpotifyAuthReason.REVOKED)
+    if record.last_refresh_error_code == SpotifyTokenRefreshFailure.NETWORK.value and record.expires_at <= checked_at:
+        return SpotifyAuthHealth(
+            status=SpotifyAuthStatus.RECONNECT_REQUIRED,
+            reason=SpotifyAuthReason.NETWORK_UNAVAILABLE,
+            account_display_name=record.account.display_name,
+        )
+    if record.last_refresh_error_code in {
+        SpotifyTokenRefreshFailure.AUTH.value,
+        SpotifyTokenRefreshFailure.REVOKED.value,
+        SpotifyTokenRefreshFailure.INVALID_RESPONSE.value,
+    }:
+        return SpotifyAuthHealth(
+            status=SpotifyAuthStatus.RECONNECT_REQUIRED,
+            reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
+            account_display_name=record.account.display_name,
+        )
+    return SpotifyAuthHealth(
+        status=SpotifyAuthStatus.CONNECTED,
+        reason=SpotifyAuthReason.PREMIUM_REQUIRED if not record.account.is_premium else None,
+        account_display_name=record.account.display_name,
+    )
 
 
 def _optional_str(value: object) -> Optional[str]:

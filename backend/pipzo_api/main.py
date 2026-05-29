@@ -26,6 +26,7 @@ from .contract import (
     SpotifyAuthHealth,
     SpotifyAuthReason,
     SpotifyAuthStatus,
+    Warning,
     utc_now,
 )
 from .database import initialize_database
@@ -39,6 +40,7 @@ from .spotify_auth import (
     SpotifyTokenExchangeError,
     UrlLibSpotifyClient,
     exchange_and_persist_spotify_callback,
+    spotify_auth_health_from_record,
 )
 from .spotify_store import SpotifyAuthStore
 
@@ -247,6 +249,10 @@ def create_app(
             status_code=status.HTTP_200_OK,
         )
 
+    @app.post("/api/v1/spotify/auth/logout", response_model=SpotifyAuthHealth)
+    def spotify_auth_logout(settings: Settings = Depends(get_settings)) -> SpotifyAuthHealth:
+        return clear_spotify_auth_state(settings, spotify_auth_sessions, event_hub, mock_store)
+
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
         require_action_mock_mode(settings)
@@ -263,6 +269,8 @@ def create_app(
             action = mock_store.run_recovery_action(action_id, confirm=body.confirm)
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown recovery action") from exc
+        if action_id == "reset-app" and action.state == "succeeded":
+            clear_spotify_auth_state(settings, spotify_auth_sessions, event_hub, mock_store)
         event_hub.publish("recovery.action_changed", action.model_dump(mode="json", by_alias=True))
         event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
         return action
@@ -321,13 +329,32 @@ def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnaps
         ) from exc
     auth_record = SpotifyAuthStore(settings.db_path).get_auth_record()
     if auth_record is not None:
-        snapshot.health.spotify_auth = SpotifyAuthHealth(
-            status=SpotifyAuthStatus.CONNECTED,
-            reason=SpotifyAuthReason.PREMIUM_REQUIRED if not auth_record.account.is_premium else None,
-            account_display_name=auth_record.account.display_name,
-        )
-        snapshot.readiness.spotify_authorized = True
+        snapshot.health.spotify_auth = spotify_auth_health_from_record(auth_record)
+        snapshot.readiness.spotify_authorized = snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED
+        if snapshot.health.spotify_auth.status == SpotifyAuthStatus.RECONNECT_REQUIRED:
+            snapshot.warnings.append(
+                Warning(
+                    code="spotify_reconnect_required",
+                    reason=snapshot.health.spotify_auth.reason,
+                    surface=snapshot.surfaces.current,
+                    action="spotify_reconnect",
+                )
+            )
     return snapshot
+
+
+def clear_spotify_auth_state(
+    settings: Settings,
+    spotify_auth_sessions: SpotifyAuthSessionService,
+    event_hub: EventHub,
+    mock_store: MockScenarioStore,
+) -> SpotifyAuthHealth:
+    SpotifyAuthStore(settings.db_path).delete_auth_record()
+    spotify_auth_sessions.clear_sessions()
+    health = SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
+    event_hub.publish("spotify.auth_changed", health.model_dump(mode="json", by_alias=True))
+    event_hub.publish("app.snapshot", read_snapshot(settings, mock_store).model_dump(mode="json", by_alias=True))
+    return health
 
 
 app = create_app()

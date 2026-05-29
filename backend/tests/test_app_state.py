@@ -174,6 +174,46 @@ def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_
     assert store.get_auth_record() is None
 
 
+def test_app_state_maps_revoked_spotify_auth_to_safe_reconnect_warning(tmp_path):
+    db_path = tmp_path / "spotify-revoked.sqlite3"
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    SpotifyAuthStore(db_path).upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="",
+            refresh_token="stored-refresh-token",
+            token_type="Bearer",
+            scope="streaming",
+            expires_at=now - timedelta(seconds=1),
+            issued_at=now - timedelta(hours=1),
+            connected_at=now - timedelta(hours=1),
+            updated_at=now,
+            account=StoredSpotifyAccount(
+                account_id="spotify-user-id",
+                display_name="Pipzo Account",
+                product="premium",
+                country="GB",
+                is_premium=True,
+            ),
+            last_refresh_error_code="revoked",
+            revoked_at=now,
+        )
+    )
+
+    with make_client(Settings(db_path=str(db_path))) as client:
+        response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["health"]["spotifyAuth"] == {
+        "status": "reconnect_required",
+        "reason": "revoked",
+        "accountDisplayName": None,
+    }
+    assert body["readiness"]["spotifyAuthorized"] is False
+    assert any(warning["code"] == "spotify_reconnect_required" for warning in body["warnings"])
+    assert "stored-refresh-token" not in str(body)
+
+
 def test_app_startup_initializes_configured_database(tmp_path):
     db_path = tmp_path / "startup.sqlite3"
     settings = Settings(db_path=str(db_path))
