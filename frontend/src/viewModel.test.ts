@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
-import { canOpenSurface, idlePresentation, isSetupGated, preferredSurface, shouldEnterIdleMode, spotifyAuthViewModel } from "./viewModel";
+import {
+  canOpenSurface,
+  idlePresentation,
+  isSetupGated,
+  preferredSurface,
+  shouldEnterIdleMode,
+  spotifyAuthViewModel,
+  wifiSetupViewModel,
+} from "./viewModel";
 
 describe("kiosk shell view model", () => {
   it("gates daily-use surfaces during first setup", () => {
@@ -31,6 +39,19 @@ describe("kiosk shell view model", () => {
     expect(view.title).toBe("Connect Spotify");
     expect(view.detail).toContain("local setup");
     expect(view.actions).toEqual(["start"]);
+  });
+
+  it("describes Wi-Fi setup actions from network health and scan results", () => {
+    const firstBoot = localScenarios.first_boot_empty.snapshot;
+    const ready = localScenarios.ready_healthy.snapshot;
+    const localOnly = localScenarios.wifi_local_only.snapshot;
+
+    expect(wifiSetupViewModel(firstBoot).actions).toEqual(["scan"]);
+    expect(
+      wifiSetupViewModel(firstBoot, [{ ssid: "PipzoNet", signal: 90, security: "wpa2", known: false }]).actions,
+    ).toEqual(["scan", "connect"]);
+    expect(wifiSetupViewModel(ready).actions).toEqual(["scan", "forget"]);
+    expect(wifiSetupViewModel(localOnly).actions).toEqual(["retry", "scan", "forget"]);
   });
 
   it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {

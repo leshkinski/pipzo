@@ -18,7 +18,7 @@ All hardware and OS integrations should sit behind clear interfaces with mock im
 This lets the app be developed and tested without a Raspberry Pi attached, while the real adapters can be validated on hardware.
 
 The current backend skeleton only implements the mock adapter path for the `AppSnapshot` contract.
-When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit production adapter seams and deliberately returns an unimplemented response until real NetworkManager, BlueZ, Spotify, volume, and kiosk adapters are added.
+When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit production adapter seams. The first production Wi-Fi slice reads NetworkManager state through `nmcli` and projects network readiness into setup state; Bluetooth, display, volume, and playback remain bounded placeholders until their adapters are implemented and validated.
 This keeps desktop scenarios useful without implying that mock state is production device state.
 
 The backend initializes a local SQLite database at startup using `PIPZO_DB_PATH`.
@@ -36,7 +36,7 @@ Spotify token refresh is exposed as a backend helper for startup/pre-call integr
 
 `POST /api/v1/spotify/auth/logout` and the mock app reset path clear stored Spotify auth/account state and pending auth sessions, then emit safe auth/snapshot events. Phone QR/relay OAuth remains a follow-on surface.
 
-Wi-Fi and Bluetooth contract routes exist for status, scan, connect/pair, reconnect, and forget flows. Until Mara-owned platform work adds and validates NetworkManager and BlueZ adapters on the target Pi, operation routes return `501` rather than pretending that hardware actions succeeded.
+Wi-Fi status, scan, connect, forget, and internet-probe retry are implemented behind a NetworkManager/nmcli adapter. The adapter invokes `nmcli` with argument vectors rather than shell strings, returns coarse contract reasons for failures, and does not expose Wi-Fi passwords in logs, events, or responses. Hardware mode without `nmcli` or required NetworkManager permissions returns honest unavailable responses instead of fake success. Bluetooth contract routes still return `501` until the BlueZ adapter slice is implemented and validated on the target Pi.
 
 ## High-Level Components
 

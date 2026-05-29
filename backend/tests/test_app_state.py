@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi.testclient import TestClient
 
 from pipzo_api.config import Settings, get_settings
+from pipzo_api.contract import NetworkHealth, RecoveryAction, RecoveryActionKind, RecoveryActionState, WifiNetwork, WifiScanResults, utc_now
 from pipzo_api.database import initialize_database
 from pipzo_api.main import create_app
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
@@ -14,6 +15,54 @@ from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecor
 def make_client(settings: Optional[Settings] = None) -> TestClient:
     app = create_app(settings_override=settings)
     return TestClient(app)
+
+
+class FakeNetworkAdapter:
+    def __init__(self) -> None:
+        self.connected_ssid = "PipzoNet"
+
+    def probe(self) -> None:
+        return None
+
+    def status(self) -> NetworkHealth:
+        return NetworkHealth(status="online", ssid=self.connected_ssid, internet_reachable=True)
+
+    def scan(self) -> RecoveryAction:
+        return self._action("network-scan", "succeeded")
+
+    def scan_results(self, rescan: bool = False) -> WifiScanResults:
+        return WifiScanResults(
+            networks=[WifiNetwork(ssid="PipzoNet", signal=91, security="wpa2", known=True)],
+            scanned_at=utc_now(),
+        )
+
+    def connect(self, ssid: str, password: Optional[str], hidden: bool = False) -> RecoveryAction:
+        self.connected_ssid = ssid
+        return self._action("network-connect", "succeeded")
+
+    def forget(self, ssid: str) -> RecoveryAction:
+        self.connected_ssid = ""
+        return RecoveryAction(
+            id="network-forget",
+            kind=RecoveryActionKind.FORGET_WIFI,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+
+    def retry_internet_probe(self) -> RecoveryAction:
+        return self._action("network-internet-probe", "succeeded")
+
+    def _action(self, action_id: str, state: str) -> RecoveryAction:
+        return RecoveryAction(
+            id=action_id,
+            kind=RecoveryActionKind.CONNECT_WIFI,
+            state=state,
+            requires_confirmation=False,
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
 
 
 def test_health_reports_mock_mode_by_default(tmp_path):
@@ -98,7 +147,8 @@ def test_mock_endpoints_are_disabled_in_hardware_mode(monkeypatch, tmp_path):
         get_settings.cache_clear()
 
     assert mock_response.status_code == 404
-    assert state_response.status_code == 501
+    assert state_response.status_code == 200
+    assert state_response.json()["health"]["network"]["status"] == "error"
 
 
 def test_database_initialization_creates_schema_marker_and_is_idempotent(tmp_path):
@@ -400,6 +450,39 @@ def test_playback_test_and_recovery_actions_are_mockable(tmp_path):
     assert state_response.json()["appPhase"] == "setup"
 
 
+def test_network_mock_scan_connect_retry_and_forget_update_state(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "network-mock.sqlite3"))) as client:
+        scan_response = client.post("/api/v1/network/scan")
+        scan_results_response = client.get("/api/v1/network/scan-results")
+        connect_response = client.post("/api/v1/network/connect", json={"ssid": "PipzoNet", "password": "secret"})
+        connected_state = client.get("/api/v1/app/state").json()
+        forget_response = client.post("/api/v1/network/forget", json={"ssid": "PipzoNet", "confirm": True})
+        forgotten_state = client.get("/api/v1/app/state").json()
+
+    assert scan_response.status_code == 200
+    assert scan_response.json()["state"] == "succeeded"
+    assert scan_results_response.status_code == 200
+    assert scan_results_response.json()["networks"][0]["ssid"] == "PipzoNet"
+    assert connect_response.status_code == 200
+    assert connect_response.json()["state"] == "succeeded"
+    assert connected_state["health"]["network"]["status"] == "online"
+    assert connected_state["setup"]["blockingStep"] == "spotify_auth"
+    assert forget_response.status_code == 200
+    assert forgotten_state["health"]["network"]["status"] == "offline"
+    assert forgotten_state["setup"]["blockingStep"] == "wifi"
+
+
+def test_network_mock_maps_bad_password_without_echoing_secret(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "network-bad-password.sqlite3"))) as client:
+        response = client.post("/api/v1/network/connect", json={"ssid": "Bad Password", "password": "wrong"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "failed"
+    assert body["reason"] == "bad_credentials"
+    assert "wrong" not in str(body)
+
+
 def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
     settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-actions.sqlite3"))
 
@@ -410,11 +493,6 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
             client.post("/api/v1/setup/playback-test", json={"action": "start"}),
             client.patch("/api/v1/display", json={"brightness": 10}),
             client.post("/api/v1/playback/control", json={"action": "pause"}),
-            client.post("/api/v1/network/scan"),
-            client.get("/api/v1/network/scan-results"),
-            client.post("/api/v1/network/connect", json={"ssid": "PipzoNet", "password": "secret"}),
-            client.post("/api/v1/network/forget", json={"ssid": "PipzoNet", "confirm": True}),
-            client.post("/api/v1/network/retry-internet-probe"),
             client.post("/api/v1/speaker/scan"),
             client.get("/api/v1/speaker/scan-results"),
             client.post("/api/v1/speaker/pair", json={"address": "AA:BB:CC:DD:EE:FF"}),
@@ -427,3 +505,42 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
     assert responses[4].json()["state"] == "blocked"
     assert responses[4].json()["reason"] == "auth_required"
     assert all(response.status_code == 501 for index, response in enumerate(responses) if index != 4)
+
+
+def test_hardware_network_missing_nmcli_reports_unavailable_without_fake_success(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-network.sqlite3"))
+
+    with make_client(settings) as client:
+        responses = [
+            client.post("/api/v1/network/scan"),
+            client.get("/api/v1/network/scan-results"),
+            client.post("/api/v1/network/connect", json={"ssid": "PipzoNet", "password": "secret"}),
+            client.post("/api/v1/network/forget", json={"ssid": "PipzoNet", "confirm": True}),
+            client.post("/api/v1/network/retry-internet-probe"),
+        ]
+
+    assert all(response.status_code == 501 for response in responses)
+    assert "secret" not in " ".join(response.text for response in responses)
+
+
+def test_hardware_network_adapter_success_path_projects_readiness(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-network-success.sqlite3"))
+    app = create_app(settings_override=settings, network_adapter_override=FakeNetworkAdapter())
+
+    with TestClient(app) as client:
+        state_response = client.get("/api/v1/app/state")
+        scan_response = client.post("/api/v1/network/scan")
+        scan_results_response = client.get("/api/v1/network/scan-results")
+        connect_response = client.post("/api/v1/network/connect", json={"ssid": "BedroomNet", "password": "secret"})
+        status_response = client.get("/api/v1/network/status")
+        retry_response = client.post("/api/v1/network/retry-internet-probe")
+
+    assert state_response.status_code == 200
+    assert state_response.json()["readiness"]["networkConfigured"] is True
+    assert state_response.json()["setup"]["blockingStep"] == "spotify_auth"
+    assert scan_response.json()["state"] == "succeeded"
+    assert scan_results_response.json()["networks"][0]["ssid"] == "PipzoNet"
+    assert connect_response.json()["state"] == "succeeded"
+    assert status_response.json()["ssid"] == "BedroomNet"
+    assert retry_response.json()["state"] == "succeeded"
+    assert "secret" not in str(connect_response.json())

@@ -21,6 +21,8 @@ fi
   ca-certificates \
   curl \
   git \
+  network-manager \
+  polkitd \
   rsync \
   python3 \
   python3-pip \

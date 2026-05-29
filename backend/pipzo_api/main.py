@@ -8,7 +8,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .adapters import create_app_state_adapter
-from .adapters.production import ProductionAdapterNotImplemented
+from .adapters.network_manager import NetworkCommandError, NetworkManagerUnavailable, NmcliNetworkAdapter
+from .adapters.production import NetworkManagerAdapter, ProductionAdapterNotImplemented, ProductionAdapters
 from .config import Settings, get_settings
 from .contract import (
     ActionResult,
@@ -21,9 +22,13 @@ from .contract import (
     NetworkConnectRequest,
     NetworkForgetRequest,
     NetworkHealth,
+    NetworkReason,
+    NetworkStatus,
     PlaybackControlRequest,
     PlaybackDeviceReason,
     RecoveryAction,
+    RecoveryActionKind,
+    RecoveryActionState,
     RunRecoveryActionRequest,
     ScenarioSummary,
     SpeakerForgetRequest,
@@ -66,11 +71,15 @@ def create_app(
     settings_override: Optional[Settings] = None,
     spotify_auth_sessions_override: Optional[SpotifyAuthSessionService] = None,
     spotify_client_override: Optional[SpotifyClient] = None,
+    network_adapter_override: Optional[NetworkManagerAdapter] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
     spotify_auth_sessions = spotify_auth_sessions_override or SpotifyAuthSessionService()
     spotify_client = spotify_client_override or UrlLibSpotifyClient()
+
+    def network_adapter(settings: Settings) -> NetworkManagerAdapter:
+        return network_adapter_override or NmcliNetworkAdapter(internet_probe_url=settings.pipzo_internet_probe_url)
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)
@@ -127,12 +136,12 @@ def create_app(
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:
-        return read_snapshot(settings, mock_store, settings_store())
+        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings))
 
     @app.websocket("/api/v1/events/ws")
     async def events_ws(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
         try:
-            initial_snapshot = read_snapshot(settings, mock_store, settings_store())
+            initial_snapshot = read_snapshot(settings, mock_store, settings_store(), network_adapter(settings))
         except HTTPException as exc:
             await websocket.close(code=1011, reason=str(exc.detail))
             return
@@ -173,7 +182,7 @@ def create_app(
         mock_store.apply_settings(updated)
         event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
         if settings.app_mode == "mock":
-            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store()).model_dump(mode="json", by_alias=True))
+            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store(), network_adapter(settings)).model_dump(mode="json", by_alias=True))
         return updated
 
     @app.patch("/api/v1/display", response_model=DisplayHealth)
@@ -196,31 +205,88 @@ def create_app(
 
     @app.get("/api/v1/network/status", response_model=NetworkHealth)
     def network_status(settings: Settings = Depends(get_settings)) -> NetworkHealth:
-        return read_snapshot(settings, mock_store, settings_store()).health.network
+        if settings.app_mode == "mock":
+            return mock_store.network_status()
+        try:
+            return network_adapter(settings).status()
+        except NetworkManagerUnavailable as exc:
+            raise_network_adapter_unavailable("Wi-Fi status", exc)
+        except NetworkCommandError as exc:
+            return NetworkHealth(status=NetworkStatus.ERROR, reason=exc.reason, internet_reachable=False)
 
     @app.post("/api/v1/network/scan", response_model=RecoveryAction)
     def network_scan(settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Wi-Fi scan")
+        if settings.app_mode == "mock":
+            action = mock_store.scan_network()
+        else:
+            try:
+                action = network_adapter(settings).scan()
+            except NetworkManagerUnavailable as exc:
+                raise_network_adapter_unavailable("Wi-Fi scan", exc)
+            except NetworkCommandError as exc:
+                action = network_failed_action("network-scan", exc.reason)
+        event_hub.publish("network.scan_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.get("/api/v1/network/scan-results", response_model=WifiScanResults)
     def network_scan_results(settings: Settings = Depends(get_settings)) -> WifiScanResults:
-        raise_device_adapter_unavailable("Wi-Fi scan results")
+        if settings.app_mode == "mock":
+            return mock_store.network_scan_results()
+        try:
+            return network_adapter(settings).scan_results()
+        except NetworkManagerUnavailable as exc:
+            raise_network_adapter_unavailable("Wi-Fi scan results", exc)
+        except NetworkCommandError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.reason.value) from exc
 
     @app.post("/api/v1/network/connect", response_model=RecoveryAction)
     def network_connect(body: NetworkConnectRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Wi-Fi connect")
+        if settings.app_mode == "mock":
+            action = mock_store.connect_network(body.ssid, body.password, body.hidden)
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = network_adapter(settings).connect(body.ssid, body.password, body.hidden)
+            except NetworkManagerUnavailable as exc:
+                raise_network_adapter_unavailable("Wi-Fi connect", exc)
+            except NetworkCommandError as exc:
+                action = network_failed_action("network-connect", exc.reason)
+        event_hub.publish("network.connect_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.post("/api/v1/network/forget", response_model=RecoveryAction)
     def network_forget(body: NetworkForgetRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("Wi-Fi forget")
+        if settings.app_mode == "mock":
+            action = mock_store.forget_network(body.ssid)
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = network_adapter(settings).forget(body.ssid)
+            except NetworkManagerUnavailable as exc:
+                raise_network_adapter_unavailable("Wi-Fi forget", exc)
+            except NetworkCommandError as exc:
+                action = network_failed_action("network-forget", exc.reason)
+        event_hub.publish("network.forget_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.post("/api/v1/network/retry-internet-probe", response_model=RecoveryAction)
     def network_retry_internet_probe(settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        raise_device_adapter_unavailable("internet probe retry")
+        if settings.app_mode == "mock":
+            action = mock_store.retry_internet_probe()
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        else:
+            try:
+                action = network_adapter(settings).retry_internet_probe()
+            except NetworkManagerUnavailable as exc:
+                raise_network_adapter_unavailable("internet probe retry", exc)
+            except NetworkCommandError as exc:
+                action = network_failed_action("network-internet-probe", exc.reason)
+        event_hub.publish("network.internet_probe_completed", action.model_dump(mode="json", by_alias=True))
+        return action
 
     @app.get("/api/v1/speaker/status", response_model=SpeakerHealth)
     def speaker_status(settings: Settings = Depends(get_settings)) -> SpeakerHealth:
-        return read_snapshot(settings, mock_store, settings_store()).health.speaker
+        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings)).health.speaker
 
     @app.post("/api/v1/speaker/scan", response_model=RecoveryAction)
     def speaker_scan(settings: Settings = Depends(get_settings)) -> RecoveryAction:
@@ -424,6 +490,26 @@ def raise_device_adapter_unavailable(action: str) -> None:
     )
 
 
+def raise_network_adapter_unavailable(action: str, exc: Exception) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=f"{action} is unavailable because NetworkManager/nmcli is not installed or not accessible.",
+    ) from exc
+
+
+def network_failed_action(action_id: str, reason: NetworkReason) -> RecoveryAction:
+    now = utc_now()
+    return RecoveryAction(
+        id=action_id,
+        kind=RecoveryActionKind.FORGET_WIFI if action_id == "network-forget" else RecoveryActionKind.CONNECT_WIFI,
+        state=RecoveryActionState.FAILED,
+        reason=reason,
+        requires_confirmation=False,
+        started_at=now,
+        completed_at=now,
+    )
+
+
 def require_spotify_oauth_config(settings: Settings) -> None:
     if not settings.spotify_client_id:
         raise HTTPException(
@@ -432,8 +518,14 @@ def require_spotify_oauth_config(settings: Settings) -> None:
         )
 
 
-def read_snapshot(settings: Settings, mock_store: MockScenarioStore, app_settings_store: AppSettingsStore) -> AppSnapshot:
-    adapter = create_app_state_adapter(settings, mock_store)
+def read_snapshot(
+    settings: Settings,
+    mock_store: MockScenarioStore,
+    app_settings_store: AppSettingsStore,
+    network_adapter: Optional[NetworkManagerAdapter] = None,
+) -> AppSnapshot:
+    production_adapters = ProductionAdapters(network=network_adapter) if network_adapter is not None else None
+    adapter = create_app_state_adapter(settings, mock_store, production_adapters)
     try:
         snapshot = adapter.get_snapshot()
     except ProductionAdapterNotImplemented as exc:

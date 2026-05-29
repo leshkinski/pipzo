@@ -110,6 +110,14 @@ chown -R root:root "$VENV_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
 
 install -m 0755 "$APP_DIR/provisioning/scripts/kiosk-launcher.sh" /usr/local/bin/pipzo-kiosk
+if [[ -d /etc/polkit-1/rules.d ]]; then
+  sed "s|__PIPZO_SERVICE_USER__|$SERVICE_USER|g" \
+    "$APP_DIR/provisioning/polkit/50-pipzo-networkmanager.rules" > /tmp/50-pipzo-networkmanager.rules
+  install -m 0644 -o root -g root /tmp/50-pipzo-networkmanager.rules /etc/polkit-1/rules.d/50-pipzo-networkmanager.rules
+  rm -f /tmp/50-pipzo-networkmanager.rules
+else
+  echo "polkit rules directory not found; hardware Wi-Fi actions may require manual NetworkManager permissions for $SERVICE_USER." >&2
+fi
 sed \
   -e "s|User=pipzo|User=$SERVICE_USER|" \
   -e "s|Group=pipzo|Group=$SERVICE_USER|" \

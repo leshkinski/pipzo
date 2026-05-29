@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from .contract import (
     ActionResult,
@@ -48,6 +48,9 @@ from .contract import (
     VolumeStatus,
     Warning,
     WarningCode,
+    WifiNetwork,
+    WifiScanResults,
+    WifiSecurity,
     utc_now,
 )
 
@@ -446,6 +449,104 @@ class MockScenarioStore:
         self._snapshot.health.display.reason = DisplayReason.USER_SETTING
         self._snapshot.updated_at = utc_now()
         return self.get_snapshot().health.display
+
+    def network_status(self) -> NetworkHealth:
+        return self.get_snapshot().health.network
+
+    def scan_network(self) -> RecoveryAction:
+        now = utc_now()
+        return RecoveryAction(
+            id="network-scan",
+            kind=RecoveryActionKind.CONNECT_WIFI,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def network_scan_results(self) -> WifiScanResults:
+        networks = [
+            WifiNetwork(ssid="PipzoNet", signal=92, security=WifiSecurity.WPA2, known=self._snapshot.readiness.network_configured),
+            WifiNetwork(ssid="Grandma WiFi", signal=68, security=WifiSecurity.WPA2, known=False),
+            WifiNetwork(ssid="Open Setup Lab", signal=41, security=WifiSecurity.OPEN, known=False),
+        ]
+        if self._snapshot.health.network.reason == NetworkReason.SCAN_EMPTY:
+            networks = []
+        return WifiScanResults(networks=networks, scanned_at=utc_now())
+
+    def connect_network(self, ssid: str, password: Optional[str], hidden: bool = False) -> RecoveryAction:
+        now = utc_now()
+        if ssid == "Bad Password" or password == "wrong":
+            self._snapshot.health.network = NetworkHealth(
+                status=NetworkStatus.OFFLINE,
+                reason=NetworkReason.BAD_CREDENTIALS,
+                internet_reachable=False,
+            )
+            return RecoveryAction(
+                id="network-connect",
+                kind=RecoveryActionKind.CONNECT_WIFI,
+                state=RecoveryActionState.FAILED,
+                reason=NetworkReason.BAD_CREDENTIALS,
+                requires_confirmation=False,
+                started_at=now,
+                completed_at=now,
+            )
+        self._snapshot.health.network = NetworkHealth(status=NetworkStatus.ONLINE, ssid=ssid, internet_reachable=True)
+        self._snapshot.readiness.network_configured = True
+        if self._snapshot.setup.blocking_step == SetupStepId.WIFI:
+            self._snapshot.setup = SetupState(blocking_step=SetupStepId.SPOTIFY_AUTH, steps=_setup_steps(SetupStepId.SPOTIFY_AUTH))
+        self._snapshot.updated_at = now
+        return RecoveryAction(
+            id="network-connect",
+            kind=RecoveryActionKind.CONNECT_WIFI,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def forget_network(self, ssid: str) -> RecoveryAction:
+        now = utc_now()
+        self._snapshot.health.network = NetworkHealth(
+            status=NetworkStatus.OFFLINE,
+            reason=NetworkReason.NO_KNOWN_NETWORK,
+            internet_reachable=False,
+        )
+        self._snapshot.readiness.network_configured = False
+        self._snapshot.setup = SetupState(blocking_step=SetupStepId.WIFI, steps=_setup_steps(SetupStepId.WIFI))
+        self._snapshot.updated_at = now
+        return RecoveryAction(
+            id="network-forget",
+            kind=RecoveryActionKind.FORGET_WIFI,
+            state=RecoveryActionState.SUCCEEDED,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def retry_internet_probe(self) -> RecoveryAction:
+        now = utc_now()
+        if self._snapshot.health.network.status in {NetworkStatus.ONLINE, NetworkStatus.LOCAL_ONLY} and self._snapshot.health.network.ssid:
+            self._snapshot.health.network = NetworkHealth(
+                status=NetworkStatus.ONLINE,
+                ssid=self._snapshot.health.network.ssid,
+                internet_reachable=True,
+            )
+            self._snapshot.updated_at = now
+            state = RecoveryActionState.SUCCEEDED
+            reason = None
+        else:
+            state = RecoveryActionState.FAILED
+            reason = self._snapshot.health.network.reason or NetworkReason.NO_KNOWN_NETWORK
+        return RecoveryAction(
+            id="network-internet-probe",
+            kind=RecoveryActionKind.CONNECT_WIFI,
+            state=state,
+            reason=reason,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
 
     def run_playback_test(self, action: str) -> RecoveryAction:
         now = utc_now()

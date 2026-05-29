@@ -214,6 +214,7 @@ button:disabled {
 .health-list,
 .actions,
 .spotify-panel,
+.wifi-panel,
 .idle-settings {
   border-radius: 8px;
   border: 1px solid #d4d0c5;
@@ -398,6 +399,13 @@ button:disabled {
   padding: 18px;
 }
 
+.wifi-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
+  gap: 14px;
+  padding: 18px;
+}
+
 .spotify-ready {
   border-color: #8dbb96;
 }
@@ -410,13 +418,27 @@ button:disabled {
   border-color: #d59c6a;
 }
 
-.spotify-panel h2 {
+.wifi-ready {
+  border-color: #8dbb96;
+}
+
+.wifi-waiting {
+  border-color: #2f6f73;
+}
+
+.wifi-attention {
+  border-color: #d59c6a;
+}
+
+.spotify-panel h2,
+.wifi-panel h2 {
   margin: 6px 0 8px;
   font-size: 28px;
   line-height: 1.08;
 }
 
-.spotify-panel p {
+.spotify-panel p,
+.wifi-panel p {
   margin: 8px 0;
   color: #65716b;
   line-height: 1.35;
@@ -448,10 +470,44 @@ button:disabled {
   gap: 8px;
 }
 
-.spotify-actions button {
+.spotify-actions button,
+.wifi-actions button {
   padding: 0 14px;
   text-align: left;
   font-weight: 800;
+}
+
+.wifi-heading,
+.wifi-form {
+  min-width: 0;
+}
+
+.wifi-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wifi-form,
+.wifi-form label,
+.wifi-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.wifi-form select,
+.wifi-form input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fffdf7;
+}
+
+.wifi-form span {
+  color: #65716b;
+  font-weight: 700;
 }
 
 .idle-settings {
@@ -579,6 +635,7 @@ button:disabled {
   .shell,
   .surface-grid,
   .spotify-panel,
+  .wifi-panel,
   .idle-settings {
     grid-template-columns: 1fr;
   }

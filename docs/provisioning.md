@@ -38,6 +38,10 @@ Set `SPOTIFY_CLIENT_ID` in `/etc/pipzo/pipzo.env`. Do not add Spotify client sec
 
 The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
 
+`setup-packages.sh` installs NetworkManager and polkit. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` so the backend service user can run the bounded Wi-Fi setup operations through `nmcli` without an interactive desktop authorization prompt. If the polkit rules directory is missing on a nonstandard image, hardware Wi-Fi actions will report unavailable or permission failures until equivalent NetworkManager permissions are added manually.
+
+Wi-Fi internet reachability uses `PIPZO_INTERNET_PROBE_URL`, defaulting to `https://www.google.com/generate_204`. Change this in `/etc/pipzo/pipzo.env` if the deployment network blocks that endpoint.
+
 ## Update
 
 From an updated clone:

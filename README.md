@@ -61,10 +61,11 @@ Configuration is environment-driven:
 - `PIPZO_TOKEN_KEY_AUTO_CREATE=true`; when true, the backend creates the token key if it is missing.
 - `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
 - `PIPZO_FRONTEND_DIST`; optional built frontend asset directory served by the backend for kiosk installs, for example `/opt/pipzo/app/frontend/dist`.
+- `PIPZO_INTERNET_PROBE_URL=https://www.google.com/generate_204`; endpoint used by hardware-mode Wi-Fi status to distinguish online from local-only connectivity.
 
 See [Spotify Developer Setup](docs/spotify-developer-setup.md) for app creation, redirect URI rules, scopes, Premium requirement, token-key caveats, and V1 deferred OAuth surfaces.
 
-Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger. Spotify access tokens, refresh tokens, authorization codes, PKCE verifiers, OAuth state, Authorization headers, and raw Spotify response bodies must remain backend-only and out of APIs, frontend contracts, events, diagnostics, issue comments, and logs.
+Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so Wi-Fi passwords and OAuth secrets are not captured by the logger. Spotify access tokens, refresh tokens, authorization codes, PKCE verifiers, OAuth state, Authorization headers, and raw Spotify response bodies must remain backend-only and out of APIs, frontend contracts, events, diagnostics, issue comments, and logs.
 
 Useful endpoints:
 
@@ -114,10 +115,10 @@ This SDK slice registers and selects the browser playback device only. Bluetooth
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
-App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, Wi-Fi connect/forget, Bluetooth scan/pair/reconnect/forget, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
+App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, Bluetooth scan/pair/reconnect/forget, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
 
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, display, or reset success. Wi-Fi and Bluetooth endpoint shapes are present for contract work, but their operation endpoints also return `501` until NetworkManager/BlueZ adapters are implemented and validated on the Pi.
+Wi-Fi status, scan, connect, forget, and internet-probe retry are implemented in hardware mode through NetworkManager/nmcli. Missing `nmcli` or missing NetworkManager authorization returns unavailable responses rather than fake success. Bluetooth endpoint shapes are present for contract work, but their operation endpoints still return `501` until the BlueZ adapter is implemented and validated on the Pi.
 
 Backend tests:
 

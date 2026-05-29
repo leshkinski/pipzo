@@ -1,0 +1,17 @@
+// Allow the Pipzo backend service user to manage Wi-Fi through NetworkManager.
+// The install script replaces __PIPZO_SERVICE_USER__ with the configured service user.
+polkit.addRule(function(action, subject) {
+  if (subject.user !== "__PIPZO_SERVICE_USER__") {
+    return polkit.Result.NOT_HANDLED;
+  }
+
+  if (
+    action.id === "org.freedesktop.NetworkManager.network-control" ||
+    action.id === "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+    action.id === "org.freedesktop.NetworkManager.settings.modify.system"
+  ) {
+    return polkit.Result.YES;
+  }
+
+  return polkit.Result.NOT_HANDLED;
+});

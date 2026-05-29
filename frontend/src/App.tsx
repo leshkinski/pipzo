@@ -8,12 +8,17 @@ import {
   fetchAppState,
   fetchBackendScenarios,
   fetchHealth,
+  fetchNetworkScanResults,
   fetchSpotifyAuthSession,
+  forgetNetwork,
   logoutSpotifyAuth,
   patchDisplay,
   patchSettings,
+  retryInternetProbe,
+  scanNetwork,
+  connectNetwork,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -32,6 +37,7 @@ import {
   primarySurfaces,
   shouldEnterIdleMode,
   spotifyAuthViewModel,
+  wifiSetupViewModel,
 } from "./viewModel";
 
 type DataSource = "backend" | "local";
@@ -46,6 +52,20 @@ type SpotifyAuthControls = {
   onCancel: () => void;
   onLogout: () => void;
   onReconnect: () => void;
+};
+
+type WifiControls = {
+  networks: WifiNetwork[];
+  selectedSsid: string;
+  password: string;
+  busy: boolean;
+  message: string;
+  onScan: () => void;
+  onSelect: (ssid: string) => void;
+  onPassword: (password: string) => void;
+  onConnect: () => void;
+  onRetry: () => void;
+  onForget: () => void;
 };
 
 const navLabels: Record<SurfaceId, string> = {
@@ -68,6 +88,11 @@ export function App() {
   const [spotifyAuthSession, setSpotifyAuthSession] = useState<SpotifyAuthSession | null>(null);
   const [spotifyAuthBusy, setSpotifyAuthBusy] = useState(false);
   const [spotifyAuthMessage, setSpotifyAuthMessage] = useState("Use local Chromium on this device to connect Spotify.");
+  const [wifiNetworks, setWifiNetworks] = useState<WifiNetwork[]>([]);
+  const [selectedWifiSsid, setSelectedWifiSsid] = useState("");
+  const [wifiPassword, setWifiPassword] = useState("");
+  const [wifiBusy, setWifiBusy] = useState(false);
+  const [wifiMessage, setWifiMessage] = useState("Scan for Wi-Fi networks to start.");
   const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
   const [idleActive, setIdleActive] = useState(false);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
@@ -82,14 +107,19 @@ export function App() {
 
     async function boot() {
       try {
-        const [health, state, backendScenarios] = await Promise.all([fetchHealth(), fetchAppState(), fetchBackendScenarios()]);
+        const [health, state] = await Promise.all([fetchHealth(), fetchAppState()]);
         if (cancelled) return;
+        let backendScenarios: ScenarioSummary[] = [];
+        if (health.mode === "mock") {
+          backendScenarios = await fetchBackendScenarios().catch(() => []);
+          if (cancelled) return;
+        }
         setBackendMode(health.mode);
         setSnapshot(state);
         setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
         setDataSource("backend");
         setSelectedScenario(backendScenarios[0]?.id ?? "ready_healthy");
-        setStatusText("Connected to backend mock API.");
+        setStatusText(health.mode === "mock" ? "Connected to backend mock API." : "Connected to backend hardware API.");
       } catch {
         if (cancelled) return;
         const fallback = localScenarioSnapshot("first_boot_empty");
@@ -304,6 +334,116 @@ export function App() {
     return state;
   }
 
+  async function scanWifi() {
+    setWifiBusy(true);
+    setWifiMessage("Scanning for Wi-Fi networks.");
+    try {
+      if (dataSource === "backend") {
+        await scanNetwork();
+        const results = await fetchNetworkScanResults();
+        setWifiNetworks(results.networks);
+        setSelectedWifiSsid((current) => current || results.networks[0]?.ssid || "");
+        setWifiMessage(results.networks.length > 0 ? "Choose a network and connect." : "No Wi-Fi networks found. Try again nearby.");
+      } else {
+        const fallback = [
+          { ssid: "PipzoNet", signal: 92, security: "wpa2" as const, known: snapshot.readiness.networkConfigured },
+          { ssid: "Grandma WiFi", signal: 68, security: "wpa2" as const, known: false },
+          { ssid: "Open Setup Lab", signal: 41, security: "open" as const, known: false },
+        ];
+        setWifiNetworks(fallback);
+        setSelectedWifiSsid((current) => current || fallback[0].ssid);
+        setWifiMessage("Local Wi-Fi mock networks loaded.");
+      }
+    } catch {
+      setWifiMessage("Wi-Fi scan is unavailable on this device.");
+    } finally {
+      setWifiBusy(false);
+    }
+  }
+
+  async function submitWifiConnect() {
+    if (!selectedWifiSsid) {
+      setWifiMessage("Select a Wi-Fi network first.");
+      return;
+    }
+    setWifiBusy(true);
+    setWifiMessage(`Connecting to ${selectedWifiSsid}.`);
+    try {
+      if (dataSource === "backend") {
+        const action = await connectNetwork({ ssid: selectedWifiSsid, password: wifiPassword || undefined });
+        await refreshSnapshot().catch(() => undefined);
+        setWifiMessage(action.state === "succeeded" ? "Wi-Fi connected." : `Wi-Fi connection failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else if (wifiPassword === "wrong") {
+        setWifiMessage("Wi-Fi connection failed: bad credentials.");
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: { ...current.health, network: { status: "online", ssid: selectedWifiSsid, internetReachable: true } },
+          readiness: { ...current.readiness, networkConfigured: true },
+          setup: { ...current.setup, blockingStep: current.setup.blockingStep === "wifi" ? "spotify_auth" : current.setup.blockingStep },
+        }));
+        setWifiMessage("Local Wi-Fi mock connected.");
+      }
+    } catch {
+      setWifiMessage("Wi-Fi connect is unavailable on this device.");
+    } finally {
+      setWifiBusy(false);
+    }
+  }
+
+  async function retryWifiProbe() {
+    setWifiBusy(true);
+    setWifiMessage("Checking internet reachability.");
+    try {
+      if (dataSource === "backend") {
+        const action = await retryInternetProbe();
+        await refreshSnapshot().catch(() => undefined);
+        setWifiMessage(action.state === "succeeded" ? "Internet is reachable." : `Internet check failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: {
+            ...current.health,
+            network: { status: "online", ssid: current.health.network.ssid ?? (selectedWifiSsid || "PipzoNet"), internetReachable: true },
+          },
+        }));
+        setWifiMessage("Local internet probe succeeded.");
+      }
+    } catch {
+      setWifiMessage("Internet probe is unavailable on this device.");
+    } finally {
+      setWifiBusy(false);
+    }
+  }
+
+  async function forgetWifi() {
+    const ssid = snapshot.health.network.ssid ?? selectedWifiSsid;
+    if (!ssid) {
+      setWifiMessage("No Wi-Fi network is selected or connected.");
+      return;
+    }
+    setWifiBusy(true);
+    setWifiMessage(`Forgetting ${ssid}.`);
+    try {
+      if (dataSource === "backend") {
+        const action = await forgetNetwork({ ssid, confirm: true });
+        await refreshSnapshot().catch(() => undefined);
+        setWifiMessage(action.state === "succeeded" ? "Wi-Fi network forgotten." : `Forget failed: ${labelFromId(action.reason ?? "unknown")}.`);
+      } else {
+        setSnapshot((current) => ({
+          ...current,
+          health: { ...current.health, network: { status: "offline", reason: "no_known_network", internetReachable: false } },
+          readiness: { ...current.readiness, networkConfigured: false, minimumReady: false },
+        }));
+        setWifiMessage("Local Wi-Fi mock forgotten.");
+      }
+    } catch {
+      setWifiMessage("Wi-Fi forget is unavailable on this device.");
+    } finally {
+      setWifiBusy(false);
+    }
+  }
+
   async function startSpotifyAuth() {
     setSpotifyAuthBusy(true);
     setSpotifyAuthMessage("Starting local Spotify setup.");
@@ -450,6 +590,19 @@ export function App() {
     onLogout: logoutSpotify,
     onReconnect: reconnectSpotify,
   };
+  const wifiControls = {
+    networks: wifiNetworks,
+    selectedSsid: selectedWifiSsid,
+    password: wifiPassword,
+    busy: wifiBusy,
+    message: wifiMessage,
+    onScan: scanWifi,
+    onSelect: setSelectedWifiSsid,
+    onPassword: setWifiPassword,
+    onConnect: submitWifiConnect,
+    onRetry: retryWifiProbe,
+    onForget: forgetWifi,
+  };
 
   return (
     <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
@@ -510,7 +663,7 @@ export function App() {
         </nav>
 
         <section className="surface" aria-live="polite">
-          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} />}
+          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} />}
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
           {activeSurface === "now_playing" && (
@@ -526,6 +679,7 @@ export function App() {
             <SettingsSurface
               snapshot={snapshot}
               spotifyAuth={spotifyAuthControls}
+              wifi={wifiControls}
               spotifySdk={spotifySdkState}
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
@@ -589,7 +743,7 @@ function DeveloperPanel(props: {
   );
 }
 
-function SetupSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls }) {
+function SetupSurface({ snapshot, spotifyAuth, wifi }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls; wifi: WifiControls }) {
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -612,6 +766,7 @@ function SetupSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spotif
             </div>
           ))}
         </section>
+        <WifiPanel snapshot={snapshot} controls={wifi} context="setup" />
         <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="setup" />
       </div>
     </div>
@@ -709,6 +864,7 @@ function NowPlayingSurface({
 function SettingsSurface({
   snapshot,
   spotifyAuth,
+  wifi,
   spotifySdk,
   playbackGateDetail,
   onActivateSpotify,
@@ -716,6 +872,7 @@ function SettingsSurface({
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
+  wifi: WifiControls;
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
@@ -734,6 +891,7 @@ function SettingsSurface({
         </div>
       </section>
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
+      <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
       <SpotifyPlaybackPanel
         playbackGateDetail={playbackGateDetail}
@@ -804,6 +962,86 @@ function IdleSettingsPanel({
         />
         <strong>{snapshot.settings.bedtimeBrightness}%</strong>
       </label>
+    </section>
+  );
+}
+
+function WifiPanel({
+  snapshot,
+  controls,
+  context,
+}: {
+  snapshot: AppSnapshot;
+  controls: WifiControls;
+  context: "setup" | "settings";
+}) {
+  const view = wifiSetupViewModel(snapshot, controls.networks);
+  const selectedNetwork = controls.networks.find((network) => network.ssid === controls.selectedSsid);
+  const needsPassword = selectedNetwork ? selectedNetwork.security !== "open" : true;
+
+  return (
+    <section className={`wifi-panel wifi-${view.tone}`} aria-label="Wi-Fi setup">
+      <div className="wifi-heading">
+        <p className="eyebrow">{context === "setup" ? "Setup step" : "Wi-Fi"}</p>
+        <h2>{view.title}</h2>
+        <p>{view.detail}</p>
+        <div className="wifi-status-grid">
+          <div className="spotify-status">
+            <span>Status</span>
+            <strong>{labelFromId(snapshot.health.network.status)}</strong>
+          </div>
+          <div className="spotify-status">
+            <span>Network</span>
+            <strong>{snapshot.health.network.ssid ?? (controls.selectedSsid || "Not selected")}</strong>
+          </div>
+        </div>
+        <p className="subtle">{controls.message}</p>
+      </div>
+      <div className="wifi-form">
+        <label>
+          <span>Network</span>
+          <select value={controls.selectedSsid} onChange={(event) => controls.onSelect(event.target.value)}>
+            <option value="">Select network</option>
+            {controls.networks.map((network) => (
+              <option key={network.ssid} value={network.ssid}>
+                {network.ssid} / {network.signal}% / {labelFromId(network.security)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            autoComplete="current-password"
+            disabled={!needsPassword}
+            inputMode="text"
+            placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
+            type="password"
+            value={controls.password}
+            onChange={(event) => controls.onPassword(event.target.value)}
+          />
+        </label>
+        <div className="wifi-actions">
+          <button disabled={controls.busy} type="button" onClick={controls.onScan}>
+            Scan
+          </button>
+          {view.actions.includes("connect") && (
+            <button disabled={controls.busy || !controls.selectedSsid} type="button" onClick={controls.onConnect}>
+              Connect
+            </button>
+          )}
+          {view.actions.includes("retry") && (
+            <button disabled={controls.busy} type="button" onClick={controls.onRetry}>
+              Retry internet
+            </button>
+          )}
+          {view.actions.includes("forget") && (
+            <button disabled={controls.busy} type="button" onClick={controls.onForget}>
+              Forget
+            </button>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

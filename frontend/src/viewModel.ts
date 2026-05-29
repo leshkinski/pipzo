@@ -1,4 +1,4 @@
-import type { AppSnapshot, IdleMode, SpotifyAuthSession, SurfaceId } from "./contracts";
+import type { AppSnapshot, IdleMode, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
 
@@ -154,5 +154,56 @@ export function spotifyAuthViewModel(snapshot: AppSnapshot, session?: SpotifyAut
     accountLabel: accountLabel ?? undefined,
     tone: "attention",
     actions: ["start"],
+  };
+}
+
+export type WifiAction = "scan" | "connect" | "retry" | "forget";
+
+export type WifiSetupViewModel = {
+  title: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention";
+  actions: WifiAction[];
+};
+
+export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[] = []): WifiSetupViewModel {
+  const network = snapshot.health.network;
+  if (network.status === "online") {
+    return {
+      title: network.ssid ? `Connected to ${network.ssid}` : "Wi-Fi connected",
+      detail: "Internet is reachable. Continue setup from this device.",
+      tone: "ready",
+      actions: ["scan", "forget"],
+    };
+  }
+  if (network.status === "local_only") {
+    return {
+      title: network.ssid ? `${network.ssid} has no internet` : "Wi-Fi has no internet",
+      detail: "Pipzo can show settings, but Spotify setup and playback need internet access.",
+      tone: "attention",
+      actions: ["retry", "scan", "forget"],
+    };
+  }
+  if (network.status === "starting") {
+    return {
+      title: "Checking Wi-Fi",
+      detail: "The backend is waiting for NetworkManager before showing recovery choices.",
+      tone: "waiting",
+      actions: ["scan"],
+    };
+  }
+  if (networks.length > 0) {
+    return {
+      title: "Choose a Wi-Fi network",
+      detail: "Select the home network, enter its password when needed, then connect.",
+      tone: "attention",
+      actions: ["scan", "connect"],
+    };
+  }
+  return {
+    title: "Connect Wi-Fi",
+    detail: network.reason ? `Current state: ${labelFromId(network.reason)}.` : "Scan for nearby Wi-Fi networks.",
+    tone: "attention",
+    actions: ["scan"],
   };
 }

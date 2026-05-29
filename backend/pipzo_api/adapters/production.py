@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Optional, Protocol
+
+from pipzo_api.contract import NetworkHealth, RecoveryAction, WifiScanResults
 
 
 class ProductionAdapterNotImplemented(NotImplementedError):
@@ -8,6 +10,24 @@ class ProductionAdapterNotImplemented(NotImplementedError):
 
 class NetworkManagerAdapter(Protocol):
     def probe(self) -> None:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def status(self) -> NetworkHealth:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def scan(self) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def scan_results(self, rescan: bool = False) -> WifiScanResults:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def connect(self, ssid: str, password: Optional[str], hidden: bool = False) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def forget(self, ssid: str) -> RecoveryAction:
+        raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
+
+    def retry_internet_probe(self) -> RecoveryAction:
         raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")
 
 
