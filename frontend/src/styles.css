@@ -212,7 +212,8 @@ button:disabled {
 .art-panel,
 .checklist,
 .health-list,
-.actions {
+.actions,
+.spotify-panel {
   border-radius: 8px;
   border: 1px solid #d4d0c5;
   background: #fffdf7;
@@ -246,7 +247,8 @@ button:disabled {
 .checklist,
 .health-list,
 .actions,
-.tile-grid {
+.tile-grid,
+.setup-side {
   display: grid;
   gap: 10px;
 }
@@ -388,6 +390,69 @@ button:disabled {
   font-weight: 800;
 }
 
+.spotify-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.45fr);
+  gap: 14px;
+  padding: 18px;
+}
+
+.spotify-ready {
+  border-color: #8dbb96;
+}
+
+.spotify-waiting {
+  border-color: #2f6f73;
+}
+
+.spotify-attention {
+  border-color: #d59c6a;
+}
+
+.spotify-panel h2 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.spotify-panel p {
+  margin: 8px 0;
+  color: #65716b;
+  line-height: 1.35;
+}
+
+.spotify-status {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  margin: 6px 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4f1ea;
+}
+
+.spotify-status span {
+  color: #65716b;
+}
+
+.spotify-status strong {
+  overflow-wrap: anywhere;
+}
+
+.spotify-actions {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.spotify-actions button {
+  padding: 0 14px;
+  text-align: left;
+  font-weight: 800;
+}
+
 .idle-surface {
   display: grid;
   place-items: center;
@@ -416,7 +481,8 @@ button:disabled {
   .topbar,
   .developer-panel,
   .shell,
-  .surface-grid {
+  .surface-grid,
+  .spotify-panel {
     grid-template-columns: 1fr;
   }
 

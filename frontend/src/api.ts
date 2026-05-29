@@ -86,3 +86,7 @@ export function fetchSpotifyAuthSession(sessionId: string): Promise<SpotifyAuthS
 export function cancelSpotifyAuthSession(sessionId: string): Promise<SpotifyAuthSession> {
   return request<SpotifyAuthSession>(`/api/v1/spotify/auth/session/${sessionId}/cancel`, { method: "POST" });
 }
+
+export function logoutSpotifyAuth(): Promise<HealthState["spotifyAuth"]> {
+  return request<HealthState["spotifyAuth"]>("/api/v1/spotify/auth/logout", { method: "POST" });
+}

@@ -1,11 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { activateBackendScenario, fetchAppState, fetchBackendScenarios, patchDisplay } from "./api";
-import type { AppSnapshot, DisplayStatus, ScenarioSummary, SurfaceId } from "./contracts";
+import {
+  activateBackendScenario,
+  cancelSpotifyAuthSession,
+  createSpotifyAuthSession,
+  fetchAppState,
+  fetchBackendScenarios,
+  fetchSpotifyAuthSession,
+  logoutSpotifyAuth,
+  patchDisplay,
+} from "./api";
+import type { AppSnapshot, DisplayStatus, ScenarioSummary, SpotifyAuthSession, SurfaceId } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
-import { canOpenSurface, formatMs, isSetupGated, labelFromId, preferredSurface, primarySurfaces } from "./viewModel";
+import {
+  canOpenSurface,
+  formatMs,
+  isSetupGated,
+  labelFromId,
+  preferredSurface,
+  primarySurfaces,
+  spotifyAuthViewModel,
+} from "./viewModel";
 
 type DataSource = "backend" | "local";
+
+type SpotifyAuthControls = {
+  session: SpotifyAuthSession | null;
+  busy: boolean;
+  message: string;
+  onStart: () => void;
+  onOpen: () => void;
+  onRefresh: () => void;
+  onCancel: () => void;
+  onLogout: () => void;
+  onReconnect: () => void;
+};
 
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
@@ -23,6 +52,9 @@ export function App() {
   const [selectedScenario, setSelectedScenario] = useState("first_boot_empty");
   const [dataSource, setDataSource] = useState<DataSource>("local");
   const [statusText, setStatusText] = useState("Using local fallback scenarios.");
+  const [spotifyAuthSession, setSpotifyAuthSession] = useState<SpotifyAuthSession | null>(null);
+  const [spotifyAuthBusy, setSpotifyAuthBusy] = useState(false);
+  const [spotifyAuthMessage, setSpotifyAuthMessage] = useState("Use local Chromium on this device to connect Spotify.");
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +88,28 @@ export function App() {
     const preferred = preferredSurface(snapshot);
     setSelectedSurface((current) => (canOpenSurface(snapshot, current) ? current : preferred));
   }, [snapshot]);
+
+  useEffect(() => {
+    if (snapshot.health.spotifyAuth.status === "connected") {
+      setSpotifyAuthSession(null);
+    }
+  }, [snapshot.health.spotifyAuth.status]);
+
+  useEffect(() => {
+    if (!spotifyAuthSession || !["waiting", "callback_received"].includes(spotifyAuthSession.status)) {
+      return;
+    }
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void refreshSpotifySession({ quiet: true, cancelled: () => cancelled });
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [spotifyAuthSession?.sessionId, spotifyAuthSession?.status]);
 
   const gated = isSetupGated(snapshot);
   const activeSurface = gated ? "setup" : selectedSurface;
@@ -106,6 +160,131 @@ export function App() {
     }));
     setStatusText("Local display mock updated.");
   }
+
+  async function refreshSnapshot() {
+    const state = await fetchAppState();
+    setSnapshot(state);
+    return state;
+  }
+
+  async function startSpotifyAuth() {
+    setSpotifyAuthBusy(true);
+    setSpotifyAuthMessage("Starting local Spotify setup.");
+    try {
+      const session = await createSpotifyAuthSession();
+      setSpotifyAuthSession(session);
+      setSpotifyAuthMessage("Spotify setup is ready in this Chromium window.");
+    } catch {
+      setSpotifyAuthMessage("Spotify setup could not start. Check configuration and try again.");
+    } finally {
+      setSpotifyAuthBusy(false);
+    }
+  }
+
+  function openSpotifyAuth() {
+    if (!spotifyAuthSession || !["waiting", "callback_received"].includes(spotifyAuthSession.status)) {
+      setSpotifyAuthMessage("Start a fresh Spotify setup session first.");
+      return;
+    }
+    window.location.assign(spotifyAuthSession.startUrl);
+  }
+
+  async function refreshSpotifySession(options?: { quiet?: boolean; cancelled?: () => boolean }) {
+    if (!spotifyAuthSession) {
+      return;
+    }
+    if (!options?.quiet) {
+      setSpotifyAuthBusy(true);
+      setSpotifyAuthMessage("Checking Spotify setup status.");
+    }
+    try {
+      const session = await fetchSpotifyAuthSession(spotifyAuthSession.sessionId);
+      if (options?.cancelled?.()) return;
+      setSpotifyAuthSession(session);
+      if (session.status === "connected") {
+        await refreshSnapshot();
+        setSpotifyAuthMessage("Spotify account connected.");
+      } else if (!options?.quiet) {
+        setSpotifyAuthMessage("Spotify setup status updated.");
+      }
+    } catch {
+      if (!options?.cancelled?.()) {
+        setSpotifyAuthMessage("Spotify setup status is unavailable. Try again from this screen.");
+      }
+    } finally {
+      if (!options?.quiet) {
+        setSpotifyAuthBusy(false);
+      }
+    }
+  }
+
+  async function cancelSpotifyAuth() {
+    if (!spotifyAuthSession) {
+      return;
+    }
+    setSpotifyAuthBusy(true);
+    setSpotifyAuthMessage("Cancelling Spotify setup.");
+    try {
+      const session = await cancelSpotifyAuthSession(spotifyAuthSession.sessionId);
+      setSpotifyAuthSession(session);
+      setSpotifyAuthMessage("Spotify setup cancelled.");
+    } catch {
+      setSpotifyAuthMessage("Spotify setup could not be cancelled. Check status and try again.");
+    } finally {
+      setSpotifyAuthBusy(false);
+    }
+  }
+
+  async function logoutSpotify() {
+    setSpotifyAuthBusy(true);
+    setSpotifyAuthMessage("Disconnecting Spotify account.");
+    try {
+      const spotifyAuth = await logoutSpotifyAuth();
+      setSpotifyAuthSession(null);
+      setSnapshot((current) => ({
+        ...current,
+        readiness: { ...current.readiness, spotifyAuthorized: false, minimumReady: false },
+        health: { ...current.health, spotifyAuth },
+        appPhase: "setup",
+        setup: {
+          ...current.setup,
+          blockingStep: "spotify_auth",
+          steps: current.setup.steps.map((step) =>
+            step.id === "spotify_auth" ? { ...step, status: "action_required" } : step,
+          ),
+        },
+        surfaces: { ...current.surfaces, current: "setup", route: "/setup/spotify" },
+      }));
+      await refreshSnapshot().catch(() => undefined);
+      setSelectedSurface("setup");
+      setSpotifyAuthMessage("Spotify disconnected. Reconnect locally when ready.");
+      return true;
+    } catch {
+      setSpotifyAuthMessage("Spotify account could not be disconnected. Try again.");
+      return false;
+    } finally {
+      setSpotifyAuthBusy(false);
+    }
+  }
+
+  async function reconnectSpotify() {
+    const loggedOut = await logoutSpotify();
+    if (loggedOut) {
+      await startSpotifyAuth();
+    }
+  }
+
+  const spotifyAuthControls = {
+    session: spotifyAuthSession,
+    busy: spotifyAuthBusy,
+    message: spotifyAuthMessage,
+    onStart: startSpotifyAuth,
+    onOpen: openSpotifyAuth,
+    onRefresh: () => refreshSpotifySession(),
+    onCancel: cancelSpotifyAuth,
+    onLogout: logoutSpotify,
+    onReconnect: reconnectSpotify,
+  };
 
   return (
     <div className={`app phase-${snapshot.appPhase}`}>
@@ -162,11 +341,11 @@ export function App() {
         </nav>
 
         <section className="surface" aria-live="polite">
-          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} />}
+          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} />}
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
           {activeSurface === "now_playing" && <NowPlayingSurface snapshot={snapshot} />}
-          {activeSurface === "settings" && <SettingsSurface snapshot={snapshot} />}
+          {activeSurface === "settings" && <SettingsSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} />}
           {activeSurface === "idle" && <IdleSurface snapshot={snapshot} />}
         </section>
       </main>
@@ -222,7 +401,7 @@ function DeveloperPanel(props: {
   );
 }
 
-function SetupSurface({ snapshot }: { snapshot: AppSnapshot }) {
+function SetupSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls }) {
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -231,18 +410,22 @@ function SetupSurface({ snapshot }: { snapshot: AppSnapshot }) {
         <p>
           Current blocker: <strong>{labelFromId(snapshot.setup.blockingStep)}</strong>
         </p>
+        <p>Spotify must be connected locally in Chromium before setup can complete.</p>
       </section>
-      <section className="checklist">
-        {snapshot.setup.steps.map((step) => (
-          <div className={`step step-${step.status}`} key={step.id}>
-            <div>
-              <strong>{labelFromId(step.id)}</strong>
-              <span>{step.required ? "Required" : "Intro"}</span>
+      <div className="setup-side">
+        <section className="checklist">
+          {snapshot.setup.steps.map((step) => (
+            <div className={`step step-${step.status}`} key={step.id}>
+              <div>
+                <strong>{step.id === "spotify_auth" ? "Spotify" : labelFromId(step.id)}</strong>
+                <span>{step.required ? "Required" : "Intro"}</span>
+              </div>
+              <b>{labelFromId(step.status)}</b>
             </div>
-            <b>{labelFromId(step.status)}</b>
-          </div>
-        ))}
-      </section>
+          ))}
+        </section>
+        <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="setup" />
+      </div>
     </div>
   );
 }
@@ -317,7 +500,7 @@ function NowPlayingSurface({ snapshot }: { snapshot: AppSnapshot }) {
   );
 }
 
-function SettingsSurface({ snapshot }: { snapshot: AppSnapshot }) {
+function SettingsSurface({ snapshot, spotifyAuth }: { snapshot: AppSnapshot; spotifyAuth: SpotifyAuthControls }) {
   return (
     <div className="settings-layout">
       <section className="hero-panel">
@@ -330,6 +513,7 @@ function SettingsSurface({ snapshot }: { snapshot: AppSnapshot }) {
           <small>{labelFromId(snapshot.health.display.status)}{snapshot.health.display.reason ? ` / ${labelFromId(snapshot.health.display.reason)}` : ""}</small>
         </div>
       </section>
+      <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
       <HealthRows snapshot={snapshot} />
       <section className="actions">
         {snapshot.recoveryActions.map((action) => (
@@ -340,6 +524,75 @@ function SettingsSurface({ snapshot }: { snapshot: AppSnapshot }) {
         ))}
       </section>
     </div>
+  );
+}
+
+function SpotifyAuthPanel({
+  snapshot,
+  controls,
+  context,
+}: {
+  snapshot: AppSnapshot;
+  controls: SpotifyAuthControls;
+  context: "setup" | "settings";
+}) {
+  const view = spotifyAuthViewModel(snapshot, controls.session);
+  const isConnected = view.tone === "ready";
+
+  return (
+    <section className={`spotify-panel spotify-${view.tone}`} aria-label="Spotify account setup">
+      <div>
+        <p className="eyebrow">{context === "setup" ? "Setup step" : "Spotify account"}</p>
+        <h2>{view.title}</h2>
+        <p>{view.detail}</p>
+        <div className="spotify-status">
+          <span>Account</span>
+          <strong>{view.accountLabel ?? (isConnected ? "Connected" : "Not connected")}</strong>
+        </div>
+        <div className="spotify-status">
+          <span>Status</span>
+          <strong>{controls.session ? labelFromId(controls.session.status) : labelFromId(snapshot.health.spotifyAuth.status)}</strong>
+        </div>
+        <p className="subtle">{controls.message}</p>
+      </div>
+      <div className="spotify-actions">
+        {view.actions.includes("start") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onStart}>
+            Start local Spotify setup
+          </button>
+        )}
+        {view.actions.includes("open") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onOpen}>
+            Open Spotify authorization
+          </button>
+        )}
+        {view.actions.includes("refresh") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onRefresh}>
+            Check status
+          </button>
+        )}
+        {view.actions.includes("cancel") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onCancel}>
+            Cancel setup
+          </button>
+        )}
+        {view.actions.includes("retry") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onStart}>
+            Try again
+          </button>
+        )}
+        {view.actions.includes("logout") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onLogout}>
+            Logout
+          </button>
+        )}
+        {view.actions.includes("reconnect") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onReconnect}>
+            Reconnect
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
