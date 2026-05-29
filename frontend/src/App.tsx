@@ -42,9 +42,15 @@ import {
   preferredSurface,
   primarySurfaces,
   shouldEnterIdleMode,
+  sleepTimerExpiryCommand,
+  sleepTimerPresets,
+  sleepTimerViewModel,
   speakerSetupViewModel,
+  startSleepTimer,
   spotifyAuthViewModel,
   wifiSetupViewModel,
+  type SleepTimerPresetMinutes,
+  type SleepTimerState,
 } from "./viewModel";
 
 type DataSource = "backend" | "local";
@@ -87,6 +93,14 @@ type SpeakerControls = {
   onForget: () => void;
 };
 
+type SleepTimerControls = {
+  timer: SleepTimerState;
+  nowMs: number;
+  busy: boolean;
+  onStart: (minutes: SleepTimerPresetMinutes) => void;
+  onCancel: () => void;
+};
+
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
@@ -118,6 +132,9 @@ export function App() {
   const [speakerMessage, setSpeakerMessage] = useState("Scan for a Bluetooth speaker after Wi-Fi and Spotify are ready.");
   const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
   const [idleActive, setIdleActive] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [sleepTimer, setSleepTimer] = useState<SleepTimerState>({ status: "idle" });
+  const [sleepTimerBusy, setSleepTimerBusy] = useState(false);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
     status: "disabled",
     activated: false,
@@ -188,6 +205,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
     if (!idlePresentation(snapshot).enabled) {
       setIdleActive(false);
       return;
@@ -223,6 +245,56 @@ export function App() {
       window.clearInterval(intervalId);
     };
   }, [spotifyAuthSession?.sessionId, spotifyAuthSession?.status]);
+
+  useEffect(() => {
+    const command = sleepTimerExpiryCommand(snapshot, sleepTimer, nowMs);
+    if (sleepTimer.status !== "active" || !sleepTimer.expiresAtMs || nowMs < sleepTimer.expiresAtMs) {
+      return;
+    }
+
+    if (!command.shouldStop) {
+      setSleepTimer({
+        ...sleepTimer,
+        status: "blocked",
+        message: `Timer ended, but playback control is unavailable${command.blockedReason ? `: ${labelFromId(command.blockedReason)}` : "."}`,
+      });
+      return;
+    }
+
+    if (dataSource !== "backend") {
+      setSleepTimer({
+        ...sleepTimer,
+        status: "blocked",
+        message: "Timer ended, but local fallback scenarios do not call Spotify playback.",
+      });
+      return;
+    }
+
+    setSleepTimerBusy(true);
+    setSleepTimer({ ...sleepTimer, status: "expired", message: "Timer ended. Sending playback stop." });
+    void controlPlayback({ action: command.action, deviceId: command.deviceId })
+      .then((result) => {
+        setSleepTimer((current) => ({
+          ...current,
+          status: result.state === "succeeded" ? "expired" : "blocked",
+          message: result.state === "succeeded"
+            ? "Timer ended and playback stop was sent."
+            : `Timer ended, but stop was blocked: ${labelFromId(result.reason ?? "unknown")}.`,
+        }));
+        setStatusText(result.state === "succeeded" ? "Sleep timer stopped playback." : "Sleep timer ended, but playback stop was blocked.");
+      })
+      .catch(() => {
+        setSleepTimer((current) => ({
+          ...current,
+          status: "failed",
+          message: "Timer ended, but playback stop could not be sent.",
+        }));
+        setStatusText("Sleep timer ended, but playback stop could not be sent.");
+      })
+      .finally(() => {
+        setSleepTimerBusy(false);
+      });
+  }, [dataSource, nowMs, sleepTimer, snapshot]);
 
   const gated = isSetupGated(snapshot);
   const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
@@ -731,6 +803,23 @@ export function App() {
     setStatusText("Local scenario playback controls do not call Spotify.");
   }
 
+  function setSleepTimerPreset(minutes: SleepTimerPresetMinutes) {
+    const startedAt = Date.now();
+    setIdleActive(false);
+    setLastActivityAt(startedAt);
+    setNowMs(startedAt);
+    setSleepTimer(startSleepTimer(minutes, startedAt));
+    setStatusText(`Sleep timer set for ${minutes} minutes.`);
+  }
+
+  function clearSleepTimer() {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    setSleepTimer({ status: "idle" });
+    setSleepTimerBusy(false);
+    setStatusText("Sleep timer cleared.");
+  }
+
   const spotifyAuthControls = {
     session: spotifyAuthSession,
     busy: spotifyAuthBusy,
@@ -766,11 +855,18 @@ export function App() {
     onReconnect: reconnectBluetoothSpeaker,
     onForget: forgetBluetoothSpeaker,
   };
+  const sleepTimerControls = {
+    timer: sleepTimer,
+    nowMs,
+    busy: sleepTimerBusy,
+    onStart: setSleepTimerPreset,
+    onCancel: clearSleepTimer,
+  };
 
   return (
     <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
       {idleActive ? (
-        <IdleSurface snapshot={snapshot} active />
+        <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} active />
       ) : (
         <>
       <header className="topbar">
@@ -836,7 +932,7 @@ export function App() {
 
         <section className="surface" aria-live="polite">
           {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} speaker={speakerControls} />}
-          {activeSurface === "home" && <HomeSurface snapshot={snapshot} />}
+          {activeSurface === "home" && <HomeSurface snapshot={snapshot} sleepTimer={sleepTimerControls} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
           {activeSurface === "now_playing" && (
             <NowPlayingSurface
@@ -845,6 +941,7 @@ export function App() {
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
               onPlaybackAction={sendPlaybackAction}
+              sleepTimer={sleepTimerControls}
             />
           )}
           {activeSurface === "settings" && (
@@ -857,9 +954,10 @@ export function App() {
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
               onIdleSettingsChange={updateIdleSettings}
+              sleepTimer={sleepTimerControls}
             />
           )}
-          {activeSurface === "idle" && <IdleSurface snapshot={snapshot} />}
+          {activeSurface === "idle" && <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} />}
         </section>
       </main>
         </>
@@ -989,7 +1087,7 @@ function SetupSurface({
   );
 }
 
-function HomeSurface({ snapshot }: { snapshot: AppSnapshot }) {
+function HomeSurface({ snapshot, sleepTimer }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls }) {
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -997,13 +1095,16 @@ function HomeSurface({ snapshot }: { snapshot: AppSnapshot }) {
         <h1>Library-first music for bedtime</h1>
         <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : "Ready for library and account-context recommendations."}</p>
       </section>
-      <TileGrid
-        items={[
-          ["Recently loved", "From the connected Spotify account"],
-          ["Quiet favorites", "Saved music and familiar mixes"],
-          ["Sleep timer", snapshot.capabilities.canUseSleepTimer ? "Available" : "Unavailable now"],
-        ]}
-      />
+      <div className="side-stack">
+        <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} compact />
+        <TileGrid
+          items={[
+            ["Recently loved", "From the connected Spotify account"],
+            ["Quiet favorites", "Saved music and familiar mixes"],
+            ["Sleep timer", snapshot.capabilities.canUseSleepTimer ? "Available" : "Unavailable now"],
+          ]}
+        />
+      </div>
     </div>
   );
 }
@@ -1033,12 +1134,14 @@ function NowPlayingSurface({
   playbackGateDetail,
   onActivateSpotify,
   onPlaybackAction,
+  sleepTimer,
 }: {
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
+  sleepTimer: SleepTimerControls;
 }) {
   const playing = snapshot.nowPlaying;
   const progress = playing?.durationMs ? Math.min(100, ((playing.progressMs ?? 0) / playing.durationMs) * 100) : 0;
@@ -1072,6 +1175,7 @@ function NowPlayingSurface({
           spotifySdk={spotifySdk}
           onActivateSpotify={onActivateSpotify}
         />
+        <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
       </section>
     </div>
   );
@@ -1086,6 +1190,7 @@ function SettingsSurface({
   playbackGateDetail,
   onActivateSpotify,
   onIdleSettingsChange,
+  sleepTimer,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
@@ -1095,6 +1200,7 @@ function SettingsSurface({
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   onIdleSettingsChange: (patch: AppSettingsPatch) => void;
+  sleepTimer: SleepTimerControls;
 }) {
   return (
     <div className="settings-layout">
@@ -1109,6 +1215,7 @@ function SettingsSurface({
         </div>
       </section>
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
+      <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
       <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
       <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
@@ -1436,10 +1543,49 @@ function SpotifyPlaybackPanel({
   );
 }
 
-function IdleSurface({ snapshot, active = false }: { snapshot: AppSnapshot; active?: boolean }) {
+function SleepTimerPanel({
+  snapshot,
+  controls,
+  compact = false,
+}: {
+  snapshot: AppSnapshot;
+  controls: SleepTimerControls;
+  compact?: boolean;
+}) {
+  const view = sleepTimerViewModel(snapshot, controls.timer, controls.nowMs);
+
+  return (
+    <section className={`sleep-timer sleep-timer-${view.tone}${compact ? " compact" : ""}`} aria-label="Sleep timer">
+      <div>
+        <p className="eyebrow">Sleep timer</p>
+        <h2>{view.label}</h2>
+        <p>{view.detail}</p>
+      </div>
+      <div className="sleep-presets" aria-label="Sleep timer presets">
+        {sleepTimerPresets.map((minutes) => (
+          <button
+            disabled={!view.canStart || controls.busy}
+            key={minutes}
+            type="button"
+            onClick={() => controls.onStart(minutes)}
+          >
+            {minutes}
+            <span>min</span>
+          </button>
+        ))}
+        <button disabled={!view.canCancel || controls.busy} type="button" onClick={controls.onCancel}>
+          Clear
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function IdleSurface({ snapshot, sleepTimer, active = false }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls; active?: boolean }) {
   const [clockNow, setClockNow] = useState(() => new Date());
   const presentation = idlePresentation(snapshot);
   const playing = snapshot.nowPlaying;
+  const timerView = sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs);
   const style = { "--idle-brightness": `${Math.max(0.22, presentation.brightness / 100)}` } as CSSProperties;
 
   useEffect(() => {
@@ -1455,6 +1601,7 @@ function IdleSurface({ snapshot, active = false }: { snapshot: AppSnapshot; acti
       </div>
       {presentation.showArtwork && <div className="idle-art">{playing?.artworkUrl ? "Art" : playing?.title?.slice(0, 1) ?? "P"}</div>}
       <p className="idle-now-playing">{playing ? `${playing.title} / ${playing.artist}` : "Clock-first idle mode"}</p>
+      {(timerView.active || timerView.expired) && <p className="idle-timer">{timerView.label}</p>}
     </div>
   );
 }

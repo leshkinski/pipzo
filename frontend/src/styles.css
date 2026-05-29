@@ -261,6 +261,7 @@ button:disabled {
 .spotify-panel,
 .wifi-panel,
 .speaker-panel,
+.sleep-timer,
 .idle-settings {
   border-radius: 8px;
   border: 1px solid #d4d0c5;
@@ -296,6 +297,7 @@ button:disabled {
 .health-list,
 .actions,
 .tile-grid,
+.side-stack,
 .setup-side {
   display: grid;
   gap: 10px;
@@ -346,6 +348,10 @@ button:disabled {
 
 .tile-grid strong {
   font-size: 22px;
+}
+
+.side-stack {
+  align-content: start;
 }
 
 .art-panel {
@@ -446,7 +452,8 @@ button:disabled {
 }
 
 .wifi-panel,
-.speaker-panel {
+.speaker-panel,
+.sleep-timer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
   gap: 14px;
@@ -489,9 +496,27 @@ button:disabled {
   border-color: #d59c6a;
 }
 
+.sleep-timer-ready {
+  border-color: #8dbb96;
+}
+
+.sleep-timer-waiting {
+  border-color: #2f6f73;
+  background: #edf7f1;
+}
+
+.sleep-timer-attention {
+  border-color: #d59c6a;
+}
+
+.sleep-timer.compact {
+  grid-template-columns: 1fr;
+}
+
 .spotify-panel h2,
 .wifi-panel h2,
-.speaker-panel h2 {
+.speaker-panel h2,
+.sleep-timer h2 {
   margin: 6px 0 8px;
   font-size: 28px;
   line-height: 1.08;
@@ -499,10 +524,31 @@ button:disabled {
 
 .spotify-panel p,
 .wifi-panel p,
-.speaker-panel p {
+.speaker-panel p,
+.sleep-timer p {
   margin: 8px 0;
   color: #65716b;
   line-height: 1.35;
+}
+
+.sleep-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sleep-presets button {
+  min-height: 62px;
+  padding: 8px;
+  font-weight: 900;
+}
+
+.sleep-presets span {
+  display: block;
+  color: #65716b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .spotify-status {
@@ -685,6 +731,13 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.idle-timer {
+  margin: 8px 0 0;
+  color: #f0d38a;
+  font-size: 20px;
+  font-weight: 900;
+}
+
 .idle-surface.with-art .idle-now-playing {
   grid-column: 1 / -1;
 }
@@ -707,6 +760,7 @@ button:disabled {
   .spotify-panel,
   .wifi-panel,
   .speaker-panel,
+  .sleep-timer,
   .idle-settings {
     grid-template-columns: 1fr;
   }
@@ -718,6 +772,10 @@ button:disabled {
   .status-strip,
   .tile-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sleep-presets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .shell {

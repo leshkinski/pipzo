@@ -825,6 +825,38 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
     assert "stored-refresh-token" not in str([transfer.json(), pause.json()])
 
 
+def test_hardware_sleep_timer_stop_uses_playback_pause_control(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-access-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="streaming user-modify-playback-state",
+            expires_in=3600,
+        )
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.post(
+            "/api/v1/playback/control",
+            json={"action": "stop", "deviceId": "pipzo-device-id"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["action"] == "stop"
+    assert spotify_client.playback_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "action": "pause",
+            "device_id": "pipzo-device-id",
+        }
+    ]
+
+
 def test_hardware_playback_control_maps_spotify_errors_to_honest_blocked_state(tmp_path):
     settings = make_settings(tmp_path, app_mode="hardware")
     persist_auth_record(settings)

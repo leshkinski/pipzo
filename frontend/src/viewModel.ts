@@ -1,6 +1,36 @@
 import type { AppSnapshot, IdleMode, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
+export const sleepTimerPresets = [15, 30, 45, 60] as const;
+
+export type SleepTimerPresetMinutes = (typeof sleepTimerPresets)[number];
+
+export type SleepTimerState = {
+  status: "idle" | "active" | "expired" | "blocked" | "failed";
+  durationMinutes?: SleepTimerPresetMinutes;
+  startedAtMs?: number;
+  expiresAtMs?: number;
+  message?: string;
+};
+
+export type SleepTimerViewModel = {
+  presets: readonly SleepTimerPresetMinutes[];
+  canStart: boolean;
+  canCancel: boolean;
+  active: boolean;
+  expired: boolean;
+  remainingMs: number;
+  label: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention";
+};
+
+export type SleepTimerExpiryCommand = {
+  shouldStop: boolean;
+  action: "stop";
+  deviceId?: string;
+  blockedReason?: string;
+};
 
 export function isSetupGated(snapshot: AppSnapshot): boolean {
   if (snapshot.appPhase === "setup") {
@@ -99,6 +129,99 @@ export function formatMs(ms?: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export function startSleepTimer(minutes: SleepTimerPresetMinutes, nowMs: number): SleepTimerState {
+  return {
+    status: "active",
+    durationMinutes: minutes,
+    startedAtMs: nowMs,
+    expiresAtMs: nowMs + minutes * 60 * 1000,
+  };
+}
+
+export function cancelSleepTimer(): SleepTimerState {
+  return { status: "idle" };
+}
+
+export function canUseSleepTimer(snapshot: AppSnapshot): boolean {
+  return (
+    !isSetupGated(snapshot)
+    && snapshot.capabilities.canUseSleepTimer
+    && snapshot.capabilities.canControlPlayback
+    && snapshot.health.playbackDevice.status === "available"
+  );
+}
+
+export function sleepTimerViewModel(snapshot: AppSnapshot, timer: SleepTimerState, nowMs: number): SleepTimerViewModel {
+  const remainingMs = Math.max(0, (timer.expiresAtMs ?? nowMs) - nowMs);
+  const active = timer.status === "active" && remainingMs > 0;
+  const expired = ["expired", "blocked", "failed"].includes(timer.status) || (timer.status === "active" && remainingMs <= 0);
+  const usable = canUseSleepTimer(snapshot);
+  const deviceReason = snapshot.health.playbackDevice.reason;
+
+  if (active) {
+    return {
+      presets: sleepTimerPresets,
+      canStart: usable,
+      canCancel: true,
+      active,
+      expired: false,
+      remainingMs,
+      label: `Stops in ${formatMs(remainingMs)}`,
+      detail: usable
+        ? "Pipzo will send stop through the playback control path when this timer ends."
+        : `Playback control is currently unavailable${deviceReason ? `: ${labelFromId(deviceReason)}` : "."}`,
+      tone: "waiting",
+    };
+  }
+
+  if (expired) {
+    return {
+      presets: sleepTimerPresets,
+      canStart: usable,
+      canCancel: false,
+      active: false,
+      expired: true,
+      remainingMs: 0,
+      label: "Timer ended",
+      detail: timer.message ?? "Playback stop was requested.",
+      tone: timer.status === "blocked" || timer.status === "failed" ? "attention" : "ready",
+    };
+  }
+
+  return {
+    presets: sleepTimerPresets,
+    canStart: usable,
+    canCancel: false,
+    active: false,
+    expired: false,
+    remainingMs: 0,
+    label: usable ? "Sleep timer ready" : "Sleep timer unavailable",
+    detail: usable
+      ? "Choose a preset. Active timers are local to this browser session."
+      : `Playback control is unavailable${deviceReason ? `: ${labelFromId(deviceReason)}` : "."}`,
+    tone: usable ? "ready" : "attention",
+  };
+}
+
+export function sleepTimerExpiryCommand(snapshot: AppSnapshot, timer: SleepTimerState, nowMs: number): SleepTimerExpiryCommand {
+  const due = timer.status === "active" && typeof timer.expiresAtMs === "number" && nowMs >= timer.expiresAtMs;
+  if (!due) {
+    return { shouldStop: false, action: "stop" };
+  }
+  if (!canUseSleepTimer(snapshot)) {
+    return {
+      shouldStop: false,
+      action: "stop",
+      blockedReason: snapshot.health.playbackDevice.reason ?? snapshot.health.playbackDevice.status,
+    };
+  }
+  return {
+    shouldStop: true,
+    action: "stop",
+    deviceId: snapshot.health.playbackDevice.deviceId,
+  };
 }
 
 export type IdlePresentation = {

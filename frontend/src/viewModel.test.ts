@@ -3,13 +3,18 @@ import { describe, expect, it } from "vitest";
 import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
 import {
+  cancelSleepTimer,
   canOpenSurface,
+  canUseSleepTimer,
   degradedModeViewModel,
   idlePresentation,
   isSetupGated,
   preferredSurface,
   shouldEnterIdleMode,
+  sleepTimerExpiryCommand,
+  sleepTimerViewModel,
   speakerSetupViewModel,
+  startSleepTimer,
   spotifyAuthViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
@@ -175,5 +180,52 @@ describe("kiosk shell view model", () => {
     expect(idlePresentation(artwork).showArtwork).toBe(true);
     expect(idlePresentation(settingArtwork).showArtwork).toBe(true);
     expect(idlePresentation(clock).brightness).toBe(clock.settings.bedtimeBrightness);
+  });
+
+  it("creates preset sleep timers and reports countdown state without waiting real minutes", () => {
+    const snapshot = localScenarios.ready_healthy.snapshot;
+    const timer = startSleepTimer(30, 1_000);
+
+    const active = sleepTimerViewModel(snapshot, timer, 1_000 + 10 * 60 * 1000);
+    const due = sleepTimerViewModel(snapshot, timer, 1_000 + 30 * 60 * 1000);
+
+    expect(active.canStart).toBe(true);
+    expect(active.canCancel).toBe(true);
+    expect(active.label).toBe("Stops in 20:00");
+    expect(due.expired).toBe(true);
+    expect(due.label).toBe("Timer ended");
+  });
+
+  it("cancels sleep timers back to the idle state", () => {
+    const snapshot = localScenarios.ready_healthy.snapshot;
+    const view = sleepTimerViewModel(snapshot, cancelSleepTimer(), 1_000);
+
+    expect(view.active).toBe(false);
+    expect(view.canCancel).toBe(false);
+    expect(view.label).toBe("Sleep timer ready");
+  });
+
+  it("blocks sleep timer use honestly when playback control is unavailable", () => {
+    const snapshot = localScenarios.offline_settings_mode.snapshot;
+    const timer = startSleepTimer(15, 1_000);
+    const view = sleepTimerViewModel(snapshot, timer, 1_000);
+    const command = sleepTimerExpiryCommand(snapshot, timer, 1_000 + 15 * 60 * 1000);
+
+    expect(canUseSleepTimer(snapshot)).toBe(false);
+    expect(view.detail).toContain("Playback control is currently unavailable");
+    expect(command.shouldStop).toBe(false);
+    expect(command.blockedReason).toBe("network_unavailable");
+  });
+
+  it("emits a playback stop command at sleep timer expiry when playback is controllable", () => {
+    const snapshot = localScenarios.ready_healthy.snapshot;
+    const timer = startSleepTimer(60, 1_000);
+
+    expect(sleepTimerExpiryCommand(snapshot, timer, 1_000 + 59 * 60 * 1000).shouldStop).toBe(false);
+    expect(sleepTimerExpiryCommand(snapshot, timer, 1_000 + 60 * 60 * 1000)).toEqual({
+      shouldStop: true,
+      action: "stop",
+      deviceId: "pipzo-web-player",
+    });
   });
 });
