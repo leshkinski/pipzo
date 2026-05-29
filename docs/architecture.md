@@ -22,14 +22,16 @@ When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit producti
 This keeps desktop scenarios useful without implying that mock state is production device state.
 
 The backend initializes a local SQLite database at startup using `PIPZO_DB_PATH`.
-The schema includes a single-account `spotify_auth` record for backend-owned Spotify access/refresh tokens plus safe account metadata. Current token protection is explicit dev/plaintext SQLite via `SPOTIFY_TOKEN_STORAGE_PROTECTION=sqlite_plaintext_dev`; encryption or OS keyring-backed storage remains a hardening seam before broader release.
+The schema includes a single-account `spotify_auth` record for backend-owned Spotify access/refresh tokens plus safe account metadata. Token fields are protected by `SPOTIFY_TOKEN_STORAGE_PROTECTION=local_key_encrypted`: `SpotifyAuthStore` encrypts access and refresh tokens before SQLite writes and decrypts them only for backend auth/Spotify service code. Safe account/status metadata remains plaintext so UI health and setup state can be projected without exposing token material.
+
+The V1 key strategy is an app-managed Fernet key at `PIPZO_TOKEN_KEY_PATH`, defaulting to `./data/spotify-token.key`, with `PIPZO_TOKEN_KEY_AUTO_CREATE=true` for local appliance setup. Generated key files are created with `0600` permissions where supported and the key directory should be private to the service user, for example `0700` on Raspberry Pi OS. If the key is missing, invalid, or wrong for the stored ciphertext, token reads fail safe into reconnect-required auth health; losing the key requires Spotify reconnect. Backups that need to preserve the Spotify connection must keep the DB and token key together. Logout/reset deletes the encrypted token record, not the key file.
 Structured JSON logs are controlled by `PIPZO_LOG_LEVEL` and avoid request bodies and query strings by design.
 
 Spotify OAuth V1 setup is local to Pi/Chromium. The backend creates transient in-memory Authorization Code with PKCE sessions, owns the verifier/state, exposes only safe session metadata, redirects the local browser through `/api/v1/spotify/auth/start/{sessionId}`, receives the loopback callback at `/api/v1/spotify/auth/callback`, exchanges the code at Spotify's token endpoint with `client_id`, exact `redirect_uri`, and PKCE `code_verifier`, then fetches `/v1/me` for safe account/product metadata. Register `http://127.0.0.1:8000/api/v1/spotify/auth/callback` in the Spotify developer dashboard for local development.
 
 Spotify token refresh is exposed as a backend helper for startup/pre-call integration. It refreshes with `grant_type=refresh_token`, the stored refresh token, and `client_id`, without a client secret. If Spotify omits a replacement refresh token, Pipzo retains the existing one. Refresh success updates access token, expiry, scopes, last refresh timestamp, and safe status metadata; refresh failures store coarse error codes and project safe `health.spotifyAuth` / reconnect warning state. A periodic background refresh worker is deferred until Spotify Web API call sites and retry/backoff policy exist.
 
-`POST /api/v1/spotify/auth/logout` and the mock app reset path clear stored Spotify auth/account state and pending auth sessions, then emit safe auth/snapshot events. Frontend setup UI integration, encryption/keyring-backed token protection, and phone QR/relay OAuth remain follow-on surfaces.
+`POST /api/v1/spotify/auth/logout` and the mock app reset path clear stored Spotify auth/account state and pending auth sessions, then emit safe auth/snapshot events. Phone QR/relay OAuth remains a follow-on surface.
 
 ## High-Level Components
 

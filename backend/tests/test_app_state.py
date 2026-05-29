@@ -176,8 +176,9 @@ def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_
 
 def test_app_state_maps_revoked_spotify_auth_to_safe_reconnect_warning(tmp_path):
     db_path = tmp_path / "spotify-revoked.sqlite3"
+    settings = Settings(db_path=str(db_path), pipzo_token_key_path=str(tmp_path / "spotify-token.key"))
     now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
-    SpotifyAuthStore(db_path).upsert_auth_record(
+    SpotifyAuthStore.from_settings(settings).upsert_auth_record(
         StoredSpotifyAuthRecord(
             access_token="",
             refresh_token="stored-refresh-token",
@@ -199,7 +200,7 @@ def test_app_state_maps_revoked_spotify_auth_to_safe_reconnect_warning(tmp_path)
         )
     )
 
-    with make_client(Settings(db_path=str(db_path))) as client:
+    with make_client(settings) as client:
         response = client.get("/api/v1/app/state")
 
     assert response.status_code == 200

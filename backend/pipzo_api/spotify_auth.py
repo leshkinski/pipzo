@@ -19,7 +19,12 @@ from .contract import (
     SpotifyAuthSessionStatus,
     SpotifyAuthStatus,
 )
-from .spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
+from .spotify_store import (
+    SpotifyAuthTokenStorageError,
+    StoredSpotifyAccount,
+    StoredSpotifyAuthRecord,
+    SpotifyAuthStore,
+)
 
 
 def _utc_now() -> datetime:
@@ -481,7 +486,13 @@ def refresh_spotify_access_token(
     now: Callable[[], datetime] = _utc_now,
     force: bool = False,
 ) -> SpotifyAuthHealth:
-    record = store.get_auth_record()
+    try:
+        record = store.get_auth_record()
+    except SpotifyAuthTokenStorageError:
+        return SpotifyAuthHealth(
+            status=SpotifyAuthStatus.RECONNECT_REQUIRED,
+            reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
+        )
     if record is None:
         return SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
 

@@ -44,9 +44,17 @@ class Settings(BaseSettings):
         le=3600,
         validation_alias="SPOTIFY_AUTH_SESSION_TTL_SECONDS",
     )
-    spotify_token_storage_protection: Literal["sqlite_plaintext_dev"] = Field(
-        default="sqlite_plaintext_dev",
+    spotify_token_storage_protection: Literal["local_key_encrypted"] = Field(
+        default="local_key_encrypted",
         validation_alias="SPOTIFY_TOKEN_STORAGE_PROTECTION",
+    )
+    pipzo_token_key_path: str = Field(
+        default="./data/spotify-token.key",
+        validation_alias="PIPZO_TOKEN_KEY_PATH",
+    )
+    pipzo_token_key_auto_create: bool = Field(
+        default=True,
+        validation_alias="PIPZO_TOKEN_KEY_AUTO_CREATE",
     )
 
     @field_validator("log_level", mode="before")
@@ -64,6 +72,7 @@ class Settings(BaseSettings):
         "spotify_scopes",
         "pipzo_public_base_url",
         "spotify_token_storage_protection",
+        "pipzo_token_key_path",
         mode="before",
     )
     @classmethod

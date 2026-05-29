@@ -42,7 +42,7 @@ from .spotify_auth import (
     exchange_and_persist_spotify_callback,
     spotify_auth_health_from_record,
 )
-from .spotify_store import SpotifyAuthStore
+from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
 
 
 def create_app(
@@ -217,9 +217,9 @@ def create_app(
                 callback_exchange=callback_exchange,
                 settings=settings,
                 spotify_client=spotify_client,
-                store=SpotifyAuthStore(settings.db_path),
+                store=SpotifyAuthStore.from_settings(settings),
             )
-        except SpotifyTokenExchangeError:
+        except (SpotifyTokenExchangeError, SpotifyAuthTokenStorageError):
             session = spotify_auth_sessions.mark_exchange_failed(callback_exchange.session_id)
             event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
             event_hub.publish(
@@ -327,7 +327,23 @@ def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnaps
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Hardware adapters are not implemented yet; run with PIPZO_MODE=mock for desktop scenarios.",
         ) from exc
-    auth_record = SpotifyAuthStore(settings.db_path).get_auth_record()
+    try:
+        auth_record = SpotifyAuthStore.from_settings(settings).get_auth_record()
+    except SpotifyAuthTokenStorageError:
+        snapshot.health.spotify_auth = SpotifyAuthHealth(
+            status=SpotifyAuthStatus.RECONNECT_REQUIRED,
+            reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
+        )
+        snapshot.readiness.spotify_authorized = False
+        snapshot.warnings.append(
+            Warning(
+                code="spotify_reconnect_required",
+                reason=snapshot.health.spotify_auth.reason,
+                surface=snapshot.surfaces.current,
+                action="spotify_reconnect",
+            )
+        )
+        return snapshot
     if auth_record is not None:
         snapshot.health.spotify_auth = spotify_auth_health_from_record(auth_record)
         snapshot.readiness.spotify_authorized = snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED
@@ -349,7 +365,7 @@ def clear_spotify_auth_state(
     event_hub: EventHub,
     mock_store: MockScenarioStore,
 ) -> SpotifyAuthHealth:
-    SpotifyAuthStore(settings.db_path).delete_auth_record()
+    SpotifyAuthStore.from_settings(settings).delete_auth_record()
     spotify_auth_sessions.clear_sessions()
     health = SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
     event_hub.publish("spotify.auth_changed", health.model_dump(mode="json", by_alias=True))

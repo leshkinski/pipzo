@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import sqlite3
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -22,6 +23,7 @@ from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecor
 def make_settings(tmp_path, **overrides) -> Settings:
     values = {
         "db_path": str(tmp_path / "spotify-auth.sqlite3"),
+        "pipzo_token_key_path": str(tmp_path / "spotify-token.key"),
         "spotify_client_id": "spotify-client-id",
     }
     values.update(overrides)
@@ -291,6 +293,95 @@ def test_callback_records_safe_status_and_drops_verifier(tmp_path):
     assert stored.refresh_token == "backend-refresh-token"
 
 
+def test_stored_spotify_token_columns_are_encrypted_not_plaintext(tmp_path):
+    settings = make_settings(tmp_path)
+    persist_auth_record(settings, access_token="plain-access-token", refresh_token="plain-refresh-token")
+
+    with sqlite3.connect(settings.db_path) as connection:
+        row = connection.execute("select access_token, refresh_token from spotify_auth where id = 1").fetchone()
+
+    assert row is not None
+    stored_access_token, stored_refresh_token = row
+    assert stored_access_token != "plain-access-token"
+    assert stored_refresh_token != "plain-refresh-token"
+    assert stored_access_token.startswith("fernet:v1:")
+    assert stored_refresh_token.startswith("fernet:v1:")
+    assert "plain-access-token" not in stored_access_token
+    assert "plain-refresh-token" not in stored_refresh_token
+
+
+def test_generated_token_key_file_uses_restrictive_permissions(tmp_path):
+    settings = make_settings(tmp_path)
+    persist_auth_record(settings)
+
+    key_path = tmp_path / "spotify-token.key"
+    key_mode = key_path.stat().st_mode & 0o777
+
+    assert key_mode == 0o600
+    assert key_path.read_text(encoding="utf-8").strip()
+
+
+def test_wrong_token_key_fails_safe_as_reconnect_required(tmp_path):
+    settings = make_settings(tmp_path)
+    persist_auth_record(settings)
+    wrong_key_settings = make_settings(
+        tmp_path,
+        pipzo_token_key_path=str(tmp_path / "wrong-spotify-token.key"),
+    )
+    SpotifyAuthStore(
+        wrong_key_settings.db_path,
+        token_key_path=wrong_key_settings.pipzo_token_key_path,
+    ).upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="other-access-token",
+            refresh_token="other-refresh-token",
+            token_type="Bearer",
+            scope="streaming",
+            expires_at=datetime(2026, 5, 29, 13, 0, tzinfo=timezone.utc),
+            issued_at=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
+            connected_at=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc),
+            account=StoredSpotifyAccount(
+                account_id="other-user",
+                display_name="Other Account",
+                product="premium",
+                country="GB",
+                is_premium=True,
+            ),
+        )
+    )
+
+    health = refresh_spotify_access_token(
+        settings=settings,
+        spotify_client=FakeSpotifyClient(),
+        store=SpotifyAuthStore(settings.db_path, token_key_path=settings.pipzo_token_key_path),
+        force=True,
+    )
+
+    assert health.status == "reconnect_required"
+    assert health.reason == "token_refresh_failed"
+    assert "stored-access-token" not in str(health.model_dump(mode="json", by_alias=True))
+    assert "stored-refresh-token" not in str(health.model_dump(mode="json", by_alias=True))
+
+
+def test_missing_token_key_when_auto_create_disabled_fails_safe(tmp_path):
+    settings = make_settings(tmp_path)
+    persist_auth_record(settings)
+    key_path = tmp_path / "spotify-token.key"
+    key_path.unlink()
+
+    with make_client(make_settings(tmp_path, pipzo_token_key_auto_create=False)) as client:
+        response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["health"]["spotifyAuth"]["status"] == "reconnect_required"
+    assert body["health"]["spotifyAuth"]["reason"] == "token_refresh_failed"
+    assert body["readiness"]["spotifyAuthorized"] is False
+    assert "stored-access-token" not in str(body)
+    assert "stored-refresh-token" not in str(body)
+
+
 def test_successful_callback_emits_safe_auth_events_and_updates_snapshot(tmp_path):
     settings = make_settings(tmp_path)
     service = SpotifyAuthSessionService()
@@ -368,6 +459,26 @@ def test_profile_validation_failure_does_not_persist_tokens(tmp_path):
         response = client.get(f"/api/v1/spotify/auth/callback?state={state}&code=auth-code")
 
     assert response.status_code == 400
+    assert SpotifyAuthStore(settings.db_path).get_auth_record() is None
+
+
+def test_callback_storage_key_failure_returns_sanitized_reauth_error(tmp_path):
+    settings = make_settings(tmp_path, pipzo_token_key_auto_create=False)
+    service = SpotifyAuthSessionService()
+    spotify_client = FakeSpotifyClient()
+
+    with make_client(settings, service, spotify_client) as client:
+        session = create_session(client)
+        state = service._sessions[session["sessionId"]].state
+        response = client.get(f"/api/v1/spotify/auth/callback?state={state}&code=sensitive-auth-code")
+        status_response = client.get(f"/api/v1/spotify/auth/session/{session['sessionId']}")
+
+    assert response.status_code == 400
+    assert "sensitive-auth-code" not in response.text
+    assert "backend-access-token" not in response.text
+    assert "backend-refresh-token" not in response.text
+    assert status_response.json()["status"] == "failed"
+    assert status_response.json()["failureReason"] == "spotify_error"
     assert SpotifyAuthStore(settings.db_path).get_auth_record() is None
 
 

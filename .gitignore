@@ -11,6 +11,8 @@ node_modules/
 dist/
 build/
 coverage/
+data/
+*.key
 *.sqlite
 *.sqlite3
 logs/

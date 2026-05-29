@@ -1,10 +1,16 @@
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
+from cryptography.fernet import Fernet, InvalidToken
+
+from .config import Settings
 from .database import initialize_database
+
+_TOKEN_PREFIX = "fernet:v1:"
 
 
 @dataclass(frozen=True)
@@ -32,12 +38,47 @@ class StoredSpotifyAuthRecord:
     revoked_at: Optional[datetime] = None
 
 
+class SpotifyAuthTokenStorageError(Exception):
+    pass
+
+
+class SpotifyAuthTokenKeyError(SpotifyAuthTokenStorageError):
+    pass
+
+
+class SpotifyAuthTokenDecryptionError(SpotifyAuthTokenStorageError):
+    pass
+
+
 class SpotifyAuthStore:
-    def __init__(self, db_path: Union[str, Path]) -> None:
+    def __init__(
+        self,
+        db_path: Union[str, Path],
+        *,
+        token_key_path: Optional[Union[str, Path]] = None,
+        auto_create_key: bool = True,
+    ) -> None:
         self._db_path = Path(db_path)
+        self._token_key_path = (
+            Path(token_key_path)
+            if token_key_path is not None
+            else self._db_path.parent / "spotify-token.key"
+        )
+        self._auto_create_key = auto_create_key
+        self._fernet: Optional[Fernet] = None
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "SpotifyAuthStore":
+        return cls(
+            settings.db_path,
+            token_key_path=settings.pipzo_token_key_path,
+            auto_create_key=settings.pipzo_token_key_auto_create,
+        )
 
     def upsert_auth_record(self, record: StoredSpotifyAuthRecord) -> None:
         initialize_database(self._db_path)
+        encrypted_access_token = self._encrypt_token(record.access_token)
+        encrypted_refresh_token = self._encrypt_token(record.refresh_token)
         with sqlite3.connect(self._db_path) as connection:
             connection.execute(
                 """
@@ -80,8 +121,8 @@ class SpotifyAuthStore:
                     revoked_at = excluded.revoked_at
                 """,
                 (
-                    record.access_token,
-                    record.refresh_token,
+                    encrypted_access_token,
+                    encrypted_refresh_token,
                     record.token_type,
                     record.scope,
                     _format_dt(record.expires_at),
@@ -132,8 +173,8 @@ class SpotifyAuthStore:
             return None
 
         return StoredSpotifyAuthRecord(
-            access_token=row["access_token"],
-            refresh_token=row["refresh_token"],
+            access_token=self._decrypt_token(row["access_token"]),
+            refresh_token=self._decrypt_token(row["refresh_token"]),
             token_type=row["token_type"],
             scope=row["scope"],
             expires_at=_parse_dt(row["expires_at"]),
@@ -157,6 +198,72 @@ class SpotifyAuthStore:
         with sqlite3.connect(self._db_path) as connection:
             connection.execute("delete from spotify_auth where id = 1")
             connection.commit()
+
+    def _encrypt_token(self, value: str) -> str:
+        encrypted = self._get_fernet().encrypt(value.encode("utf-8")).decode("ascii")
+        return f"{_TOKEN_PREFIX}{encrypted}"
+
+    def _decrypt_token(self, value: str) -> str:
+        if not value.startswith(_TOKEN_PREFIX):
+            raise SpotifyAuthTokenDecryptionError("spotify_token_encryption_missing")
+        encrypted = value.removeprefix(_TOKEN_PREFIX).encode("ascii")
+        try:
+            return self._get_fernet().decrypt(encrypted).decode("utf-8")
+        except (InvalidToken, UnicodeDecodeError) as exc:
+            raise SpotifyAuthTokenDecryptionError("spotify_token_decryption_failed") from exc
+
+    def _get_fernet(self) -> Fernet:
+        if self._fernet is None:
+            self._fernet = Fernet(
+                _load_or_create_key(self._token_key_path, auto_create=self._auto_create_key)
+            )
+        return self._fernet
+
+
+def _load_or_create_key(path: Path, *, auto_create: bool) -> bytes:
+    try:
+        key = path.read_bytes().strip()
+    except FileNotFoundError:
+        if not auto_create:
+            raise SpotifyAuthTokenKeyError("spotify_token_key_missing")
+        key = Fernet.generate_key()
+        parent_existed = path.parent.exists()
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not parent_existed:
+            _restrict_directory_permissions(path.parent)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as key_file:
+                key_file.write(key + b"\n")
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+    else:
+        _restrict_file_permissions(path)
+
+    try:
+        Fernet(key)
+    except (ValueError, TypeError) as exc:
+        raise SpotifyAuthTokenKeyError("spotify_token_key_invalid") from exc
+    return key
+
+
+def _restrict_directory_permissions(path: Path) -> None:
+    try:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            path.chmod(mode & 0o700)
+    except OSError:
+        return
+
+
+def _restrict_file_permissions(path: Path) -> None:
+    try:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            path.chmod(0o600)
+    except OSError:
+        return
 
 
 def _format_dt(value: datetime) -> str:
