@@ -44,6 +44,14 @@ pip install -e ".[dev]"
 PIPZO_MODE=mock uvicorn pipzo_api.main:app --app-dir backend --reload
 ```
 
+Configuration is environment-driven:
+
+- `PIPZO_MODE=mock|hardware`; mock is the desktop development default.
+- `PIPZO_DB_PATH=./data/pipzo.sqlite3`; startup creates the parent directory and initializes the minimal schema marker table.
+- `PIPZO_LOG_LEVEL=debug|info|warning|error|critical`; logs are JSON lines.
+
+Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger.
+
 Useful endpoints:
 
 - `GET http://127.0.0.1:8000/api/v1/health`
