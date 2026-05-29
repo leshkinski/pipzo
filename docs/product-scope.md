@@ -9,7 +9,7 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 ## V1 Must Have
 
 - Spotify login using OAuth Authorization Code with PKCE.
-- QR/short-link auth flow completed on a phone or computer.
+- Local Pi/Chromium Spotify OAuth setup using the loopback callback registered in the Spotify developer dashboard.
 - Single Spotify Premium user account.
 - Full-screen kiosk interface.
 - Auto-start on boot.
@@ -51,3 +51,4 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 - Explicit content filtering beyond Spotify account/family controls.
 - Parent lock system.
 - Battery operation.
+- Phone QR/short-link OAuth and HTTPS callback relay.

@@ -3,6 +3,7 @@ from time import perf_counter
 from typing import AsyncIterator, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .adapters import create_app_state_adapter
 from .adapters.production import ProductionAdapterNotImplemented
@@ -21,17 +22,23 @@ from .contract import (
     ScenarioSummary,
     SetupPlaybackTestRequest,
     SetupState,
+    SpotifyAuthSession,
     utc_now,
 )
 from .database import initialize_database
 from .events import EventHub
 from .logging import configure_logging, get_logger
 from .mock_scenarios import MockScenarioStore
+from .spotify_auth import SpotifyAuthCallbackError, SpotifyAuthSessionService
 
 
-def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
+def create_app(
+    settings_override: Optional[Settings] = None,
+    spotify_auth_sessions_override: Optional[SpotifyAuthSessionService] = None,
+) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
+    spotify_auth_sessions = spotify_auth_sessions_override or SpotifyAuthSessionService()
 
     def resolve_settings() -> Settings:
         if settings_override is not None:
@@ -148,6 +155,58 @@ def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
 
+    @app.post("/api/v1/spotify/auth/session", response_model=SpotifyAuthSession)
+    def spotify_auth_session_create(settings: Settings = Depends(get_settings)) -> SpotifyAuthSession:
+        require_spotify_oauth_config(settings)
+        session = spotify_auth_sessions.create_session(settings)
+        event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
+        return session
+
+    @app.get("/api/v1/spotify/auth/session/{session_id}", response_model=SpotifyAuthSession)
+    def spotify_auth_session_get(session_id: str) -> SpotifyAuthSession:
+        session = spotify_auth_sessions.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown Spotify auth session")
+        return session
+
+    @app.post("/api/v1/spotify/auth/session/{session_id}/cancel", response_model=SpotifyAuthSession)
+    def spotify_auth_session_cancel(session_id: str) -> SpotifyAuthSession:
+        session = spotify_auth_sessions.cancel_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown Spotify auth session")
+        event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
+        return session
+
+    @app.get("/api/v1/spotify/auth/start/{session_id}")
+    def spotify_auth_start(session_id: str, settings: Settings = Depends(get_settings)) -> RedirectResponse:
+        require_spotify_oauth_config(settings)
+        authorize_url = spotify_auth_sessions.build_authorize_url(session_id, settings)
+        if authorize_url is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Spotify auth session is not active")
+        return RedirectResponse(authorize_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    @app.get("/api/v1/spotify/auth/callback", response_class=HTMLResponse)
+    def spotify_auth_callback(
+        state: Optional[str] = None,
+        code: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> HTMLResponse:
+        try:
+            session = spotify_auth_sessions.record_callback(state=state, code=code, error=error)
+        except SpotifyAuthCallbackError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.reason.value) from exc
+
+        event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
+        if session.status == "failed":
+            return HTMLResponse(
+                "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup could not be completed. Return to Pipzo and start again.</p>",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return HTMLResponse(
+            "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup reached Pipzo. Return to the device to continue.</p>",
+            status_code=status.HTTP_200_OK,
+        )
+
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
         require_action_mock_mode(settings)
@@ -200,6 +259,14 @@ def require_action_mock_mode(settings: Settings) -> None:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="This action is not implemented for hardware mode yet; run with PIPZO_MODE=mock for simulated actions.",
+        )
+
+
+def require_spotify_oauth_config(settings: Settings) -> None:
+    if not settings.spotify_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Spotify client ID is not configured",
         )
 
 

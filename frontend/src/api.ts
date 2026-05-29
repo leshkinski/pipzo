@@ -11,6 +11,7 @@ import type {
   ScenarioSummary,
   SetupPlaybackTestRequest,
   SetupState,
+  SpotifyAuthSession,
 } from "./contracts";
 
 const headers = { "Content-Type": "application/json" };
@@ -72,4 +73,16 @@ export function runRecoveryAction(actionId: string, body: RunRecoveryActionReque
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function createSpotifyAuthSession(): Promise<SpotifyAuthSession> {
+  return request<SpotifyAuthSession>("/api/v1/spotify/auth/session", { method: "POST" });
+}
+
+export function fetchSpotifyAuthSession(sessionId: string): Promise<SpotifyAuthSession> {
+  return request<SpotifyAuthSession>(`/api/v1/spotify/auth/session/${sessionId}`);
+}
+
+export function cancelSpotifyAuthSession(sessionId: string): Promise<SpotifyAuthSession> {
+  return request<SpotifyAuthSession>(`/api/v1/spotify/auth/session/${sessionId}/cancel`, { method: "POST" });
 }

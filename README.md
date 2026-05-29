@@ -49,6 +49,11 @@ Configuration is environment-driven:
 - `PIPZO_MODE=mock|hardware`; mock is the desktop development default.
 - `PIPZO_DB_PATH=./data/pipzo.sqlite3`; startup creates the parent directory and initializes the minimal schema marker table.
 - `PIPZO_LOG_LEVEL=debug|info|warning|error|critical`; logs are JSON lines.
+- `SPOTIFY_CLIENT_ID`; public client ID from the Spotify developer app. Do not configure or store a client secret for the PKCE flow.
+- `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/api/v1/spotify/auth/callback`; register this exact local callback in the Spotify dashboard for desktop/Pi Chromium setup.
+- `SPOTIFY_AUTH_URL` and `SPOTIFY_TOKEN_URL`; default to Spotify Accounts authorize/token endpoints.
+- `SPOTIFY_SCOPES`; space-separated scopes requested by the local setup flow.
+- `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
 
 Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger.
 
@@ -63,10 +68,17 @@ Useful endpoints:
 - `GET/PATCH http://127.0.0.1:8000/api/v1/settings`
 - `PATCH http://127.0.0.1:8000/api/v1/display`
 - `POST http://127.0.0.1:8000/api/v1/playback/control`
+- `POST http://127.0.0.1:8000/api/v1/spotify/auth/session`
+- `GET http://127.0.0.1:8000/api/v1/spotify/auth/session/{sessionId}`
+- `POST http://127.0.0.1:8000/api/v1/spotify/auth/session/{sessionId}/cancel`
+- `GET http://127.0.0.1:8000/api/v1/spotify/auth/start/{sessionId}`
+- `GET http://127.0.0.1:8000/api/v1/spotify/auth/callback`
 - `GET http://127.0.0.1:8000/api/v1/recovery/actions`
 - `POST http://127.0.0.1:8000/api/v1/recovery/actions/{actionId}/run`
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
 - `POST http://127.0.0.1:8000/api/v1/mock/scenarios/ready_healthy/activate`
+
+The first Spotify OAuth slice creates transient in-memory PKCE sessions, redirects local Chromium to Spotify, validates callback state, and records safe callback status. Token exchange, durable token storage, refresh, logout, reset cleanup, and phone QR/relay OAuth are still follow-on work.
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, and `recovery.action_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 

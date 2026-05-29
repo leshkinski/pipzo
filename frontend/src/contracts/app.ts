@@ -87,6 +87,16 @@ export type SpotifyAuthReason =
   | "network_unavailable"
   | "unknown";
 
+export type SpotifyAuthSessionStatus = "waiting" | "callback_received" | "expired" | "failed" | "cancelled";
+export type SpotifyAuthSessionFailureReason =
+  | "spotify_error"
+  | "missing_state"
+  | "unknown_state"
+  | "state_mismatch"
+  | "expired_state"
+  | "cancelled"
+  | "missing_code";
+
 export type KioskBootPhase = "system_booting" | "backend_starting" | "frontend_loading" | "adapters_probing" | "app_ready";
 
 export type WarningCode =
@@ -281,6 +291,15 @@ export type HealthResponse = {
   checkedAt: string;
 };
 
+export type SpotifyAuthSession = {
+  sessionId: string;
+  status: SpotifyAuthSessionStatus;
+  createdAt: string;
+  expiresAt: string;
+  startUrl: string;
+  failureReason?: SpotifyAuthSessionFailureReason | null;
+};
+
 export type AppEvent =
   | { type: "app.snapshot"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "settings.changed"; payload: AppSettings; emittedAt: string; schemaVersion: "v1" }
@@ -290,4 +309,5 @@ export type AppEvent =
   | { type: "setup.playback_test_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
   | { type: "playback.control_changed"; payload: ActionResult; emittedAt: string; schemaVersion: "v1" }
   | { type: "recovery.action_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
+  | { type: "spotify.auth_session_changed"; payload: SpotifyAuthSession; emittedAt: string; schemaVersion: "v1" }
   | { type: "mock.scenario_activated"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" };

@@ -25,6 +25,8 @@ The backend initializes a local SQLite database at startup using `PIPZO_DB_PATH`
 The current schema is only a migration marker table; Spotify token storage and other durable app state are intentionally deferred.
 Structured JSON logs are controlled by `PIPZO_LOG_LEVEL` and avoid request bodies and query strings by design.
 
+Spotify OAuth V1 setup is local to Pi/Chromium. The backend creates transient in-memory Authorization Code with PKCE sessions, owns the verifier/state, exposes only safe session metadata, redirects the local browser through `/api/v1/spotify/auth/start/{sessionId}`, and receives the loopback callback at `/api/v1/spotify/auth/callback`. Register `http://127.0.0.1:8000/api/v1/spotify/auth/callback` in the Spotify developer dashboard for local development. Token exchange, durable token storage, refresh, logout/reset cleanup, and phone QR/relay OAuth remain follow-on surfaces.
+
 ## High-Level Components
 
 ```text

@@ -195,6 +195,24 @@ class SpotifyAuthReason(str, Enum):
     UNKNOWN = "unknown"
 
 
+class SpotifyAuthSessionStatus(str, Enum):
+    WAITING = "waiting"
+    CALLBACK_RECEIVED = "callback_received"
+    EXPIRED = "expired"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class SpotifyAuthSessionFailureReason(str, Enum):
+    SPOTIFY_ERROR = "spotify_error"
+    MISSING_STATE = "missing_state"
+    UNKNOWN_STATE = "unknown_state"
+    STATE_MISMATCH = "state_mismatch"
+    EXPIRED_STATE = "expired_state"
+    CANCELLED = "cancelled"
+    MISSING_CODE = "missing_code"
+
+
 class KioskBootPhase(str, Enum):
     SYSTEM_BOOTING = "system_booting"
     BACKEND_STARTING = "backend_starting"
@@ -446,6 +464,15 @@ class HealthResponse(ContractModel):
     mode: str
     schema_version: Literal["v1"] = "v1"
     checked_at: datetime
+
+
+class SpotifyAuthSession(ContractModel):
+    session_id: str
+    status: SpotifyAuthSessionStatus
+    created_at: datetime
+    expires_at: datetime
+    start_url: str
+    failure_reason: Optional[SpotifyAuthSessionFailureReason] = None
 
 
 class AppEvent(ContractModel):
