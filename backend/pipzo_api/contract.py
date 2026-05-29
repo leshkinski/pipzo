@@ -198,6 +198,7 @@ class SpotifyAuthReason(str, Enum):
 class SpotifyAuthSessionStatus(str, Enum):
     WAITING = "waiting"
     CALLBACK_RECEIVED = "callback_received"
+    CONNECTED = "connected"
     EXPIRED = "expired"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -473,6 +474,7 @@ class SpotifyAuthSession(ContractModel):
     expires_at: datetime
     start_url: str
     failure_reason: Optional[SpotifyAuthSessionFailureReason] = None
+    account_display_name: Optional[str] = None
 
 
 class AppEvent(ContractModel):

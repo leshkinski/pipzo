@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,29 @@ def initialize_database(db_path: Union[str, Path]) -> DatabaseInitializationResu
                 key text primary key,
                 value text not null,
                 updated_at text not null default current_timestamp
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists spotify_auth (
+                id integer primary key check (id = 1),
+                access_token text not null,
+                refresh_token text not null,
+                token_type text not null,
+                scope text not null,
+                expires_at text not null,
+                issued_at text not null,
+                account_id text not null,
+                account_display_name text,
+                account_product text,
+                account_country text,
+                account_is_premium integer not null default 0,
+                connected_at text not null,
+                updated_at text not null,
+                last_refresh_at text,
+                last_refresh_error_code text,
+                revoked_at text
             )
             """
         )

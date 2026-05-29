@@ -47,15 +47,16 @@ PIPZO_MODE=mock uvicorn pipzo_api.main:app --app-dir backend --reload
 Configuration is environment-driven:
 
 - `PIPZO_MODE=mock|hardware`; mock is the desktop development default.
-- `PIPZO_DB_PATH=./data/pipzo.sqlite3`; startup creates the parent directory and initializes the minimal schema marker table.
+- `PIPZO_DB_PATH=./data/pipzo.sqlite3`; startup creates the parent directory and initializes the local SQLite schema.
 - `PIPZO_LOG_LEVEL=debug|info|warning|error|critical`; logs are JSON lines.
 - `SPOTIFY_CLIENT_ID`; public client ID from the Spotify developer app. Do not configure or store a client secret for the PKCE flow.
 - `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/api/v1/spotify/auth/callback`; register this exact local callback in the Spotify dashboard for desktop/Pi Chromium setup.
 - `SPOTIFY_AUTH_URL` and `SPOTIFY_TOKEN_URL`; default to Spotify Accounts authorize/token endpoints.
 - `SPOTIFY_SCOPES`; space-separated scopes requested by the local setup flow.
+- `SPOTIFY_TOKEN_STORAGE_PROTECTION=sqlite_plaintext_dev`; current slice stores tokens backend-side in SQLite without encryption/keyring protection. Do not expose this DB file beyond the local appliance/dev machine. A later hardening slice should replace this with encryption or OS-protected storage before broader release.
 - `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
 
-Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger.
+Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger. Spotify access tokens, refresh tokens, authorization codes, PKCE verifiers, OAuth state, Authorization headers, and raw Spotify response bodies must remain backend-only and out of APIs, frontend contracts, events, diagnostics, issue comments, and logs.
 
 Useful endpoints:
 
@@ -78,9 +79,9 @@ Useful endpoints:
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
 - `POST http://127.0.0.1:8000/api/v1/mock/scenarios/ready_healthy/activate`
 
-The first Spotify OAuth slice creates transient in-memory PKCE sessions, redirects local Chromium to Spotify, validates callback state, and records safe callback status. Token exchange, durable token storage, refresh, logout, reset cleanup, and phone QR/relay OAuth are still follow-on work.
+The local Spotify OAuth flow creates transient in-memory PKCE sessions, redirects local Chromium to Spotify, validates callback state, exchanges the authorization code with Spotify using PKCE and no client secret, fetches the current user's safe profile summary, and persists the single-account token/account record backend-side in SQLite. Refresh scheduling, logout/reset cleanup, frontend setup UI integration, encryption/keyring-backed token protection, and phone QR/relay OAuth are still follow-on work.
 
-WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, and `recovery.action_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
+WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
 The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify, playback, display, or reset success.

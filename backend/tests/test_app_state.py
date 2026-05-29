@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from pipzo_api.config import Settings, get_settings
 from pipzo_api.database import initialize_database
 from pipzo_api.main import create_app
+from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
 
 
 def make_client(settings: Optional[Settings] = None) -> TestClient:
@@ -111,7 +113,65 @@ def test_database_initialization_creates_schema_marker_and_is_idempotent(tmp_pat
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute("select key, value from schema_metadata").fetchall()
 
-    assert rows == [("schema_version", "1")]
+    assert rows == [("schema_version", "2")]
+
+
+def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_path):
+    db_path = tmp_path / "spotify-store.sqlite3"
+    store = SpotifyAuthStore(db_path)
+    issued_at = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+
+    store.upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="stored-access-token",
+            refresh_token="stored-refresh-token",
+            token_type="Bearer",
+            scope="streaming user-read-private",
+            expires_at=issued_at + timedelta(seconds=3600),
+            issued_at=issued_at,
+            connected_at=issued_at,
+            updated_at=issued_at,
+            account=StoredSpotifyAccount(
+                account_id="spotify-user-id",
+                display_name="Pipzo Account",
+                product="premium",
+                country="GB",
+                is_premium=True,
+            ),
+        )
+    )
+    first = store.get_auth_record()
+
+    store.upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="new-access-token",
+            refresh_token="new-refresh-token",
+            token_type="Bearer",
+            scope="streaming",
+            expires_at=issued_at + timedelta(seconds=7200),
+            issued_at=issued_at,
+            connected_at=issued_at,
+            updated_at=issued_at,
+            account=StoredSpotifyAccount(
+                account_id="spotify-user-id",
+                display_name="Updated Account",
+                product="free",
+                country="GB",
+                is_premium=False,
+            ),
+        )
+    )
+    updated = store.get_auth_record()
+    store.delete_auth_record()
+
+    assert first is not None
+    assert first.account.display_name == "Pipzo Account"
+    assert updated is not None
+    assert updated.access_token == "new-access-token"
+    assert updated.refresh_token == "new-refresh-token"
+    assert updated.account.display_name == "Updated Account"
+    assert updated.account.is_premium is False
+    assert store.get_auth_record() is None
 
 
 def test_app_startup_initializes_configured_database(tmp_path):

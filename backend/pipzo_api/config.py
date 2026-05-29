@@ -44,6 +44,10 @@ class Settings(BaseSettings):
         le=3600,
         validation_alias="SPOTIFY_AUTH_SESSION_TTL_SECONDS",
     )
+    spotify_token_storage_protection: Literal["sqlite_plaintext_dev"] = Field(
+        default="sqlite_plaintext_dev",
+        validation_alias="SPOTIFY_TOKEN_STORAGE_PROTECTION",
+    )
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -59,6 +63,7 @@ class Settings(BaseSettings):
         "spotify_token_url",
         "spotify_scopes",
         "pipzo_public_base_url",
+        "spotify_token_storage_protection",
         mode="before",
     )
     @classmethod

@@ -87,7 +87,7 @@ export type SpotifyAuthReason =
   | "network_unavailable"
   | "unknown";
 
-export type SpotifyAuthSessionStatus = "waiting" | "callback_received" | "expired" | "failed" | "cancelled";
+export type SpotifyAuthSessionStatus = "waiting" | "callback_received" | "connected" | "expired" | "failed" | "cancelled";
 export type SpotifyAuthSessionFailureReason =
   | "spotify_error"
   | "missing_state"
@@ -298,6 +298,7 @@ export type SpotifyAuthSession = {
   expiresAt: string;
   startUrl: string;
   failureReason?: SpotifyAuthSessionFailureReason | null;
+  accountDisplayName?: string | null;
 };
 
 export type AppEvent =
@@ -310,4 +311,5 @@ export type AppEvent =
   | { type: "playback.control_changed"; payload: ActionResult; emittedAt: string; schemaVersion: "v1" }
   | { type: "recovery.action_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
   | { type: "spotify.auth_session_changed"; payload: SpotifyAuthSession; emittedAt: string; schemaVersion: "v1" }
+  | { type: "spotify.auth_changed"; payload: HealthState["spotifyAuth"]; emittedAt: string; schemaVersion: "v1" }
   | { type: "mock.scenario_activated"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" };

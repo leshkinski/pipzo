@@ -22,10 +22,10 @@ When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit producti
 This keeps desktop scenarios useful without implying that mock state is production device state.
 
 The backend initializes a local SQLite database at startup using `PIPZO_DB_PATH`.
-The current schema is only a migration marker table; Spotify token storage and other durable app state are intentionally deferred.
+The schema includes a single-account `spotify_auth` record for backend-owned Spotify access/refresh tokens plus safe account metadata. Current token protection is explicit dev/plaintext SQLite via `SPOTIFY_TOKEN_STORAGE_PROTECTION=sqlite_plaintext_dev`; encryption or OS keyring-backed storage remains a hardening seam before broader release.
 Structured JSON logs are controlled by `PIPZO_LOG_LEVEL` and avoid request bodies and query strings by design.
 
-Spotify OAuth V1 setup is local to Pi/Chromium. The backend creates transient in-memory Authorization Code with PKCE sessions, owns the verifier/state, exposes only safe session metadata, redirects the local browser through `/api/v1/spotify/auth/start/{sessionId}`, and receives the loopback callback at `/api/v1/spotify/auth/callback`. Register `http://127.0.0.1:8000/api/v1/spotify/auth/callback` in the Spotify developer dashboard for local development. Token exchange, durable token storage, refresh, logout/reset cleanup, and phone QR/relay OAuth remain follow-on surfaces.
+Spotify OAuth V1 setup is local to Pi/Chromium. The backend creates transient in-memory Authorization Code with PKCE sessions, owns the verifier/state, exposes only safe session metadata, redirects the local browser through `/api/v1/spotify/auth/start/{sessionId}`, receives the loopback callback at `/api/v1/spotify/auth/callback`, exchanges the code at Spotify's token endpoint with `client_id`, exact `redirect_uri`, and PKCE `code_verifier`, then fetches `/v1/me` for safe account/product metadata. Register `http://127.0.0.1:8000/api/v1/spotify/auth/callback` in the Spotify developer dashboard for local development. Refresh scheduling, logout/reset cleanup, frontend setup UI integration, encryption/keyring-backed token protection, and phone QR/relay OAuth remain follow-on surfaces.
 
 ## High-Level Components
 

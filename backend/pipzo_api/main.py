@@ -23,22 +23,35 @@ from .contract import (
     SetupPlaybackTestRequest,
     SetupState,
     SpotifyAuthSession,
+    SpotifyAuthHealth,
+    SpotifyAuthReason,
+    SpotifyAuthStatus,
     utc_now,
 )
 from .database import initialize_database
 from .events import EventHub
 from .logging import configure_logging, get_logger
 from .mock_scenarios import MockScenarioStore
-from .spotify_auth import SpotifyAuthCallbackError, SpotifyAuthSessionService
+from .spotify_auth import (
+    SpotifyAuthCallbackError,
+    SpotifyAuthSessionService,
+    SpotifyClient,
+    SpotifyTokenExchangeError,
+    UrlLibSpotifyClient,
+    exchange_and_persist_spotify_callback,
+)
+from .spotify_store import SpotifyAuthStore
 
 
 def create_app(
     settings_override: Optional[Settings] = None,
     spotify_auth_sessions_override: Optional[SpotifyAuthSessionService] = None,
+    spotify_client_override: Optional[SpotifyClient] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
     spotify_auth_sessions = spotify_auth_sessions_override or SpotifyAuthSessionService()
+    spotify_client = spotify_client_override or UrlLibSpotifyClient()
 
     def resolve_settings() -> Settings:
         if settings_override is not None:
@@ -190,20 +203,47 @@ def create_app(
         state: Optional[str] = None,
         code: Optional[str] = None,
         error: Optional[str] = None,
+        settings: Settings = Depends(get_settings),
     ) -> HTMLResponse:
         try:
-            session = spotify_auth_sessions.record_callback(state=state, code=code, error=error)
+            callback_exchange = spotify_auth_sessions.consume_callback_for_exchange(state=state, code=code, error=error)
         except SpotifyAuthCallbackError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.reason.value) from exc
 
-        event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
-        if session.status == "failed":
+        try:
+            profile = exchange_and_persist_spotify_callback(
+                callback_exchange=callback_exchange,
+                settings=settings,
+                spotify_client=spotify_client,
+                store=SpotifyAuthStore(settings.db_path),
+            )
+        except SpotifyTokenExchangeError:
+            session = spotify_auth_sessions.mark_exchange_failed(callback_exchange.session_id)
+            event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
+            event_hub.publish(
+                "spotify.auth_changed",
+                SpotifyAuthHealth(
+                    status=SpotifyAuthStatus.ERROR,
+                    reason=SpotifyAuthReason.UNKNOWN,
+                ).model_dump(mode="json", by_alias=True),
+            )
             return HTMLResponse(
                 "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup could not be completed. Return to Pipzo and start again.</p>",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
+
+        session = spotify_auth_sessions.mark_connected(callback_exchange.session_id, profile.display_name)
+        event_hub.publish("spotify.auth_session_changed", session.model_dump(mode="json", by_alias=True))
+        event_hub.publish(
+            "spotify.auth_changed",
+            SpotifyAuthHealth(
+                status=SpotifyAuthStatus.CONNECTED,
+                reason=SpotifyAuthReason.PREMIUM_REQUIRED if not profile.is_premium else None,
+                account_display_name=profile.display_name,
+            ).model_dump(mode="json", by_alias=True),
+        )
         return HTMLResponse(
-            "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup reached Pipzo. Return to the device to continue.</p>",
+            "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup is complete. Return to Pipzo to continue.</p>",
             status_code=status.HTTP_200_OK,
         )
 
@@ -273,12 +313,21 @@ def require_spotify_oauth_config(settings: Settings) -> None:
 def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnapshot:
     adapter = create_app_state_adapter(settings, mock_store)
     try:
-        return adapter.get_snapshot()
+        snapshot = adapter.get_snapshot()
     except ProductionAdapterNotImplemented as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Hardware adapters are not implemented yet; run with PIPZO_MODE=mock for desktop scenarios.",
         ) from exc
+    auth_record = SpotifyAuthStore(settings.db_path).get_auth_record()
+    if auth_record is not None:
+        snapshot.health.spotify_auth = SpotifyAuthHealth(
+            status=SpotifyAuthStatus.CONNECTED,
+            reason=SpotifyAuthReason.PREMIUM_REQUIRED if not auth_record.account.is_premium else None,
+            account_display_name=auth_record.account.display_name,
+        )
+        snapshot.readiness.spotify_authorized = True
+    return snapshot
 
 
 app = create_app()
