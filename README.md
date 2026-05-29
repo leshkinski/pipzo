@@ -33,6 +33,52 @@ scripts/        Local developer and maintenance scripts
 docs/           Architecture, setup, product, and runbook docs
 ```
 
+## Local Contract API
+
+The first skeleton exposes the app-state contract and desktop mock scenarios.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+PIPZO_MODE=mock uvicorn pipzo_api.main:app --app-dir backend --reload
+```
+
+Useful endpoints:
+
+- `GET http://127.0.0.1:8000/api/v1/health`
+- `GET http://127.0.0.1:8000/api/v1/app/state`
+- `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
+- `POST http://127.0.0.1:8000/api/v1/mock/scenarios/ready_healthy/activate`
+
+Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
+The hardware adapter path is an explicit future seam; it does not fake production device behavior yet.
+
+Backend tests:
+
+```bash
+pytest
+```
+
+Frontend kiosk shell:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. When the backend is running in `PIPZO_MODE=mock`, Vite proxies `/api` to `http://127.0.0.1:8000` and the developer mock scenario switcher activates backend scenarios. If the backend is not running, the UI falls back to checked-in local scenarios for first boot, ready, degraded, speaker disconnected, Wi-Fi local only, volume out of sync, boot probe delayed, and idle mode.
+
+Frontend validation:
+
+```bash
+cd frontend
+npm run typecheck
+npm test
+npm run build
+```
+
 ## Planning
 
 Implementation planning, bugs, and feature work are tracked in GitHub Issues using outcome-oriented milestones:
@@ -45,3 +91,7 @@ Implementation planning, bugs, and feature work are tracked in GitHub Issues usi
 - M5 Pi Provisioning & Hardening
 
 MyOS coordination, dispatches, and specialist handoffs live outside this repo in `Active Work/Pipzo`.
+
+## Repo Hygiene
+
+Keep implementation slices reviewable. Each slice should normally end with the documented validation commands passing, one focused commit when reasonable, commit and PR/issue text that references the relevant GitHub Issues, and concise issue comments or closures when the work is done. Split the work when validation failures, mixed concerns, or large diffs would make review unclear.

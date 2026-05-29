@@ -1,0 +1,444 @@
+:root {
+  color: #17211c;
+  background: #f4f1ea;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+button {
+  min-height: 56px;
+  border: 1px solid #c9c5bb;
+  border-radius: 8px;
+  background: #fffdf7;
+  color: #17211c;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.44;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 18px;
+}
+
+.topbar,
+.developer-panel,
+.warning-band,
+.shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.subtle,
+.developer-panel span,
+.developer-panel p,
+.tile-grid span,
+.step span,
+.health-row small,
+.actions span {
+  color: #65716b;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.chip {
+  min-height: 58px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fffdf7;
+  border: 1px solid #d4d0c5;
+}
+
+.chip span,
+.eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.chip strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 15px;
+}
+
+.chip.good {
+  border-color: #8dbb96;
+}
+
+.chip.warn {
+  border-color: #d59c6a;
+}
+
+.developer-panel {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1fr) 2fr;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px dashed #bdb7aa;
+  border-radius: 8px;
+  background: #ebe6db;
+}
+
+.developer-panel select {
+  min-height: 52px;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fffdf7;
+}
+
+.developer-panel p {
+  margin: 0;
+}
+
+.warning-band {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.warning-band div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f7dfc6;
+  border: 1px solid #d59c6a;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.nav {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.nav button {
+  min-height: 74px;
+  padding: 0 14px;
+  text-align: left;
+  font-weight: 800;
+}
+
+.nav button.active {
+  border-color: #2f6f73;
+  background: #d9eeee;
+}
+
+.surface {
+  min-height: 580px;
+}
+
+.surface-grid,
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
+  gap: 16px;
+}
+
+.settings-layout {
+  grid-template-columns: 1fr;
+}
+
+.hero-panel,
+.player-panel,
+.art-panel,
+.checklist,
+.health-list,
+.actions {
+  border-radius: 8px;
+  border: 1px solid #d4d0c5;
+  background: #fffdf7;
+}
+
+.hero-panel,
+.player-panel {
+  min-height: 320px;
+  padding: 28px;
+}
+
+.hero-panel h1,
+.player-panel h1 {
+  max-width: 760px;
+  margin: 8px 0 14px;
+  font-size: clamp(38px, 5vw, 62px);
+  line-height: 1.02;
+}
+
+.hero-panel p,
+.player-panel p {
+  max-width: 700px;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.eyebrow {
+  color: #2f6f73;
+}
+
+.checklist,
+.health-list,
+.actions,
+.tile-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.checklist,
+.health-list,
+.actions {
+  padding: 12px;
+}
+
+.step,
+.health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 74px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f4f1ea;
+}
+
+.step b {
+  color: #2f6f73;
+}
+
+.step-blocked b {
+  color: #87827a;
+}
+
+.step-action_required {
+  outline: 2px solid #d59c6a;
+}
+
+.tile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tile-grid button {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 170px;
+  padding: 18px;
+  text-align: left;
+}
+
+.tile-grid strong {
+  font-size: 22px;
+}
+
+.art-panel {
+  display: grid;
+  place-items: center;
+  min-height: 430px;
+  background: linear-gradient(135deg, #2f6f73, #a8c66c 54%, #f0b35a);
+}
+
+.art-panel div,
+.idle-art {
+  display: grid;
+  place-items: center;
+  width: 190px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.86);
+  font-size: 92px;
+  font-weight: 900;
+}
+
+.progress {
+  height: 14px;
+  margin-top: 28px;
+  border-radius: 999px;
+  background: #ded9ce;
+  overflow: hidden;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: #2f6f73;
+}
+
+.time-row,
+.volume-row,
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.time-row {
+  justify-content: space-between;
+}
+
+.control-row button {
+  flex: 1;
+  min-height: 72px;
+  font-weight: 800;
+}
+
+.volume-row meter {
+  flex: 1;
+  height: 22px;
+}
+
+.health-row {
+  grid-template-columns: 130px 1fr 1.3fr;
+}
+
+.actions {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.actions button {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 84px;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 800;
+}
+
+.idle-surface {
+  display: grid;
+  place-items: center;
+  min-height: 580px;
+  border-radius: 8px;
+  background: #101514;
+  color: #f8f1dd;
+  text-align: center;
+}
+
+.idle-surface.with-art {
+  grid-template-columns: 1fr 260px 1fr;
+  gap: 24px;
+}
+
+.clock {
+  font-size: clamp(84px, 15vw, 178px);
+  font-weight: 900;
+}
+
+.idle-surface p {
+  font-size: 22px;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .developer-panel,
+  .shell,
+  .surface-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: stretch;
+  }
+
+  .status-strip,
+  .tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell {
+    display: grid;
+  }
+
+  .nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .nav button {
+    min-height: 64px;
+    text-align: center;
+    padding: 0 8px;
+  }
+
+  .hero-panel h1,
+  .player-panel h1 {
+    font-size: 40px;
+  }
+
+  .idle-surface.with-art {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .app {
+    padding: 10px;
+  }
+
+  .status-strip,
+  .tile-grid,
+  .nav,
+  .health-row {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-panel {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .warning-band div,
+  .volume-row,
+  .control-row {
+    display: grid;
+  }
+}

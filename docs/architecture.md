@@ -17,6 +17,10 @@ All hardware and OS integrations should sit behind clear interfaces with mock im
 
 This lets the app be developed and tested without a Raspberry Pi attached, while the real adapters can be validated on hardware.
 
+The current backend skeleton only implements the mock adapter path for the `AppSnapshot` contract.
+When `PIPZO_MODE=hardware`, `/api/v1/app/state` deliberately returns an unimplemented response until real NetworkManager, BlueZ, Spotify, volume, and kiosk adapters are added.
+This keeps desktop scenarios useful without implying that mock state is production device state.
+
 ## High-Level Components
 
 ```text

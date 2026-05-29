@@ -1,0 +1,246 @@
+export type AppPhase = "starting" | "setup" | "ready" | "degraded";
+
+export type SetupStepId = "welcome" | "wifi" | "spotify_auth" | "speaker" | "playback_test" | "complete" | "none";
+export type SetupStepStatus = "not_started" | "in_progress" | "action_required" | "ready" | "blocked";
+
+export type SurfaceId = "setup" | "home" | "browse" | "now_playing" | "settings" | "idle";
+export type IdleMode = "off" | "clock" | "clock_with_artwork";
+
+export type RecoveryActionState = "available" | "confirm_required" | "running" | "succeeded" | "failed" | "blocked";
+
+export type NetworkStatus = "starting" | "online" | "local_only" | "offline" | "disabled" | "error";
+export type NetworkReason =
+  | "boot_probe_pending"
+  | "no_wifi_device"
+  | "wifi_radio_disabled"
+  | "no_known_network"
+  | "scan_empty"
+  | "bad_credentials"
+  | "association_failed"
+  | "dhcp_failed"
+  | "dns_failed"
+  | "internet_probe_failed"
+  | "captive_portal_suspected"
+  | "user_switching_network"
+  | "unknown";
+
+export type SpeakerStatus =
+  | "starting"
+  | "none_saved"
+  | "scanning"
+  | "pairing"
+  | "connected"
+  | "saved_disconnected"
+  | "reconnecting"
+  | "forgetting"
+  | "error";
+export type SpeakerReason =
+  | "boot_probe_pending"
+  | "bluetooth_disabled"
+  | "adapter_unavailable"
+  | "scan_empty"
+  | "device_out_of_range"
+  | "pair_rejected"
+  | "pair_timeout"
+  | "connect_failed"
+  | "audio_profile_unavailable"
+  | "primary_missing"
+  | "user_forgot"
+  | "unknown";
+
+export type PlaybackDeviceStatus = "starting" | "available" | "registering" | "transfer_required" | "unavailable" | "error";
+export type PlaybackDeviceReason =
+  | "chromium_not_ready"
+  | "sdk_not_ready"
+  | "premium_required"
+  | "auth_required"
+  | "device_not_registered"
+  | "transfer_failed"
+  | "spotify_api_error"
+  | "network_unavailable"
+  | "speaker_unavailable"
+  | "unknown";
+
+export type VolumeStatus = "unified" | "spotify_only" | "os_only" | "write_only" | "out_of_sync" | "unavailable";
+export type VolumeReason =
+  | "boot_probe_pending"
+  | "spotify_volume_unsupported"
+  | "os_sink_missing"
+  | "bluetooth_sink_missing"
+  | "readback_mismatch"
+  | "reconnect_resync_needed"
+  | "permission_denied"
+  | "unknown";
+
+export type SpotifyAuthStatus = "starting" | "none" | "waiting" | "connected" | "expired" | "reconnect_required" | "error";
+export type SpotifyAuthReason =
+  | "boot_probe_pending"
+  | "no_session"
+  | "oauth_pending"
+  | "oauth_expired"
+  | "token_refresh_failed"
+  | "revoked"
+  | "premium_required"
+  | "network_unavailable"
+  | "unknown";
+
+export type KioskBootPhase = "system_booting" | "backend_starting" | "frontend_loading" | "adapters_probing" | "app_ready";
+
+export type WarningCode =
+  | "network_offline"
+  | "network_local_only"
+  | "spotify_reconnect_required"
+  | "speaker_disconnected"
+  | "speaker_pair_failed"
+  | "playback_device_unavailable"
+  | "volume_limited"
+  | "volume_out_of_sync"
+  | "stale_content"
+  | "kiosk_recovered"
+  | "diagnostics_limited";
+
+export type Reason = NetworkReason | SpeakerReason | SpotifyAuthReason | PlaybackDeviceReason | VolumeReason;
+
+export type SetupStep = {
+  id: SetupStepId;
+  status: SetupStepStatus;
+  reason?: Reason;
+  required: boolean;
+};
+
+export type SetupState = {
+  blockingStep: SetupStepId;
+  steps: SetupStep[];
+};
+
+export type ReadinessState = {
+  networkConfigured: boolean;
+  spotifyAuthorized: boolean;
+  primarySpeakerSaved: boolean;
+  playbackTestPassed: boolean;
+  setupCompletedAt?: string;
+  minimumReady: boolean;
+};
+
+export type SpeakerSummary = {
+  address: string;
+  displayName: string;
+  alias?: string;
+  connected: boolean;
+};
+
+export type HealthState = {
+  network: { status: NetworkStatus; reason?: NetworkReason; ssid?: string; internetReachable?: boolean };
+  spotifyAuth: { status: SpotifyAuthStatus; reason?: SpotifyAuthReason; accountDisplayName?: string };
+  speaker: { status: SpeakerStatus; reason?: SpeakerReason; primary?: SpeakerSummary };
+  playbackDevice: { status: PlaybackDeviceStatus; reason?: PlaybackDeviceReason; deviceId?: string };
+  volume: { status: VolumeStatus; reason?: VolumeReason; value?: number; muted?: boolean };
+  kiosk: { phase: KioskBootPhase; lastRestartAt?: string };
+};
+
+export type SurfaceState = {
+  current: SurfaceId;
+  route?: string;
+  returnSurface?: SurfaceId;
+  idleMode: IdleMode;
+};
+
+export type Warning = {
+  code: WarningCode;
+  reason?: Reason;
+  surface?: SurfaceId;
+  action?: string;
+};
+
+export type CapabilityState = {
+  canBrowse: boolean;
+  canSearch: boolean;
+  canStartPlayback: boolean;
+  canControlPlayback: boolean;
+  canControlVolume: boolean;
+  canUseSleepTimer: boolean;
+  canOpenSettings: true;
+  canRunDiagnostics: boolean;
+};
+
+export type DiagnosticsSummary = {
+  safeMode: boolean;
+  rawAdapterCode?: string;
+  lastCommand?: string;
+  lastLogRef?: string;
+  generatedAt: string;
+};
+
+export type RecoveryActionKind =
+  | "connect_wifi"
+  | "forget_wifi"
+  | "start_spotify_auth"
+  | "reconnect_speaker"
+  | "forget_speaker"
+  | "run_playback_test"
+  | "retry_playback_device"
+  | "reset_app";
+
+export type RecoveryAction = {
+  id: string;
+  kind: RecoveryActionKind;
+  state: RecoveryActionState;
+  reason?: Reason;
+  requiresConfirmation: boolean;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export type AppSettings = {
+  idleMode: IdleMode;
+  idleTimeoutSeconds: number;
+  artworkInIdle: boolean;
+  defaultSleepTimerMinutes?: number | null;
+};
+
+export type NowPlayingSummary = {
+  title: string;
+  artist: string;
+  album?: string;
+  artworkUrl?: string;
+  isPlaying: boolean;
+  progressMs?: number;
+  durationMs?: number;
+};
+
+export type StalenessState = {
+  isStale: boolean;
+  staleSince?: string;
+  reason?: string;
+};
+
+export type AppSnapshot = {
+  appPhase: AppPhase;
+  setup: SetupState;
+  readiness: ReadinessState;
+  health: HealthState;
+  surfaces: SurfaceState;
+  warnings: Warning[];
+  capabilities: CapabilityState;
+  diagnostics: DiagnosticsSummary;
+  recoveryActions: RecoveryAction[];
+  settings: AppSettings;
+  nowPlaying?: NowPlayingSummary | null;
+  staleness: StalenessState;
+  updatedAt: string;
+  schemaVersion: "v1";
+};
+
+export type ScenarioSummary = {
+  id: string;
+  label: string;
+  description: string;
+};
+
+export type HealthResponse = {
+  status: "ok";
+  service: "pipzo-api";
+  mode: string;
+  schemaVersion: "v1";
+  checkedAt: string;
+};

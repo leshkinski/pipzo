@@ -1,0 +1,255 @@
+import type { AppSnapshot, ScenarioSummary } from "./contracts";
+
+type LocalScenario = ScenarioSummary & { snapshot: AppSnapshot };
+
+const now = () => new Date().toISOString();
+
+function readySnapshot(): AppSnapshot {
+  const updatedAt = now();
+  return {
+    appPhase: "ready",
+    setup: {
+      blockingStep: "none",
+      steps: [
+        "welcome",
+        "wifi",
+        "spotify_auth",
+        "speaker",
+        "playback_test",
+        "complete",
+      ].map((id) => ({ id: id as AppSnapshot["setup"]["steps"][number]["id"], status: "ready", required: id !== "welcome" })),
+    },
+    readiness: {
+      networkConfigured: true,
+      spotifyAuthorized: true,
+      primarySpeakerSaved: true,
+      playbackTestPassed: true,
+      setupCompletedAt: updatedAt,
+      minimumReady: true,
+    },
+    health: {
+      network: { status: "online", ssid: "PipzoNet", internetReachable: true },
+      spotifyAuth: { status: "connected", accountDisplayName: "Pipzo" },
+      speaker: {
+        status: "connected",
+        primary: {
+          address: "AA:BB:CC:DD:EE:FF",
+          displayName: "Pipzo Speaker",
+          alias: "Bedroom speaker",
+          connected: true,
+        },
+      },
+      playbackDevice: { status: "available", deviceId: "pipzo-web-player" },
+      volume: { status: "unified", value: 42, muted: false },
+      kiosk: { phase: "app_ready" },
+    },
+    surfaces: { current: "home", route: "/", idleMode: "clock" },
+    warnings: [],
+    capabilities: {
+      canBrowse: true,
+      canSearch: true,
+      canStartPlayback: true,
+      canControlPlayback: true,
+      canControlVolume: true,
+      canUseSleepTimer: true,
+      canOpenSettings: true,
+      canRunDiagnostics: true,
+    },
+    diagnostics: { safeMode: true, generatedAt: updatedAt },
+    recoveryActions: [
+      { id: "reset-app", kind: "reset_app", state: "confirm_required", requiresConfirmation: true },
+    ],
+    settings: {
+      idleMode: "clock",
+      idleTimeoutSeconds: 300,
+      artworkInIdle: false,
+      defaultSleepTimerMinutes: 30,
+    },
+    nowPlaying: {
+      title: "Bedtime Song",
+      artist: "Pipzo Mock",
+      album: "Mock Library",
+      isPlaying: false,
+      progressMs: 12000,
+      durationMs: 180000,
+    },
+    staleness: { isStale: false },
+    updatedAt,
+    schemaVersion: "v1",
+  };
+}
+
+function clone(snapshot: AppSnapshot): AppSnapshot {
+  return structuredClone(snapshot);
+}
+
+const ready = readySnapshot();
+
+const firstBoot = clone(ready);
+firstBoot.appPhase = "setup";
+firstBoot.setup.blockingStep = "wifi";
+firstBoot.setup.steps = firstBoot.setup.steps.map((step) => {
+  if (step.id === "wifi") return { ...step, status: "action_required" };
+  if (["spotify_auth", "speaker", "playback_test", "complete"].includes(step.id)) return { ...step, status: "blocked" };
+  return step;
+});
+firstBoot.readiness = {
+  networkConfigured: false,
+  spotifyAuthorized: false,
+  primarySpeakerSaved: false,
+  playbackTestPassed: false,
+  minimumReady: false,
+};
+firstBoot.health.network = { status: "offline", reason: "no_known_network", internetReachable: false };
+firstBoot.health.spotifyAuth = { status: "none", reason: "no_session" };
+firstBoot.health.speaker = { status: "none_saved", reason: "primary_missing" };
+firstBoot.health.playbackDevice = { status: "unavailable", reason: "auth_required" };
+firstBoot.health.volume = { status: "unavailable", reason: "bluetooth_sink_missing" };
+firstBoot.surfaces = { current: "setup", route: "/setup/wifi", idleMode: "clock" };
+firstBoot.capabilities = {
+  ...firstBoot.capabilities,
+  canBrowse: false,
+  canSearch: false,
+  canStartPlayback: false,
+  canControlPlayback: false,
+  canControlVolume: false,
+  canUseSleepTimer: false,
+};
+firstBoot.nowPlaying = null;
+firstBoot.recoveryActions = [
+  { id: "connect-wifi", kind: "connect_wifi", state: "available", reason: "no_known_network", requiresConfirmation: false },
+];
+
+const degraded = clone(ready);
+degraded.appPhase = "degraded";
+degraded.health.network = { status: "offline", reason: "internet_probe_failed", internetReachable: false };
+degraded.health.playbackDevice = { status: "unavailable", reason: "network_unavailable" };
+degraded.surfaces = { current: "settings", route: "/settings/recovery", returnSurface: "home", idleMode: "clock" };
+degraded.warnings = [
+  { code: "network_offline", reason: "internet_probe_failed", surface: "settings" },
+  { code: "playback_device_unavailable", reason: "network_unavailable" },
+];
+degraded.capabilities = { ...degraded.capabilities, canBrowse: false, canSearch: false, canStartPlayback: false };
+degraded.recoveryActions = [
+  { id: "retry-internet-probe", kind: "connect_wifi", state: "available", reason: "internet_probe_failed", requiresConfirmation: false },
+];
+degraded.staleness = { isStale: true, staleSince: now(), reason: "network_offline" };
+
+const speakerDisconnected = clone(ready);
+speakerDisconnected.health.speaker.status = "saved_disconnected";
+speakerDisconnected.health.speaker.reason = "device_out_of_range";
+if (speakerDisconnected.health.speaker.primary) speakerDisconnected.health.speaker.primary.connected = false;
+speakerDisconnected.health.playbackDevice = { status: "unavailable", reason: "speaker_unavailable" };
+speakerDisconnected.warnings = [{ code: "speaker_disconnected", reason: "device_out_of_range" }];
+speakerDisconnected.capabilities = { ...speakerDisconnected.capabilities, canStartPlayback: false, canControlPlayback: false };
+speakerDisconnected.recoveryActions = [
+  { id: "reconnect-speaker", kind: "reconnect_speaker", state: "available", reason: "device_out_of_range", requiresConfirmation: false },
+];
+
+const wifiLocalOnly = clone(ready);
+wifiLocalOnly.appPhase = "degraded";
+wifiLocalOnly.health.network = {
+  status: "local_only",
+  reason: "internet_probe_failed",
+  ssid: "PipzoNet",
+  internetReachable: false,
+};
+wifiLocalOnly.warnings = [{ code: "network_local_only", reason: "internet_probe_failed" }];
+wifiLocalOnly.capabilities = { ...wifiLocalOnly.capabilities, canBrowse: false, canSearch: false, canStartPlayback: false };
+wifiLocalOnly.staleness = { isStale: true, staleSince: now(), reason: "network_local_only" };
+
+const volumeOutOfSync = clone(ready);
+volumeOutOfSync.health.volume = { status: "out_of_sync", reason: "readback_mismatch", value: 42, muted: false };
+volumeOutOfSync.warnings = [{ code: "volume_out_of_sync", reason: "readback_mismatch" }];
+
+const bootProbeDelayed = clone(firstBoot);
+bootProbeDelayed.appPhase = "starting";
+bootProbeDelayed.setup.blockingStep = "none";
+bootProbeDelayed.health.network = { status: "starting", reason: "boot_probe_pending" };
+bootProbeDelayed.health.spotifyAuth = { status: "starting", reason: "boot_probe_pending" };
+bootProbeDelayed.health.speaker = { status: "starting", reason: "boot_probe_pending" };
+bootProbeDelayed.health.playbackDevice = { status: "starting", reason: "sdk_not_ready" };
+bootProbeDelayed.health.volume = { status: "unavailable", reason: "boot_probe_pending" };
+bootProbeDelayed.health.kiosk = { phase: "adapters_probing" };
+bootProbeDelayed.surfaces = { current: "setup", route: "/starting", idleMode: "clock" };
+bootProbeDelayed.recoveryActions = [];
+bootProbeDelayed.warnings = [];
+
+const idleClock = clone(ready);
+idleClock.surfaces = { current: "idle", route: "/idle", idleMode: "clock" };
+idleClock.settings = { ...idleClock.settings, artworkInIdle: false, idleMode: "clock" };
+
+const idleArtwork = clone(ready);
+idleArtwork.surfaces = { current: "idle", route: "/idle", idleMode: "clock_with_artwork" };
+idleArtwork.settings = { ...idleArtwork.settings, artworkInIdle: true, idleMode: "clock_with_artwork" };
+idleArtwork.nowPlaying = { ...idleArtwork.nowPlaying!, isPlaying: true };
+
+export const localScenarios: Record<string, LocalScenario> = {
+  first_boot_empty: {
+    id: "first_boot_empty",
+    label: "First boot empty",
+    description: "No Wi-Fi, Spotify session, speaker, or playback test readiness exists yet.",
+    snapshot: firstBoot,
+  },
+  ready_healthy: {
+    id: "ready_healthy",
+    label: "Ready and healthy",
+    description: "Setup is complete and all core adapters are healthy.",
+    snapshot: ready,
+  },
+  degraded_recovery: {
+    id: "degraded_recovery",
+    label: "Degraded recovery",
+    description: "Setup was completed earlier, but network loss blocks playback and browse.",
+    snapshot: degraded,
+  },
+  speaker_saved_disconnected: {
+    id: "speaker_saved_disconnected",
+    label: "Saved speaker disconnected",
+    description: "A primary speaker is saved but currently not connected.",
+    snapshot: speakerDisconnected,
+  },
+  wifi_local_only: {
+    id: "wifi_local_only",
+    label: "Wi-Fi local only",
+    description: "The Pi is connected to Wi-Fi without internet reachability.",
+    snapshot: wifiLocalOnly,
+  },
+  volume_out_of_sync: {
+    id: "volume_out_of_sync",
+    label: "Volume out of sync",
+    description: "Spotify and OS/Bluetooth volume readback disagree.",
+    snapshot: volumeOutOfSync,
+  },
+  boot_probe_delayed: {
+    id: "boot_probe_delayed",
+    label: "Boot probe delayed",
+    description: "Backend is up while adapters are still in the boot probing window.",
+    snapshot: bootProbeDelayed,
+  },
+  idle_clock: {
+    id: "idle_clock",
+    label: "Idle clock",
+    description: "Clock-first bedside idle mode with artwork disabled.",
+    snapshot: idleClock,
+  },
+  idle_with_artwork: {
+    id: "idle_with_artwork",
+    label: "Idle with artwork",
+    description: "Optional richer idle mode when artwork is enabled in settings.",
+    snapshot: idleArtwork,
+  },
+};
+
+export function localScenarioSummaries(): ScenarioSummary[] {
+  return Object.values(localScenarios).map(({ id, label, description }) => ({ id, label, description }));
+}
+
+export function localScenarioSnapshot(scenarioId: string): AppSnapshot {
+  const scenario = localScenarios[scenarioId] ?? localScenarios.first_boot_empty;
+  const snapshot = clone(scenario.snapshot);
+  const updatedAt = now();
+  snapshot.updatedAt = updatedAt;
+  snapshot.diagnostics.generatedAt = updatedAt;
+  return snapshot;
+}
