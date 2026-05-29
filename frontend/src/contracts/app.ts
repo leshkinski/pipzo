@@ -191,11 +191,36 @@ export type RecoveryAction = {
   completedAt?: string;
 };
 
+export type ActionResult = {
+  id: string;
+  domain: "setup" | "settings" | "playback" | "recovery";
+  action: string;
+  state: RecoveryActionState;
+  reason?: Reason;
+  mock: boolean;
+  startedAt: string;
+  completedAt?: string;
+};
+
 export type AppSettings = {
   idleMode: IdleMode;
   idleTimeoutSeconds: number;
   artworkInIdle: boolean;
   defaultSleepTimerMinutes?: number | null;
+};
+
+export type AppSettingsPatch = Partial<AppSettings>;
+
+export type PlaybackControlRequest = {
+  action: "play" | "pause" | "next" | "previous" | "stop";
+};
+
+export type SetupPlaybackTestRequest = {
+  action: "start" | "stop";
+};
+
+export type RunRecoveryActionRequest = {
+  confirm: boolean;
 };
 
 export type NowPlayingSummary = {
@@ -244,3 +269,13 @@ export type HealthResponse = {
   schemaVersion: "v1";
   checkedAt: string;
 };
+
+export type AppEvent =
+  | { type: "app.snapshot"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
+  | { type: "settings.changed"; payload: AppSettings; emittedAt: string; schemaVersion: "v1" }
+  | { type: "setup.step_changed"; payload: SetupState; emittedAt: string; schemaVersion: "v1" }
+  | { type: "setup.completed"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
+  | { type: "setup.playback_test_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
+  | { type: "playback.control_changed"; payload: ActionResult; emittedAt: string; schemaVersion: "v1" }
+  | { type: "recovery.action_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
+  | { type: "mock.scenario_activated"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" };

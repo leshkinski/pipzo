@@ -128,3 +128,104 @@ def test_config_drives_structured_logging_level(tmp_path):
         client.get("/api/v1/health")
 
     assert logging.getLogger("pipzo").getEffectiveLevel() == logging.DEBUG
+
+
+def test_events_websocket_sends_initial_snapshot_and_action_event(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "events.sqlite3"))) as client:
+        with client.websocket_connect("/api/v1/events/ws") as websocket:
+            initial = websocket.receive_json()
+
+            assert initial["type"] == "app.snapshot"
+            assert initial["payload"]["schemaVersion"] == "v1"
+
+            response = client.patch("/api/v1/settings", json={"idleMode": "clock_with_artwork", "artworkInIdle": True})
+            assert response.status_code == 200
+
+            event = websocket.receive_json()
+
+    assert event["type"] == "settings.changed"
+    assert event["payload"]["idleMode"] == "clock_with_artwork"
+
+
+def test_setup_start_and_complete_validate_mock_readiness(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "setup.sqlite3"))) as client:
+        start_response = client.post("/api/v1/setup/start")
+        complete_response = client.post("/api/v1/setup/complete")
+
+        client.post("/api/v1/mock/scenarios/ready_healthy/activate")
+        ready_complete_response = client.post("/api/v1/setup/complete")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["blockingStep"] == "wifi"
+    assert complete_response.status_code == 409
+    assert ready_complete_response.status_code == 200
+    assert ready_complete_response.json()["readiness"]["minimumReady"] is True
+
+
+def test_settings_get_and_patch_existing_fields(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "settings.sqlite3"))) as client:
+        get_response = client.get("/api/v1/settings")
+        patch_response = client.patch(
+            "/api/v1/settings",
+            json={"idleTimeoutSeconds": 120, "defaultSleepTimerMinutes": 30},
+        )
+        state_response = client.get("/api/v1/app/state")
+
+    assert get_response.status_code == 200
+    assert get_response.json()["idleMode"] == "clock"
+    assert patch_response.status_code == 200
+    assert patch_response.json()["idleTimeoutSeconds"] == 120
+    assert patch_response.json()["defaultSleepTimerMinutes"] == 30
+    assert state_response.json()["settings"]["idleTimeoutSeconds"] == 120
+
+
+def test_playback_control_reports_mock_success_and_unavailable_state(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "playback.sqlite3"))) as client:
+        client.post("/api/v1/mock/scenarios/ready_healthy/activate")
+        ready_response = client.post("/api/v1/playback/control", json={"action": "play"})
+
+        client.post("/api/v1/mock/scenarios/speaker_saved_disconnected/activate")
+        unavailable_response = client.post("/api/v1/playback/control", json={"action": "play"})
+
+    assert ready_response.status_code == 200
+    assert ready_response.json()["state"] == "succeeded"
+    assert ready_response.json()["mock"] is True
+    assert unavailable_response.status_code == 200
+    assert unavailable_response.json()["state"] == "blocked"
+    assert unavailable_response.json()["reason"] == "speaker_unavailable"
+
+
+def test_playback_test_and_recovery_actions_are_mockable(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "recovery.sqlite3"))) as client:
+        client.post("/api/v1/mock/scenarios/ready_healthy/activate")
+
+        playback_test_response = client.post("/api/v1/setup/playback-test", json={"action": "start"})
+        actions_response = client.get("/api/v1/recovery/actions")
+        reset_without_confirm = client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": False})
+        reset_with_confirm = client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True})
+        state_response = client.get("/api/v1/app/state")
+
+    assert playback_test_response.status_code == 200
+    assert playback_test_response.json()["kind"] == "run_playback_test"
+    assert playback_test_response.json()["state"] == "succeeded"
+    assert actions_response.status_code == 200
+    assert any(action["id"] == "reset-app" for action in actions_response.json())
+    assert reset_without_confirm.json()["state"] == "confirm_required"
+    assert reset_with_confirm.json()["state"] == "succeeded"
+    assert state_response.json()["appPhase"] == "setup"
+
+
+def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-actions.sqlite3"))
+
+    with make_client(settings) as client:
+        responses = [
+            client.post("/api/v1/setup/start"),
+            client.post("/api/v1/setup/complete"),
+            client.post("/api/v1/setup/playback-test", json={"action": "start"}),
+            client.patch("/api/v1/settings", json={"idleMode": "off"}),
+            client.post("/api/v1/playback/control", json={"action": "pause"}),
+            client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True}),
+        ]
+
+    assert all(response.status_code == 501 for response in responses)

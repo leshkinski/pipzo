@@ -35,7 +35,7 @@ docs/           Architecture, setup, product, and runbook docs
 
 ## Local Contract API
 
-The first skeleton exposes the app-state contract and desktop mock scenarios.
+The skeleton exposes the app-state contract, a WebSocket event channel, desktop mock scenarios, and initial mutation/action endpoints for frontend development.
 
 ```bash
 python3 -m venv .venv
@@ -56,11 +56,21 @@ Useful endpoints:
 
 - `GET http://127.0.0.1:8000/api/v1/health`
 - `GET http://127.0.0.1:8000/api/v1/app/state`
+- `WS  ws://127.0.0.1:8000/api/v1/events/ws`
+- `POST http://127.0.0.1:8000/api/v1/setup/start`
+- `POST http://127.0.0.1:8000/api/v1/setup/complete`
+- `POST http://127.0.0.1:8000/api/v1/setup/playback-test`
+- `GET/PATCH http://127.0.0.1:8000/api/v1/settings`
+- `POST http://127.0.0.1:8000/api/v1/playback/control`
+- `GET http://127.0.0.1:8000/api/v1/recovery/actions`
+- `POST http://127.0.0.1:8000/api/v1/recovery/actions/{actionId}/run`
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
 - `POST http://127.0.0.1:8000/api/v1/mock/scenarios/ready_healthy/activate`
 
+WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `playback.control_changed`, and `recovery.action_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
+
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-The hardware adapter path is an explicit future seam; it does not fake production device behavior yet.
+The action endpoints currently simulate behavior only in mock mode. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify, playback, or reset success.
 
 Backend tests:
 

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -332,11 +332,41 @@ class RecoveryAction(ContractModel):
     completed_at: Optional[datetime] = None
 
 
+class ActionResult(ContractModel):
+    id: str
+    domain: Literal["setup", "settings", "playback", "recovery"]
+    action: str
+    state: RecoveryActionState
+    reason: Optional[Reason] = None
+    mock: bool
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class SetupPlaybackTestRequest(ContractModel):
+    action: Literal["start", "stop"]
+
+
+class PlaybackControlRequest(ContractModel):
+    action: Literal["play", "pause", "next", "previous", "stop"]
+
+
+class RunRecoveryActionRequest(ContractModel):
+    confirm: bool = False
+
+
 class AppSettings(ContractModel):
     idle_mode: IdleMode = IdleMode.CLOCK
-    idle_timeout_seconds: int = 300
+    idle_timeout_seconds: int = Field(default=300, ge=30, le=3600)
     artwork_in_idle: bool = False
-    default_sleep_timer_minutes: Optional[int] = None
+    default_sleep_timer_minutes: Optional[int] = Field(default=None, ge=0, le=120)
+
+
+class AppSettingsPatch(ContractModel):
+    idle_mode: Optional[IdleMode] = None
+    idle_timeout_seconds: Optional[int] = Field(default=None, ge=30, le=3600)
+    artwork_in_idle: Optional[bool] = None
+    default_sleep_timer_minutes: Optional[int] = Field(default=None, ge=0, le=120)
 
 
 class NowPlayingSummary(ContractModel):
@@ -384,6 +414,13 @@ class HealthResponse(ContractModel):
     mode: str
     schema_version: Literal["v1"] = "v1"
     checked_at: datetime
+
+
+class AppEvent(ContractModel):
+    type: str
+    payload: Dict[str, Any]
+    emitted_at: datetime = Field(default_factory=lambda: utc_now())
+    schema_version: Literal["v1"] = "v1"
 
 
 def utc_now() -> datetime:

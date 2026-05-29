@@ -2,8 +2,10 @@ from copy import deepcopy
 from typing import Callable, Dict, List
 
 from .contract import (
+    ActionResult,
     AppPhase,
     AppSettings,
+    AppSettingsPatch,
     AppSnapshot,
     CapabilityState,
     DiagnosticsSummary,
@@ -345,3 +347,104 @@ class MockScenarioStore:
         self._scenario_id = scenario_id
         self._snapshot = SCENARIO_FACTORIES[scenario_id]()
         return self.get_snapshot()
+
+    def start_setup(self) -> SetupState:
+        self._snapshot.app_phase = AppPhase.SETUP
+        self._snapshot.surfaces = SurfaceState(current=SurfaceId.SETUP, route="/setup/wifi", idle_mode=self._snapshot.settings.idle_mode)
+        return self.get_snapshot().setup
+
+    def complete_setup(self) -> AppSnapshot:
+        if not self._snapshot.readiness.minimum_ready:
+            raise ValueError("Setup cannot complete until minimum readiness is true")
+        now = utc_now()
+        self._snapshot.app_phase = AppPhase.READY
+        self._snapshot.setup = SetupState(blocking_step=SetupStepId.NONE, steps=_ready_steps())
+        self._snapshot.readiness.setup_completed_at = now
+        self._snapshot.surfaces.current = SurfaceId.HOME
+        self._snapshot.surfaces.route = "/"
+        self._snapshot.updated_at = now
+        return self.get_snapshot()
+
+    def get_settings(self) -> AppSettings:
+        return self.get_snapshot().settings
+
+    def patch_settings(self, patch: AppSettingsPatch) -> AppSettings:
+        current = self._snapshot.settings.model_dump()
+        updates = patch.model_dump(exclude_unset=True)
+        current.update(updates)
+        self._snapshot.settings = AppSettings.model_validate(current)
+        self._snapshot.surfaces.idle_mode = self._snapshot.settings.idle_mode
+        self._snapshot.updated_at = utc_now()
+        return self.get_snapshot().settings
+
+    def run_playback_test(self, action: str) -> RecoveryAction:
+        now = utc_now()
+        can_run = (
+            self._snapshot.health.speaker.status == SpeakerStatus.CONNECTED
+            and self._snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED
+        )
+        state = RecoveryActionState.SUCCEEDED if can_run else RecoveryActionState.BLOCKED
+        reason = None if can_run else self._snapshot.health.playback_device.reason
+        if can_run and action == "start":
+            self._snapshot.readiness.playback_test_passed = True
+        return RecoveryAction(
+            id="setup-playback-test",
+            kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+            state=state,
+            reason=reason,
+            requires_confirmation=False,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def control_playback(self, action: str) -> ActionResult:
+        now = utc_now()
+        can_control = self._snapshot.capabilities.can_control_playback and self._snapshot.health.playback_device.status == PlaybackDeviceStatus.AVAILABLE
+        if not can_control:
+            return ActionResult(
+                id=f"playback-{action}",
+                domain="playback",
+                action=action,
+                state=RecoveryActionState.BLOCKED,
+                reason=self._snapshot.health.playback_device.reason or PlaybackDeviceReason.UNKNOWN,
+                mock=True,
+                started_at=now,
+                completed_at=now,
+            )
+        if self._snapshot.now_playing is not None:
+            if action == "play":
+                self._snapshot.now_playing.is_playing = True
+            elif action in {"pause", "stop"}:
+                self._snapshot.now_playing.is_playing = False
+            elif action in {"next", "previous"}:
+                self._snapshot.now_playing.progress_ms = 0
+        self._snapshot.updated_at = now
+        return ActionResult(
+            id=f"playback-{action}",
+            domain="playback",
+            action=action,
+            state=RecoveryActionState.SUCCEEDED,
+            mock=True,
+            started_at=now,
+            completed_at=now,
+        )
+
+    def list_recovery_actions(self) -> List[RecoveryAction]:
+        return self.get_snapshot().recovery_actions
+
+    def run_recovery_action(self, action_id: str, confirm: bool) -> RecoveryAction:
+        action = next((item for item in self._snapshot.recovery_actions if item.id == action_id), None)
+        if action is None:
+            raise KeyError(action_id)
+        if action.requires_confirmation and not confirm:
+            return action.model_copy(update={"state": RecoveryActionState.CONFIRM_REQUIRED})
+
+        now = utc_now()
+        completed = action.model_copy(update={"state": RecoveryActionState.SUCCEEDED, "started_at": now, "completed_at": now})
+        if action_id == "reset-app":
+            self._scenario_id = "first_boot_empty"
+            self._snapshot = _first_boot_empty()
+        elif action_id in {"reconnect-speaker", "retry-internet-probe", "connect-wifi"}:
+            self._scenario_id = "ready_healthy"
+            self._snapshot = _base_snapshot()
+        return completed

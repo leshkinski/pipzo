@@ -2,19 +2,34 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import AsyncIterator, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, status
 
 from .adapters import create_app_state_adapter
 from .adapters.production import ProductionAdapterNotImplemented
 from .config import Settings, get_settings
-from .contract import AppSnapshot, HealthResponse, ScenarioSummary, utc_now
+from .contract import (
+    ActionResult,
+    AppSettings,
+    AppSettingsPatch,
+    AppSnapshot,
+    HealthResponse,
+    PlaybackControlRequest,
+    RecoveryAction,
+    RunRecoveryActionRequest,
+    ScenarioSummary,
+    SetupPlaybackTestRequest,
+    SetupState,
+    utc_now,
+)
 from .database import initialize_database
+from .events import EventHub
 from .logging import configure_logging, get_logger
 from .mock_scenarios import MockScenarioStore
 
 
 def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
     mock_store = MockScenarioStore()
+    event_hub = EventHub()
 
     def resolve_settings() -> Settings:
         if settings_override is not None:
@@ -68,14 +83,80 @@ def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:
-        adapter = create_app_state_adapter(settings, mock_store)
+        return read_snapshot(settings, mock_store)
+
+    @app.websocket("/api/v1/events/ws")
+    async def events_ws(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
         try:
-            return adapter.get_snapshot()
-        except ProductionAdapterNotImplemented as exc:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="Hardware adapters are not implemented yet; run with PIPZO_MODE=mock for desktop scenarios.",
-            ) from exc
+            initial_snapshot = read_snapshot(settings, mock_store)
+        except HTTPException as exc:
+            await websocket.close(code=1011, reason=str(exc.detail))
+            return
+        await event_hub.websocket_session(websocket, initial_snapshot)
+
+    @app.post("/api/v1/setup/start", response_model=SetupState)
+    def setup_start(settings: Settings = Depends(get_settings)) -> SetupState:
+        require_action_mock_mode(settings)
+        setup = mock_store.start_setup()
+        event_hub.publish("setup.step_changed", setup.model_dump(mode="json", by_alias=True))
+        event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        return setup
+
+    @app.post("/api/v1/setup/complete", response_model=AppSnapshot)
+    def setup_complete(settings: Settings = Depends(get_settings)) -> AppSnapshot:
+        require_action_mock_mode(settings)
+        try:
+            snapshot = mock_store.complete_setup()
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        event_hub.publish("setup.completed", snapshot.model_dump(mode="json", by_alias=True))
+        return snapshot
+
+    @app.post("/api/v1/setup/playback-test", response_model=RecoveryAction)
+    def setup_playback_test(body: SetupPlaybackTestRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
+        require_action_mock_mode(settings)
+        action = mock_store.run_playback_test(body.action)
+        event_hub.publish("setup.playback_test_changed", action.model_dump(mode="json", by_alias=True))
+        return action
+
+    @app.get("/api/v1/settings", response_model=AppSettings)
+    def settings_get(settings: Settings = Depends(get_settings)) -> AppSettings:
+        require_action_mock_mode(settings)
+        return mock_store.get_settings()
+
+    @app.patch("/api/v1/settings", response_model=AppSettings)
+    def settings_patch(body: AppSettingsPatch, settings: Settings = Depends(get_settings)) -> AppSettings:
+        require_action_mock_mode(settings)
+        updated = mock_store.patch_settings(body)
+        event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
+        return updated
+
+    @app.post("/api/v1/playback/control", response_model=ActionResult)
+    def playback_control(body: PlaybackControlRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
+        require_action_mock_mode(settings)
+        result = mock_store.control_playback(body.action)
+        event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
+        return result
+
+    @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
+    def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
+        require_action_mock_mode(settings)
+        return mock_store.list_recovery_actions()
+
+    @app.post("/api/v1/recovery/actions/{action_id}/run", response_model=RecoveryAction)
+    def recovery_action_run(
+        action_id: str,
+        body: RunRecoveryActionRequest,
+        settings: Settings = Depends(get_settings),
+    ) -> RecoveryAction:
+        require_action_mock_mode(settings)
+        try:
+            action = mock_store.run_recovery_action(action_id, confirm=body.confirm)
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown recovery action") from exc
+        event_hub.publish("recovery.action_changed", action.model_dump(mode="json", by_alias=True))
+        event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        return action
 
     @app.get("/api/v1/mock/scenarios", response_model=list[ScenarioSummary])
     def list_mock_scenarios(settings: Settings = Depends(get_settings)) -> list[ScenarioSummary]:
@@ -90,9 +171,11 @@ def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
             extra={"event": "action", "details": {"action": "mock_scenario_activate", "scenario_id": scenario_id}},
         )
         try:
-            return mock_store.activate(scenario_id)
+            snapshot = mock_store.activate(scenario_id)
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown mock scenario") from exc
+        event_hub.publish("mock.scenario_activated", snapshot.model_dump(mode="json", by_alias=True))
+        return snapshot
 
     return app
 
@@ -100,6 +183,25 @@ def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
 def require_mock_mode(settings: Settings) -> None:
     if settings.app_mode != "mock":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mock endpoints are disabled outside mock mode")
+
+
+def require_action_mock_mode(settings: Settings) -> None:
+    if settings.app_mode != "mock":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="This action is not implemented for hardware mode yet; run with PIPZO_MODE=mock for simulated actions.",
+        )
+
+
+def read_snapshot(settings: Settings, mock_store: MockScenarioStore) -> AppSnapshot:
+    adapter = create_app_state_adapter(settings, mock_store)
+    try:
+        return adapter.get_snapshot()
+    except ProductionAdapterNotImplemented as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Hardware adapters are not implemented yet; run with PIPZO_MODE=mock for desktop scenarios.",
+        ) from exc
 
 
 app = create_app()
