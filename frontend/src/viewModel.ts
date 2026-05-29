@@ -1,4 +1,4 @@
-import type { AppSnapshot, IdleMode, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSnapshot, IdleMode, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
 export const sleepTimerPresets = [15, 30, 45, 60] as const;
@@ -112,6 +112,50 @@ export function degradedModeViewModel(snapshot: AppSnapshot): DegradedModeViewMo
     available: ["Settings", "Wi-Fi recovery", "Bluetooth recovery", "App reset"],
     unavailable: Array.from(new Set(unavailable)),
   };
+}
+
+export type LibraryAvailability = {
+  canBrowse: boolean;
+  canSearch: boolean;
+  canStartPlayback: boolean;
+  stale: boolean;
+  title: string;
+  detail: string;
+};
+
+export function libraryAvailability(snapshot: AppSnapshot): LibraryAvailability {
+  const canBrowse = !isSetupGated(snapshot) && snapshot.capabilities.canBrowse;
+  const canSearch = !isSetupGated(snapshot) && snapshot.capabilities.canSearch;
+  const canStartPlayback = !isSetupGated(snapshot) && snapshot.capabilities.canStartPlayback;
+
+  if (snapshot.staleness.isStale || !canBrowse || !canSearch) {
+    const reason = snapshot.health.network.status !== "online"
+      ? "Network is unavailable."
+      : snapshot.health.spotifyAuth.status !== "connected"
+        ? "Spotify needs reconnecting."
+        : "Playback services are not fully ready.";
+    return {
+      canBrowse,
+      canSearch,
+      canStartPlayback,
+      stale: snapshot.staleness.isStale,
+      title: "Library is in recovery mode",
+      detail: `${reason} Saved content may be visible in mock or cached views, but live browse and search stay disabled until recovery completes.`,
+    };
+  }
+
+  return {
+    canBrowse,
+    canSearch,
+    canStartPlayback,
+    stale: false,
+    title: "Browse saved music",
+    detail: "Playlists, albums, artists, liked songs, and recent listening stay constrained to the connected account.",
+  };
+}
+
+export function canPlayLibraryItem(snapshot: AppSnapshot, item: LibraryItem): boolean {
+  return libraryAvailability(snapshot).canStartPlayback && item.playable && item.playbackKind !== "unavailable";
 }
 
 export function labelFromId(value: string): string {

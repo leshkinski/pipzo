@@ -98,6 +98,14 @@ Useful endpoints:
 - `POST http://127.0.0.1:8000/api/v1/spotify/auth/logout`
 - `GET http://127.0.0.1:8000/api/v1/spotify/playback/token`
 - `POST http://127.0.0.1:8000/api/v1/spotify/playback/transfer`
+- `GET http://127.0.0.1:8000/api/v1/library/home`
+- `GET http://127.0.0.1:8000/api/v1/library/playlists`
+- `GET http://127.0.0.1:8000/api/v1/library/albums`
+- `GET http://127.0.0.1:8000/api/v1/library/artists`
+- `GET http://127.0.0.1:8000/api/v1/library/liked_songs`
+- `GET http://127.0.0.1:8000/api/v1/library/recently_played`
+- `GET http://127.0.0.1:8000/api/v1/library/search?q=bedtime`
+- `POST http://127.0.0.1:8000/api/v1/library/play`
 - `GET http://127.0.0.1:8000/api/v1/recovery/actions`
 - `POST http://127.0.0.1:8000/api/v1/recovery/actions/{actionId}/run`
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
@@ -110,6 +118,8 @@ The SQLite DB and token key are a pair for backup and restore. Back up both toge
 The React Setup and Settings surfaces expose local-device controls to start authorization, open/continue the local Chromium flow, poll status, cancel pending setup, and logout/reconnect an account using only safe session/account metadata. The backend has an explicit refresh helper for startup/pre-call integration: it uses the stored refresh token plus `client_id`, keeps the existing refresh token when Spotify omits a replacement, updates safe auth metadata, and maps network/revoked/key failures to safe `health.spotifyAuth` state. Phone QR/relay OAuth remains follow-on work.
 
 Degraded runtime mode keeps Settings, Wi-Fi recovery, Bluetooth speaker recovery, and app reset reachable after setup when internet, Spotify auth, or the playback device is unavailable. Library browsing and playback controls are blocked honestly in those states, and Pipzo does not offer or imply offline music playback.
+
+Library browsing V1 exposes backend-owned Spotify Web API catalog endpoints for playlists, saved albums, liked songs, recently played tracks, and an Artists category derived from saved/recent music so no extra `user-follow-read` scope is required. Search is constrained: it filters the account/library sections Pipzo already fetches instead of presenting an unrestricted Spotify discovery surface. Selecting playable playlist/album contexts or tracks calls the backend `POST /api/v1/library/play` start seam when playback/device readiness allows it. Mock and local fallback modes include representative library/search fixtures and do not require a live Spotify account.
 
 The kiosk frontend loads Spotify's Web Playback SDK once when it is connected to the backend and Spotify auth is ready, registers the browser player as `Pipzo`, surfaces SDK readiness/device ID/error/transfer state in Now Playing and Settings, and requests backend playback transfer when Spotify reports the SDK device as ready. The backend exposes `GET /api/v1/spotify/playback/token` for the SDK's short-lived access-token callback; it refreshes access backend-side when needed and never returns refresh tokens, PKCE data, encryption key material, or raw token responses. Hardware-mode playback transfer and play/pause/next/previous controls call Spotify Web API through the backend token boundary. Mock/local modes remain usable without a live Spotify account.
 

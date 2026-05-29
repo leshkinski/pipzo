@@ -1,4 +1,4 @@
-import type { AppSnapshot, ScenarioSummary } from "./contracts";
+import type { AppSnapshot, LibraryCategoryId, LibraryHomeResponse, LibraryItem, LibrarySearchResponse, ScenarioSummary } from "./contracts";
 
 type LocalScenario = ScenarioSummary & { snapshot: AppSnapshot };
 
@@ -342,4 +342,127 @@ export function localScenarioSnapshot(scenarioId: string): AppSnapshot {
   snapshot.updatedAt = updatedAt;
   snapshot.diagnostics.generatedAt = updatedAt;
   return snapshot;
+}
+
+export const localLibraryItems: Record<Exclude<LibraryCategoryId, "home">, LibraryItem[]> = {
+  playlists: [
+    {
+      id: "playlist-bedtime",
+      type: "playlist",
+      uri: "spotify:playlist:pipzo-bedtime",
+      title: "Bedtime Favorites",
+      subtitle: "12 familiar songs",
+      source: "playlists",
+      playbackKind: "context",
+      playable: true,
+    },
+    {
+      id: "playlist-car",
+      type: "playlist",
+      uri: "spotify:playlist:pipzo-car",
+      title: "Car Singalong",
+      subtitle: "Family playlist",
+      source: "playlists",
+      playbackKind: "context",
+      playable: true,
+    },
+  ],
+  albums: [
+    {
+      id: "album-lullabies",
+      type: "album",
+      uri: "spotify:album:pipzo-lullabies",
+      title: "Soft Lullabies",
+      subtitle: "Pipzo Mock Artist",
+      source: "albums",
+      playbackKind: "context",
+      playable: true,
+    },
+  ],
+  artists: [
+    {
+      id: "artist-mock",
+      type: "artist",
+      uri: "spotify:artist:pipzo-mock",
+      title: "Pipzo Mock Artist",
+      subtitle: "From saved music",
+      source: "artists",
+      playbackKind: "unavailable",
+      playable: false,
+    },
+  ],
+  liked_songs: [
+    {
+      id: "track-bedtime-song",
+      type: "track",
+      uri: "spotify:track:pipzo-bedtime-song",
+      title: "Bedtime Song",
+      subtitle: "Pipzo Mock Artist / Mock Library",
+      source: "liked_songs",
+      playbackKind: "track",
+      playable: true,
+    },
+    {
+      id: "track-quiet-song",
+      type: "track",
+      uri: "spotify:track:pipzo-quiet-song",
+      title: "Quiet Favorite",
+      subtitle: "Pipzo Mock Artist / Soft Lullabies",
+      source: "liked_songs",
+      playbackKind: "track",
+      playable: true,
+    },
+  ],
+  recently_played: [
+    {
+      id: "track-recent",
+      type: "track",
+      uri: "spotify:track:pipzo-recent",
+      title: "Recently Played Tune",
+      subtitle: "Pipzo Mock Artist / Today",
+      source: "recently_played",
+      playbackKind: "track",
+      playable: true,
+    },
+  ],
+};
+
+const localLibraryTitles: Record<Exclude<LibraryCategoryId, "home">, { title: string; description: string }> = {
+  playlists: { title: "Playlists", description: "Saved and followed playlists visible to the connected account." },
+  albums: { title: "Albums", description: "Albums saved in the Spotify library." },
+  artists: { title: "Artists", description: "Artists derived from saved and recently played music." },
+  liked_songs: { title: "Liked songs", description: "Tracks saved in the Spotify library." },
+  recently_played: { title: "Recently played", description: "Recent tracks from the connected Spotify account." },
+};
+
+export function localLibraryHome(): LibraryHomeResponse {
+  return {
+    sections: Object.entries(localLibraryItems).map(([id, items]) => ({
+      id: id as Exclude<LibraryCategoryId, "home">,
+      ...localLibraryTitles[id as Exclude<LibraryCategoryId, "home">],
+      items,
+    })),
+    generatedAt: now(),
+    constrained: true,
+  };
+}
+
+export function localLibrarySearch(query: string): LibrarySearchResponse {
+  const normalized = query.trim().toLowerCase();
+  return {
+    query,
+    sections: normalized
+      ? Object.entries(localLibraryItems)
+          .map(([id, items]) => ({
+            id: id as Exclude<LibraryCategoryId, "home">,
+            ...localLibraryTitles[id as Exclude<LibraryCategoryId, "home">],
+            items: items.filter((item) =>
+              item.title.toLowerCase().includes(normalized) || (item.subtitle ?? "").toLowerCase().includes(normalized),
+            ),
+          }))
+          .filter((section) => section.items.length > 0)
+      : [],
+    generatedAt: now(),
+    constrained: true,
+  };
 }

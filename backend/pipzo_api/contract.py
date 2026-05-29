@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -431,7 +431,7 @@ class RecoveryAction(ContractModel):
 
 class ActionResult(ContractModel):
     id: str
-    domain: Literal["setup", "settings", "playback", "recovery"]
+    domain: Literal["setup", "settings", "playback", "recovery", "library"]
     action: str
     state: RecoveryActionState
     reason: Optional[Reason] = None
@@ -459,6 +459,87 @@ class PlaybackControlRequest(ContractModel):
 class SpotifyPlaybackTransferRequest(ContractModel):
     device_id: str
     play: bool = False
+
+
+class LibraryCategoryId(str, Enum):
+    HOME = "home"
+    PLAYLISTS = "playlists"
+    ALBUMS = "albums"
+    ARTISTS = "artists"
+    LIKED_SONGS = "liked_songs"
+    RECENTLY_PLAYED = "recently_played"
+
+
+class LibraryItemType(str, Enum):
+    PLAYLIST = "playlist"
+    ALBUM = "album"
+    ARTIST = "artist"
+    TRACK = "track"
+
+
+class LibraryPlaybackKind(str, Enum):
+    CONTEXT = "context"
+    TRACK = "track"
+    UNAVAILABLE = "unavailable"
+
+
+class LibraryItem(ContractModel):
+    id: str
+    type: LibraryItemType
+    uri: str
+    title: str
+    subtitle: Optional[str] = None
+    artwork_url: Optional[str] = None
+    source: LibraryCategoryId
+    playback_kind: LibraryPlaybackKind
+    playable: bool = True
+
+
+class LibrarySection(ContractModel):
+    id: LibraryCategoryId
+    title: str
+    description: str
+    items: List[LibraryItem]
+
+
+class LibraryCategoryResponse(ContractModel):
+    category: LibraryCategoryId
+    title: str
+    description: str
+    items: List[LibraryItem]
+    generated_at: datetime
+
+
+class LibraryHomeResponse(ContractModel):
+    sections: List[LibrarySection]
+    generated_at: datetime
+    constrained: Literal[True] = True
+
+
+class LibrarySearchResponse(ContractModel):
+    query: str
+    sections: List[LibrarySection]
+    generated_at: datetime
+    constrained: Literal[True] = True
+
+
+class LibraryPlayRequest(ContractModel):
+    uri: str
+    playback_kind: LibraryPlaybackKind
+    device_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_playable_spotify_uri(self) -> "LibraryPlayRequest":
+        playback_kind = self.playback_kind.value if isinstance(self.playback_kind, LibraryPlaybackKind) else str(self.playback_kind)
+        if playback_kind == LibraryPlaybackKind.TRACK.value and not self.uri.startswith("spotify:track:"):
+            raise ValueError("track playback requires a Spotify track URI")
+        if playback_kind == LibraryPlaybackKind.CONTEXT.value and not (
+            self.uri.startswith("spotify:playlist:")
+            or self.uri.startswith("spotify:album:")
+            or self.uri.startswith("spotify:artist:")
+        ):
+            raise ValueError("context playback requires a Spotify context URI")
+        return self
 
 
 class RunRecoveryActionRequest(ContractModel):

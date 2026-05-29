@@ -8,6 +8,8 @@ import {
   fetchAppState,
   fetchBackendScenarios,
   fetchHealth,
+  fetchLibraryCategory,
+  fetchLibraryHome,
   fetchNetworkScanResults,
   fetchSpeakerScanResults,
   fetchSpotifyAuthSession,
@@ -17,14 +19,16 @@ import {
   patchDisplay,
   patchSettings,
   pairSpeaker,
+  playLibraryItem,
   retryInternetProbe,
   reconnectSpeaker,
   scanSpeakers,
   scanNetwork,
+  searchLibrary,
   connectNetwork,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DisplayStatus, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
-import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
+import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import { localLibraryHome, localLibrarySearch, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
   spotifySdkGate,
@@ -34,11 +38,13 @@ import {
 } from "./spotifyWebPlayback";
 import {
   canOpenSurface,
+  canPlayLibraryItem,
   degradedModeViewModel,
   formatMs,
   idlePresentation,
   isSetupGated,
   labelFromId,
+  libraryAvailability,
   preferredSurface,
   primarySurfaces,
   shouldEnterIdleMode,
@@ -101,6 +107,19 @@ type SleepTimerControls = {
   onCancel: () => void;
 };
 
+type LibraryControls = {
+  home: LibraryHomeResponse;
+  activeCategory: LibraryCategoryId;
+  query: string;
+  busy: boolean;
+  message: string;
+  onRefresh: () => void;
+  onCategory: (category: LibraryCategoryId) => void;
+  onQuery: (query: string) => void;
+  onSearch: () => void;
+  onPlay: (item: LibraryItem) => void;
+};
+
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
@@ -135,6 +154,11 @@ export function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [sleepTimer, setSleepTimer] = useState<SleepTimerState>({ status: "idle" });
   const [sleepTimerBusy, setSleepTimerBusy] = useState(false);
+  const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
+  const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("playlists");
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
     status: "disabled",
     activated: false,
@@ -156,6 +180,16 @@ export function App() {
         }
         setBackendMode(health.mode);
         setSnapshot(state);
+        if (state.capabilities.canBrowse) {
+          const home = await fetchLibraryHome().catch(() => null);
+          if (home && !cancelled) {
+            setLibraryHome(home);
+            setLibraryMessage("Library loaded from backend.");
+          }
+        } else {
+          setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
+          setLibraryMessage("Library is unavailable until network and Spotify recovery complete.");
+        }
         setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
         setDataSource("backend");
         setSelectedScenario(backendScenarios[0]?.id ?? "ready_healthy");
@@ -164,6 +198,7 @@ export function App() {
         if (cancelled) return;
         const fallback = localScenarioSnapshot("first_boot_empty");
         setSnapshot(fallback);
+        setLibraryHome(localLibraryHome());
         setScenarios(localScenarioSummaries());
         setDataSource("local");
         setBackendMode(null);
@@ -360,6 +395,14 @@ export function App() {
       try {
         const state = await activateBackendScenario(scenarioId);
         setSnapshot(state);
+        if (state.capabilities.canBrowse) {
+          const home = await fetchLibraryHome().catch(() => null);
+          if (home) {
+            setLibraryHome(home);
+          }
+        } else {
+          setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
+        }
         setStatusText("Backend scenario active.");
         return;
       } catch {
@@ -428,6 +471,99 @@ export function App() {
     const state = await fetchAppState();
     setSnapshot(state);
     return state;
+  }
+
+  async function refreshLibraryHome() {
+    setLibraryBusy(true);
+    setLibraryMessage("Refreshing library.");
+    try {
+      if (dataSource === "backend") {
+        const home = await fetchLibraryHome();
+        setLibraryHome(home);
+        setLibraryMessage(home.sections.some((section) => section.items.length > 0) ? "Library refreshed." : "Library is connected but empty.");
+      } else {
+        setLibraryHome(localLibraryHome());
+        setLibraryMessage("Local library fixtures refreshed.");
+      }
+    } catch {
+      setLibraryMessage("Library refresh is unavailable. Check Wi-Fi and Spotify connection.");
+    } finally {
+      setLibraryBusy(false);
+    }
+  }
+
+  async function selectLibraryCategory(category: LibraryCategoryId) {
+    setLibraryCategory(category);
+    setLibraryBusy(true);
+    setLibraryMessage(`Opening ${labelFromId(category)}.`);
+    try {
+      if (dataSource === "backend" && category !== "home") {
+        const response = await fetchLibraryCategory(category);
+        setLibraryHome((current) => ({
+          ...current,
+          sections: current.sections.map((section) =>
+            section.id === category
+              ? { id: response.category, title: response.title, description: response.description, items: response.items }
+              : section,
+          ),
+        }));
+      }
+      setLibraryMessage(`${labelFromId(category)} ready.`);
+    } catch {
+      setLibraryMessage(`${labelFromId(category)} is unavailable right now.`);
+    } finally {
+      setLibraryBusy(false);
+    }
+  }
+
+  async function submitLibrarySearch() {
+    setLibraryBusy(true);
+    const query = libraryQuery.trim();
+    if (!query) {
+      await refreshLibraryHome();
+      return;
+    }
+    setLibraryMessage(`Searching saved music for "${query}".`);
+    try {
+      const result = dataSource === "backend" ? await searchLibrary(query) : localLibrarySearch(query);
+      setLibraryHome({
+        sections: result.sections,
+        generatedAt: result.generatedAt,
+        constrained: true,
+      });
+      setLibraryMessage(result.sections.length > 0 ? "Search results are constrained to saved/account content." : "No saved/account matches found.");
+    } catch {
+      setLibraryMessage("Search is unavailable until Spotify and network recovery complete.");
+    } finally {
+      setLibraryBusy(false);
+    }
+  }
+
+  async function startLibraryItem(item: LibraryItem) {
+    if (!item.playable || item.playbackKind === "unavailable") {
+      setLibraryMessage("That item cannot be started directly in V1.");
+      return;
+    }
+    if (!snapshot.capabilities.canStartPlayback) {
+      setLibraryMessage("Playback is unavailable until recovery completes.");
+      return;
+    }
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    setLibraryBusy(true);
+    setLibraryMessage(`Starting ${item.title}.`);
+    try {
+      if (dataSource === "backend") {
+        const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
+        setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+      } else {
+        setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
+      }
+      setSelectedSurface("now_playing");
+    } catch {
+      setLibraryMessage("Playback start could not be sent.");
+    } finally {
+      setLibraryBusy(false);
+    }
   }
 
   async function scanWifi() {
@@ -862,6 +998,18 @@ export function App() {
     onStart: setSleepTimerPreset,
     onCancel: clearSleepTimer,
   };
+  const libraryControls = {
+    home: libraryHome,
+    activeCategory: libraryCategory,
+    query: libraryQuery,
+    busy: libraryBusy,
+    message: libraryMessage,
+    onRefresh: refreshLibraryHome,
+    onCategory: selectLibraryCategory,
+    onQuery: setLibraryQuery,
+    onSearch: submitLibrarySearch,
+    onPlay: startLibraryItem,
+  };
 
   return (
     <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
@@ -932,8 +1080,8 @@ export function App() {
 
         <section className="surface" aria-live="polite">
           {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} speaker={speakerControls} />}
-          {activeSurface === "home" && <HomeSurface snapshot={snapshot} sleepTimer={sleepTimerControls} />}
-          {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} />}
+          {activeSurface === "home" && <HomeSurface snapshot={snapshot} sleepTimer={sleepTimerControls} library={libraryControls} />}
+          {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} library={libraryControls} />}
           {activeSurface === "now_playing" && (
             <NowPlayingSurface
               snapshot={snapshot}
@@ -1087,44 +1235,125 @@ function SetupSurface({
   );
 }
 
-function HomeSurface({ snapshot, sleepTimer }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls }) {
+function HomeSurface({ snapshot, sleepTimer, library }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls; library: LibraryControls }) {
+  const availability = libraryAvailability(snapshot);
+  const homeSections = library.home.sections.filter((section) => section.items.length > 0).slice(0, 3);
   return (
     <div className="surface-grid">
       <section className="hero-panel">
         <p className="eyebrow">Home</p>
-        <h1>Library-first music for bedtime</h1>
-        <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : "Ready for library and account-context recommendations."}</p>
+        <h1>{availability.title}</h1>
+        <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
+        <button disabled={library.busy || !availability.canBrowse} type="button" onClick={library.onRefresh}>
+          Refresh library
+        </button>
       </section>
       <div className="side-stack">
         <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} compact />
-        <TileGrid
-          items={[
-            ["Recently loved", "From the connected Spotify account"],
-            ["Quiet favorites", "Saved music and familiar mixes"],
-            ["Sleep timer", snapshot.capabilities.canUseSleepTimer ? "Available" : "Unavailable now"],
-          ]}
-        />
+        {homeSections.map((section) => (
+          <LibrarySectionPanel
+            key={section.id}
+            section={section}
+            snapshot={snapshot}
+            onPlay={library.onPlay}
+            compact
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function BrowseSurface({ snapshot }: { snapshot: AppSnapshot }) {
+function BrowseSurface({ snapshot, library }: { snapshot: AppSnapshot; library: LibraryControls }) {
+  const availability = libraryAvailability(snapshot);
+  const categories: LibraryCategoryId[] = ["playlists", "albums", "artists", "liked_songs", "recently_played"];
+  const activeSection = library.home.sections.find((section) => section.id === library.activeCategory) ?? library.home.sections[0];
   return (
     <div className="surface-grid">
       <section className="hero-panel">
         <p className="eyebrow">Browse</p>
         <h1>{snapshot.capabilities.canBrowse ? "Browse saved music" : "Browse is waiting for recovery"}</h1>
-        <p>{snapshot.capabilities.canSearch ? "Search stays constrained to the account/library surface." : "Network or Spotify health is blocking live browse."}</p>
+        <p>{availability.detail}</p>
+        <div className="library-search">
+          <input
+            disabled={!availability.canSearch || library.busy}
+            inputMode="search"
+            placeholder="Search saved music"
+            type="search"
+            value={library.query}
+            onChange={(event) => library.onQuery(event.target.value)}
+          />
+          <button disabled={!availability.canSearch || library.busy} type="button" onClick={library.onSearch}>
+            Search
+          </button>
+        </div>
+        <p className="subtle">{library.message}</p>
       </section>
-      <TileGrid
-        items={[
-          ["Playlists", snapshot.capabilities.canBrowse ? "Open" : "Disabled"],
-          ["Albums", snapshot.staleness.isStale ? "Cached" : "Fresh"],
-          ["Search", snapshot.capabilities.canSearch ? "Ready" : "Blocked"],
-        ]}
-      />
+      <div className="side-stack">
+        <section className="category-tabs" aria-label="Library categories">
+          {categories.map((category) => (
+            <button
+              className={library.activeCategory === category ? "active" : ""}
+              disabled={!availability.canBrowse || library.busy}
+              key={category}
+              type="button"
+              onClick={() => library.onCategory(category)}
+            >
+              {labelFromId(category)}
+            </button>
+          ))}
+        </section>
+        {activeSection ? (
+          <LibrarySectionPanel section={activeSection} snapshot={snapshot} onPlay={library.onPlay} />
+        ) : (
+          <section className="library-section">
+            <h2>No saved content shown</h2>
+            <p>Refresh the library or recover Spotify/network access from Settings.</p>
+          </section>
+        )}
+      </div>
     </div>
+  );
+}
+
+function LibrarySectionPanel({
+  section,
+  snapshot,
+  onPlay,
+  compact = false,
+}: {
+  section: LibraryHomeResponse["sections"][number];
+  snapshot: AppSnapshot;
+  onPlay: (item: LibraryItem) => void;
+  compact?: boolean;
+}) {
+  return (
+    <section className={`library-section${compact ? " compact" : ""}`} aria-label={section.title}>
+      <div className="library-section-heading">
+        <div>
+          <p className="eyebrow">{labelFromId(section.id)}</p>
+          <h2>{section.title}</h2>
+          <p>{section.description}</p>
+        </div>
+        {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
+      </div>
+      <div className="library-list">
+        {section.items.map((item) => {
+          const disabled = !canPlayLibraryItem(snapshot, item);
+          return (
+            <button disabled={disabled} key={`${item.type}-${item.id}-${item.uri}`} type="button" onClick={() => onPlay(item)}>
+              <span className="library-art">{item.artworkUrl ? "" : item.title.slice(0, 1)}</span>
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.subtitle ?? labelFromId(item.type)}</small>
+              </span>
+              <b>{disabled ? "Unavailable" : item.playbackKind === "track" ? "Play track" : "Play"}</b>
+            </button>
+          );
+        })}
+      </div>
+      {section.items.length === 0 && <p className="subtle">No items in this constrained section.</p>}
+    </section>
   );
 }
 

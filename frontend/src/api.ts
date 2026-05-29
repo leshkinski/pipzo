@@ -6,6 +6,11 @@ import type {
   DisplayPatch,
   HealthState,
   HealthResponse,
+  LibraryCategoryId,
+  LibraryCategoryResponse,
+  LibraryHomeResponse,
+  LibraryPlayRequest,
+  LibrarySearchResponse,
   NetworkConnectRequest,
   NetworkForgetRequest,
   PlaybackControlRequest,
@@ -83,6 +88,22 @@ export function fetchSpotifyPlaybackToken(): Promise<SpotifyPlaybackToken> {
 
 export function transferSpotifyPlayback(body: SpotifyPlaybackTransferRequest): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/spotify/playback/transfer", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchLibraryHome(): Promise<LibraryHomeResponse> {
+  return request<LibraryHomeResponse>("/api/v1/library/home");
+}
+
+export function fetchLibraryCategory(category: LibraryCategoryId): Promise<LibraryCategoryResponse> {
+  return request<LibraryCategoryResponse>(`/api/v1/library/${category}`);
+}
+
+export function searchLibrary(query: string): Promise<LibrarySearchResponse> {
+  return request<LibrarySearchResponse>(`/api/v1/library/search?q=${encodeURIComponent(query)}`);
+}
+
+export function playLibraryItem(body: LibraryPlayRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/library/play", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function fetchNetworkStatus(): Promise<HealthState["network"]> {

@@ -4,11 +4,13 @@ import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
 import {
   cancelSleepTimer,
+  canPlayLibraryItem,
   canOpenSurface,
   canUseSleepTimer,
   degradedModeViewModel,
   idlePresentation,
   isSetupGated,
+  libraryAvailability,
   preferredSurface,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
@@ -62,6 +64,37 @@ describe("kiosk shell view model", () => {
     expect(canOpenSurface(snapshot, "now_playing")).toBe(true);
     expect(degraded.available).toEqual(["Settings", "Wi-Fi recovery", "Bluetooth recovery", "App reset"]);
     expect(degraded.unavailable).toEqual(["live library browsing", "music playback"]);
+  });
+
+  it("models library browse/search availability from app capabilities", () => {
+    const ready = localScenarios.ready_healthy.snapshot;
+    const offline = localScenarios.offline_settings_mode.snapshot;
+    const item = {
+      id: "track-id",
+      type: "track" as const,
+      uri: "spotify:track:track-id",
+      title: "Quiet Song",
+      source: "liked_songs" as const,
+      playbackKind: "track" as const,
+      playable: true,
+    };
+
+    expect(libraryAvailability(ready)).toMatchObject({
+      canBrowse: true,
+      canSearch: true,
+      canStartPlayback: true,
+      title: "Browse saved music",
+    });
+    expect(canPlayLibraryItem(ready, item)).toBe(true);
+    expect(libraryAvailability(offline)).toMatchObject({
+      canBrowse: false,
+      canSearch: false,
+      canStartPlayback: false,
+      stale: true,
+      title: "Library is in recovery mode",
+    });
+    expect(canPlayLibraryItem(offline, item)).toBe(false);
+    expect(canPlayLibraryItem(ready, { ...item, playbackKind: "unavailable", playable: false })).toBe(false);
   });
 
   it("offers local Spotify setup when authorization is required", () => {

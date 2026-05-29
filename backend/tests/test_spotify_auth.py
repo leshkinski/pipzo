@@ -10,6 +10,8 @@ from pipzo_api.main import create_app
 from pipzo_api.spotify_auth import (
     SpotifyAccountProfile,
     SpotifyAuthSessionService,
+    SpotifyCatalogApiError,
+    SpotifyCatalogApiFailure,
     SpotifyPlaybackApiError,
     SpotifyPlaybackApiFailure,
     SpotifyTokenRefreshError,
@@ -43,6 +45,8 @@ class FakeSpotifyClient:
         refresh_response: Optional[SpotifyTokenResponse] = None,
         refresh_failure: Optional[SpotifyTokenRefreshFailure] = None,
         playback_failure: Optional[SpotifyPlaybackApiFailure] = None,
+        catalog_payloads: Optional[dict[str, dict]] = None,
+        catalog_failure: Optional[SpotifyCatalogApiFailure] = None,
     ) -> None:
         self.token_response = token_response or SpotifyTokenResponse(
             access_token="backend-access-token",
@@ -68,11 +72,15 @@ class FakeSpotifyClient:
         )
         self.refresh_failure = refresh_failure
         self.playback_failure = playback_failure
+        self.catalog_payloads = catalog_payloads or {}
+        self.catalog_failure = catalog_failure
         self.exchange_calls: list[dict] = []
         self.profile_tokens: list[str] = []
         self.refresh_calls: list[dict] = []
         self.transfer_calls: list[dict] = []
         self.playback_calls: list[dict] = []
+        self.catalog_calls: list[dict] = []
+        self.start_playback_calls: list[dict] = []
 
     def exchange_authorization_code(
         self,
@@ -134,6 +142,47 @@ class FakeSpotifyClient:
                 "access_token": access_token,
                 "device_id": device_id,
                 "play": play,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+
+    def fetch_library_json(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        path: str,
+        params: Optional[dict[str, object]] = None,
+    ) -> dict:
+        self.catalog_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "path": path,
+                "params": params or {},
+            }
+        )
+        if self.catalog_failure is not None:
+            raise SpotifyCatalogApiError(self.catalog_failure)
+        return self.catalog_payloads.get(path, {"items": []})
+
+    def start_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        playback_kind: str,
+        uri: str,
+        device_id: Optional[str],
+    ) -> None:
+        self.start_playback_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "playback_kind": playback_kind,
+                "uri": uri,
+                "device_id": device_id,
             }
         )
         if self.playback_failure is not None:
@@ -868,6 +917,199 @@ def test_hardware_playback_control_maps_spotify_errors_to_honest_blocked_state(t
     assert response.status_code == 200
     assert response.json()["state"] == "blocked"
     assert response.json()["reason"] == "device_not_registered"
+
+
+def test_mock_library_browse_and_constrained_search_work_without_spotify_auth(tmp_path):
+    settings = make_settings(tmp_path)
+
+    with make_client(settings) as client:
+        home = client.get("/api/v1/library/home")
+        playlists = client.get("/api/v1/library/playlists")
+        search = client.get("/api/v1/library/search?q=bedtime")
+        play = client.post(
+            "/api/v1/library/play",
+            json={"uri": "spotify:playlist:pipzo-bedtime", "playbackKind": "context"},
+        )
+
+    assert home.status_code == 200
+    assert home.json()["constrained"] is True
+    assert {section["id"] for section in home.json()["sections"]} >= {"playlists", "albums", "artists", "liked_songs", "recently_played"}
+    assert playlists.status_code == 200
+    assert playlists.json()["items"][0]["title"] == "Bedtime Favorites"
+    assert search.status_code == 200
+    assert search.json()["constrained"] is True
+    assert search.json()["sections"][0]["items"][0]["title"] == "Bedtime Favorites"
+    assert play.status_code == 200
+    assert play.json()["state"] == "succeeded"
+    assert play.json()["mock"] is True
+
+
+def test_hardware_library_uses_existing_scopes_and_maps_spotify_payloads(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-catalog-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="playlist-read-private user-library-read user-read-recently-played",
+            expires_in=3600,
+        ),
+        catalog_payloads={
+            "/v1/me/playlists": {
+                "items": [
+                    {
+                        "id": "playlist-id",
+                        "uri": "spotify:playlist:playlist-id",
+                        "name": "Bedtime Favorites",
+                        "tracks": {"total": 12},
+                        "owner": {"display_name": "Pipzo"},
+                        "images": [{"url": "https://example.test/playlist.jpg"}],
+                    }
+                ]
+            },
+            "/v1/me/albums": {
+                "items": [
+                    {
+                        "album": {
+                            "id": "album-id",
+                            "uri": "spotify:album:album-id",
+                            "name": "Quiet Album",
+                            "artists": [{"name": "Quiet Artist"}],
+                            "images": [{"url": "https://example.test/album.jpg"}],
+                        }
+                    }
+                ]
+            },
+            "/v1/me/tracks": {
+                "items": [
+                    {
+                        "track": {
+                            "id": "track-id",
+                            "uri": "spotify:track:track-id",
+                            "name": "Quiet Favorite",
+                            "artists": [{"name": "Quiet Artist"}],
+                            "album": {"name": "Quiet Album", "images": [{"url": "https://example.test/track.jpg"}]},
+                        }
+                    }
+                ]
+            },
+            "/v1/me/player/recently-played": {"items": []},
+        },
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/library/home?limit=8")
+
+    assert response.status_code == 200
+    body = response.json()
+    playlists = next(section for section in body["sections"] if section["id"] == "playlists")
+    albums = next(section for section in body["sections"] if section["id"] == "albums")
+    artists = next(section for section in body["sections"] if section["id"] == "artists")
+    liked = next(section for section in body["sections"] if section["id"] == "liked_songs")
+
+    assert playlists["items"][0]["uri"] == "spotify:playlist:playlist-id"
+    assert playlists["items"][0]["playbackKind"] == "context"
+    assert albums["items"][0]["title"] == "Quiet Album"
+    assert liked["items"][0]["playbackKind"] == "track"
+    assert artists["items"][0]["title"] == "Quiet Artist"
+    assert body["constrained"] is True
+    assert {call["path"] for call in spotify_client.catalog_calls} == {
+        "/v1/me/playlists",
+        "/v1/me/albums",
+        "/v1/me/tracks",
+        "/v1/me/player/recently-played",
+    }
+    assert all(call["access_token"] == "fresh-catalog-token" for call in spotify_client.catalog_calls)
+
+
+def test_hardware_library_search_filters_only_library_results(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient(
+        catalog_payloads={
+            "/v1/me/playlists": {"items": [{"id": "sleep", "uri": "spotify:playlist:sleep", "name": "Sleep Songs"}]},
+            "/v1/me/albums": {"items": [{"album": {"id": "dance", "uri": "spotify:album:dance", "name": "Dance Album", "artists": [{"name": "Dance Artist"}]}}]},
+            "/v1/me/tracks": {"items": [{"track": {"id": "quiet", "uri": "spotify:track:quiet", "name": "Quiet Song", "artists": [{"name": "Quiet Artist"}]}}]},
+            "/v1/me/player/recently-played": {"items": []},
+        }
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/library/search?q=quiet")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query"] == "quiet"
+    assert body["constrained"] is True
+    assert [(section["id"], [item["title"] for item in section["items"]]) for section in body["sections"]] == [
+        ("liked_songs", ["Quiet Song"]),
+        ("artists", ["Quiet Artist"]),
+    ]
+
+
+def test_hardware_library_play_starts_context_or_track_without_exposing_tokens(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-play-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="streaming user-modify-playback-state user-library-read",
+            expires_in=3600,
+        )
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.post(
+            "/api/v1/library/play",
+            json={"uri": "spotify:album:album-id", "playbackKind": "context", "deviceId": "pipzo-device-id"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["mock"] is False
+    assert spotify_client.start_playback_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-play-token",
+            "playback_kind": "context",
+            "uri": "spotify:album:album-id",
+            "device_id": "pipzo-device-id",
+        }
+    ]
+    assert "stored-refresh-token" not in str(response.json())
+
+
+def test_library_play_rejects_non_spotify_playable_uris(tmp_path):
+    settings = make_settings(tmp_path)
+
+    with make_client(settings) as client:
+        response = client.post(
+            "/api/v1/library/play",
+            json={"uri": "https://example.test/not-spotify", "playbackKind": "context"},
+        )
+
+    assert response.status_code == 422
+    assert "Spotify context URI" in str(response.json())
+
+
+def test_hardware_library_gets_report_auth_and_network_failures_honestly(tmp_path):
+    auth_settings = make_settings(tmp_path / "auth", app_mode="hardware")
+    network_settings = make_settings(tmp_path / "network", app_mode="hardware")
+    persist_auth_record(network_settings)
+    spotify_client = FakeSpotifyClient(catalog_failure=SpotifyCatalogApiFailure.NETWORK)
+
+    with make_client(auth_settings, spotify_client=FakeSpotifyClient()) as client:
+        auth_response = client.get("/api/v1/library/home")
+    with make_client(network_settings, spotify_client=spotify_client) as client:
+        network_response = client.get("/api/v1/library/home")
+
+    assert auth_response.status_code == 401
+    assert auth_response.json()["detail"] == "auth"
+    assert network_response.status_code == 503
+    assert network_response.json()["detail"] == "network"
 
 
 def test_reset_app_clears_spotify_auth_state(tmp_path):

@@ -262,7 +262,9 @@ button:disabled {
 .wifi-panel,
 .speaker-panel,
 .sleep-timer,
-.idle-settings {
+.idle-settings,
+.library-section,
+.category-tabs {
   border-radius: 8px;
   border: 1px solid #d4d0c5;
   background: #fffdf7;
@@ -298,7 +300,8 @@ button:disabled {
 .actions,
 .tile-grid,
 .side-stack,
-.setup-side {
+.setup-side,
+.library-list {
   display: grid;
   gap: 10px;
 }
@@ -348,6 +351,110 @@ button:disabled {
 
 .tile-grid strong {
   font-size: 22px;
+}
+
+.library-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 10px;
+  max-width: 720px;
+  margin-top: 20px;
+}
+
+.library-search input {
+  min-height: 58px;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #fffdf7;
+}
+
+.category-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.category-tabs button {
+  min-height: 64px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.category-tabs button.active {
+  border-color: #2f6f73;
+  background: #d9eeee;
+}
+
+.library-section {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.library-section.compact {
+  padding: 14px;
+}
+
+.library-section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.library-section h2 {
+  margin: 5px 0 6px;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.library-section p {
+  margin: 0;
+  color: #65716b;
+  line-height: 1.35;
+}
+
+.library-list button {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 78px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.library-list small {
+  display: block;
+  margin-top: 3px;
+  color: #65716b;
+  overflow-wrap: anywhere;
+}
+
+.library-list b {
+  color: #2f6f73;
+}
+
+.library-art {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: #e6f0dd;
+  color: #2f6f73;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.stale-pill {
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #f7dfc6;
+  color: #7b4a1e;
+  font-size: 13px;
 }
 
 .side-stack {
@@ -770,7 +877,8 @@ button:disabled {
   }
 
   .status-strip,
-  .tile-grid {
+  .tile-grid,
+  .category-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -822,7 +930,10 @@ button:disabled {
 
   .warning-band div,
   .volume-row,
-  .control-row {
+  .control-row,
+  .library-search,
+  .library-list button {
     display: grid;
+    grid-template-columns: 1fr;
   }
 }

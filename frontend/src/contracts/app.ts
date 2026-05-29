@@ -256,7 +256,7 @@ export type RecoveryAction = {
 
 export type ActionResult = {
   id: string;
-  domain: "setup" | "settings" | "playback" | "recovery";
+  domain: "setup" | "settings" | "playback" | "recovery" | "library";
   action: string;
   state: RecoveryActionState;
   reason?: Reason;
@@ -296,6 +296,56 @@ export type SpotifyPlaybackToken = {
 export type SpotifyPlaybackTransferRequest = {
   deviceId: string;
   play?: boolean;
+};
+
+export type LibraryCategoryId = "home" | "playlists" | "albums" | "artists" | "liked_songs" | "recently_played";
+export type LibraryItemType = "playlist" | "album" | "artist" | "track";
+export type LibraryPlaybackKind = "context" | "track" | "unavailable";
+
+export type LibraryItem = {
+  id: string;
+  type: LibraryItemType;
+  uri: string;
+  title: string;
+  subtitle?: string | null;
+  artworkUrl?: string | null;
+  source: LibraryCategoryId;
+  playbackKind: LibraryPlaybackKind;
+  playable: boolean;
+};
+
+export type LibrarySection = {
+  id: LibraryCategoryId;
+  title: string;
+  description: string;
+  items: LibraryItem[];
+};
+
+export type LibraryCategoryResponse = {
+  category: LibraryCategoryId;
+  title: string;
+  description: string;
+  items: LibraryItem[];
+  generatedAt: string;
+};
+
+export type LibraryHomeResponse = {
+  sections: LibrarySection[];
+  generatedAt: string;
+  constrained: true;
+};
+
+export type LibrarySearchResponse = {
+  query: string;
+  sections: LibrarySection[];
+  generatedAt: string;
+  constrained: true;
+};
+
+export type LibraryPlayRequest = {
+  uri: string;
+  playbackKind: LibraryPlaybackKind;
+  deviceId?: string;
 };
 
 export type SetupPlaybackTestRequest = {

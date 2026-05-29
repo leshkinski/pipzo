@@ -21,6 +21,11 @@ from .contract import (
     DisplayHealth,
     DisplayPatch,
     HealthResponse,
+    LibraryCategoryId,
+    LibraryCategoryResponse,
+    LibraryHomeResponse,
+    LibraryPlayRequest,
+    LibrarySearchResponse,
     NetworkConnectRequest,
     NetworkForgetRequest,
     NetworkHealth,
@@ -63,6 +68,8 @@ from .settings_store import AppSettingsStore
 from .spotify_auth import (
     SpotifyAuthCallbackError,
     SpotifyAuthSessionService,
+    SpotifyCatalogApiError,
+    SpotifyCatalogApiFailure,
     SpotifyClient,
     SpotifyPlaybackApiError,
     SpotifyPlaybackApiFailure,
@@ -71,6 +78,15 @@ from .spotify_auth import (
     exchange_and_persist_spotify_callback,
     refresh_spotify_access_token,
     spotify_auth_health_from_record,
+)
+from .spotify_catalog import (
+    library_category,
+    library_home,
+    library_search,
+    mock_library_category,
+    mock_library_home,
+    mock_library_search,
+    start_library_playback,
 )
 from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
 
@@ -485,6 +501,56 @@ def create_app(
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
 
+    @app.get("/api/v1/library/home", response_model=LibraryHomeResponse)
+    def spotify_library_home(limit: int = 8, settings: Settings = Depends(get_settings)) -> LibraryHomeResponse:
+        if settings.app_mode == "mock":
+            return mock_library_home(limit)
+        try:
+            return library_home(settings, spotify_client, limit)
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
+
+    @app.get("/api/v1/library/search", response_model=LibrarySearchResponse)
+    def spotify_library_search(q: str = "", limit: int = 20, settings: Settings = Depends(get_settings)) -> LibrarySearchResponse:
+        if settings.app_mode == "mock":
+            return mock_library_search(q, limit)
+        try:
+            return library_search(settings, spotify_client, q, limit)
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
+
+    @app.get("/api/v1/library/{category}", response_model=LibraryCategoryResponse)
+    def spotify_library_category(
+        category: LibraryCategoryId,
+        limit: int = 20,
+        settings: Settings = Depends(get_settings),
+    ) -> LibraryCategoryResponse:
+        if category == LibraryCategoryId.HOME:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Use /api/v1/library/home for home sections")
+        if settings.app_mode == "mock":
+            return mock_library_category(category, limit)
+        try:
+            return library_category(settings, spotify_client, category, limit)
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
+
+    @app.post("/api/v1/library/play", response_model=ActionResult)
+    def spotify_library_play(body: LibraryPlayRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
+        if settings.app_mode == "mock":
+            result = ActionResult(
+                id="library-start-mock",
+                domain="library",
+                action="start",
+                state="succeeded",
+                mock=True,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+        else:
+            result = start_library_playback(settings, spotify_client, body)
+        event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
+        return result
+
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
         require_action_mock_mode(settings)
@@ -600,6 +666,17 @@ def speaker_failed_action(action_id: str, reason: SpeakerReason) -> RecoveryActi
         started_at=now,
         completed_at=now,
     )
+
+
+def raise_catalog_http_error(exc: SpotifyCatalogApiError) -> None:
+    status_by_failure = {
+        SpotifyCatalogApiFailure.AUTH: status.HTTP_401_UNAUTHORIZED,
+        SpotifyCatalogApiFailure.FORBIDDEN: status.HTTP_403_FORBIDDEN,
+        SpotifyCatalogApiFailure.RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
+        SpotifyCatalogApiFailure.NETWORK: status.HTTP_503_SERVICE_UNAVAILABLE,
+        SpotifyCatalogApiFailure.INVALID_RESPONSE: status.HTTP_502_BAD_GATEWAY,
+    }
+    raise HTTPException(status_code=status_by_failure[exc.failure], detail=exc.failure.value) from exc
 
 
 def require_spotify_oauth_config(settings: Settings) -> None:

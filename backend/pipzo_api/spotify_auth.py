@@ -137,6 +137,27 @@ class SpotifyClient(Protocol):
     ) -> None:
         ...
 
+    def fetch_library_json(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        path: str,
+        params: Optional[Dict[str, object]] = None,
+    ) -> dict:
+        ...
+
+    def start_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        playback_kind: str,
+        uri: str,
+        device_id: Optional[str],
+    ) -> None:
+        ...
+
 
 class SpotifyTokenExchangeError(Exception):
     pass
@@ -166,6 +187,20 @@ class SpotifyPlaybackApiFailure(str, Enum):
 
 class SpotifyPlaybackApiError(Exception):
     def __init__(self, failure: SpotifyPlaybackApiFailure) -> None:
+        super().__init__(failure.value)
+        self.failure = failure
+
+
+class SpotifyCatalogApiFailure(str, Enum):
+    AUTH = "auth"
+    FORBIDDEN = "forbidden"
+    RATE_LIMITED = "rate_limited"
+    NETWORK = "network"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class SpotifyCatalogApiError(Exception):
+    def __init__(self, failure: SpotifyCatalogApiFailure) -> None:
         super().__init__(failure.value)
         self.failure = failure
 
@@ -313,6 +348,46 @@ class UrlLibSpotifyClient:
         )
         self._send_empty_spotify_api_request(request)
 
+    def fetch_library_json(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        path: str,
+        params: Optional[Dict[str, object]] = None,
+    ) -> dict:
+        query = f"?{urlencode(params)}" if params else ""
+        request = Request(
+            f"{api_base_url.rstrip('/')}{path}{query}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            method="GET",
+        )
+        return self._send_json_spotify_api_request(request)
+
+    def start_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        playback_kind: str,
+        uri: str,
+        device_id: Optional[str],
+    ) -> None:
+        payload = {"uris": [uri]} if playback_kind == "track" else {"context_uri": uri}
+        url = f"{api_base_url.rstrip('/')}/v1/me/player/play"
+        if device_id:
+            url = f"{url}?{urlencode({'device_id': device_id})}"
+        request = Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            method="PUT",
+        )
+        self._send_empty_spotify_api_request(request)
+
     def _send_json_request(self, request: Request) -> dict:
         try:
             with urlopen(request, timeout=10) as response:
@@ -366,6 +441,32 @@ class UrlLibSpotifyClient:
             raise SpotifyPlaybackApiError(failure) from exc
         except (URLError, TimeoutError) as exc:
             raise SpotifyPlaybackApiError(SpotifyPlaybackApiFailure.NETWORK) from exc
+
+    def _send_json_spotify_api_request(self, request: Request) -> dict:
+        try:
+            with urlopen(request, timeout=10) as response:
+                body = response.read()
+        except HTTPError as exc:
+            if exc.code == 401:
+                failure = SpotifyCatalogApiFailure.AUTH
+            elif exc.code == 403:
+                failure = SpotifyCatalogApiFailure.FORBIDDEN
+            elif exc.code == 429:
+                failure = SpotifyCatalogApiFailure.RATE_LIMITED
+            else:
+                failure = SpotifyCatalogApiFailure.INVALID_RESPONSE
+            raise SpotifyCatalogApiError(failure) from exc
+        except (URLError, TimeoutError) as exc:
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.NETWORK) from exc
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE) from exc
+
+        if not isinstance(payload, dict):
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE)
+        return payload
 
 
 class SpotifyAuthSessionService:
