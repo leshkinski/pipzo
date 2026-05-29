@@ -261,6 +261,7 @@ button:disabled {
 .spotify-panel,
 .wifi-panel,
 .speaker-panel,
+.volume-panel,
 .sleep-timer,
 .idle-settings,
 .library-section,
@@ -560,6 +561,7 @@ button:disabled {
 
 .wifi-panel,
 .speaker-panel,
+.volume-panel,
 .sleep-timer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
@@ -603,6 +605,18 @@ button:disabled {
   border-color: #d59c6a;
 }
 
+.volume-ready {
+  border-color: #8dbb96;
+}
+
+.volume-waiting {
+  border-color: #2f6f73;
+}
+
+.volume-attention {
+  border-color: #d59c6a;
+}
+
 .sleep-timer-ready {
   border-color: #8dbb96;
 }
@@ -620,9 +634,14 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+.volume-panel.compact {
+  grid-template-columns: 1fr;
+}
+
 .spotify-panel h2,
 .wifi-panel h2,
 .speaker-panel h2,
+.volume-panel h2,
 .sleep-timer h2 {
   margin: 6px 0 8px;
   font-size: 28px;
@@ -632,6 +651,7 @@ button:disabled {
 .spotify-panel p,
 .wifi-panel p,
 .speaker-panel p,
+.volume-panel p,
 .sleep-timer p {
   margin: 8px 0;
   color: #65716b;
@@ -695,7 +715,8 @@ button:disabled {
 .wifi-heading,
 .wifi-form,
 .speaker-heading,
-.speaker-form {
+.speaker-form,
+.volume-controls {
   min-width: 0;
 }
 
@@ -710,14 +731,16 @@ button:disabled {
 .wifi-actions,
 .speaker-form,
 .speaker-form label,
-.speaker-actions {
+.speaker-actions,
+.volume-controls {
   display: grid;
   gap: 8px;
 }
 
 .wifi-form select,
 .wifi-form input,
-.speaker-form select {
+.speaker-form select,
+.volume-controls input {
   width: 100%;
   min-height: 52px;
   border: 1px solid #aaa497;
@@ -727,9 +750,23 @@ button:disabled {
 }
 
 .wifi-form span,
-.speaker-form span {
+.speaker-form span,
+.volume-controls span {
   color: #65716b;
   font-weight: 700;
+}
+
+.volume-controls label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 86px;
+  gap: 8px;
+  align-items: center;
+}
+
+.volume-controls button {
+  padding: 0 14px;
+  font-weight: 800;
+  text-align: left;
 }
 
 .idle-settings {
@@ -867,6 +904,7 @@ button:disabled {
   .spotify-panel,
   .wifi-panel,
   .speaker-panel,
+  .volume-panel,
   .sleep-timer,
   .idle-settings {
     grid-template-columns: 1fr;

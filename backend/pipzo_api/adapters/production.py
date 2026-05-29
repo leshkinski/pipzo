@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from pipzo_api.contract import NetworkHealth, RecoveryAction, SpeakerHealth, SpeakerScanResults, WifiScanResults
+from pipzo_api.contract import NetworkHealth, RecoveryAction, SpeakerHealth, SpeakerScanResults, VolumeHealth, WifiScanResults
 
 
 class ProductionAdapterNotImplemented(NotImplementedError):
@@ -56,6 +56,12 @@ class BlueZAdapter(Protocol):
 
 class VolumeAdapter(Protocol):
     def probe(self) -> None:
+        raise ProductionAdapterNotImplemented("Volume adapter is not implemented")
+
+    def status(self) -> VolumeHealth:
+        raise ProductionAdapterNotImplemented("Volume adapter is not implemented")
+
+    def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
         raise ProductionAdapterNotImplemented("Volume adapter is not implemented")
 
 

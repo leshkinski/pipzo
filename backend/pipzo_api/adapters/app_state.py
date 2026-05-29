@@ -76,9 +76,18 @@ class ProductionAppStateAdapter:
             speaker = SpeakerHealth(status=SpeakerStatus.ERROR, reason=SpeakerReason.ADAPTER_UNAVAILABLE)
         except Exception:
             speaker = SpeakerHealth(status=SpeakerStatus.ERROR, reason=SpeakerReason.UNKNOWN)
+        try:
+            volume = self._adapters.volume.status()
+        except ProductionAdapterNotImplemented:
+            volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.OS_SINK_MISSING)
+        except Exception:
+            volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.UNKNOWN)
 
         network_ready = network.status in {NetworkStatus.ONLINE, NetworkStatus.LOCAL_ONLY}
         speaker_ready = speaker.status == SpeakerStatus.CONNECTED
+        if not speaker_ready:
+            volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BLUETOOTH_SINK_MISSING)
+        volume_ready = speaker_ready and volume.status != VolumeStatus.UNAVAILABLE
         minimum_ready = False
         now = utc_now()
         return AppSnapshot(
@@ -99,7 +108,7 @@ class ProductionAppStateAdapter:
                     status=PlaybackDeviceStatus.UNAVAILABLE,
                     reason=PlaybackDeviceReason.AUTH_REQUIRED if not network_ready else PlaybackDeviceReason.SPEAKER_UNAVAILABLE,
                 ),
-                volume=VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=None if speaker_ready else VolumeReason.BLUETOOTH_SINK_MISSING),
+                volume=volume,
                 display=DisplayHealth(status="normal", brightness=80),
                 kiosk=KioskHealth(phase=KioskBootPhase.APP_READY),
             ),
@@ -114,7 +123,7 @@ class ProductionAppStateAdapter:
                 can_search=False,
                 can_start_playback=False,
                 can_control_playback=False,
-                can_control_volume=False,
+                can_control_volume=volume_ready,
                 can_use_sleep_timer=False,
                 can_run_diagnostics=True,
             ),

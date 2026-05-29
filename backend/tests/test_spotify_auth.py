@@ -22,6 +22,7 @@ from pipzo_api.spotify_auth import (
     should_refresh_spotify_access_token,
 )
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
+from pipzo_api.contract import VolumeHealth
 
 
 def make_settings(tmp_path, **overrides) -> Settings:
@@ -79,6 +80,7 @@ class FakeSpotifyClient:
         self.refresh_calls: list[dict] = []
         self.transfer_calls: list[dict] = []
         self.playback_calls: list[dict] = []
+        self.volume_calls: list[dict] = []
         self.catalog_calls: list[dict] = []
         self.start_playback_calls: list[dict] = []
 
@@ -207,16 +209,54 @@ class FakeSpotifyClient:
         if self.playback_failure is not None:
             raise SpotifyPlaybackApiError(self.playback_failure)
 
+    def set_playback_volume(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        volume_percent: int,
+        device_id: Optional[str],
+    ) -> None:
+        self.volume_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "volume_percent": volume_percent,
+                "device_id": device_id,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+
+
+class FakeVolumeAdapter:
+    def __init__(self, health: Optional[VolumeHealth] = None) -> None:
+        self.health = health or VolumeHealth(status="os_only", value=40, muted=False)
+        self.set_calls: list[tuple[int, bool]] = []
+
+    def probe(self) -> None:
+        return None
+
+    def status(self) -> VolumeHealth:
+        return self.health
+
+    def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
+        self.set_calls.append((value, muted))
+        self.health = VolumeHealth(status="os_only", value=value, muted=muted)
+        return self.health
+
 
 def make_client(
     settings: Settings,
     service: Optional[SpotifyAuthSessionService] = None,
     spotify_client: Optional[FakeSpotifyClient] = None,
+    **overrides,
 ) -> TestClient:
     app = create_app(
         settings_override=settings,
         spotify_auth_sessions_override=service,
         spotify_client_override=spotify_client,
+        **overrides,
     )
     return TestClient(app)
 
@@ -917,6 +957,46 @@ def test_hardware_playback_control_maps_spotify_errors_to_honest_blocked_state(t
     assert response.status_code == 200
     assert response.json()["state"] == "blocked"
     assert response.json()["reason"] == "device_not_registered"
+
+
+def test_hardware_volume_patch_coordinates_spotify_and_os_volume(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient()
+    volume_adapter = FakeVolumeAdapter()
+
+    with make_client(settings, spotify_client=spotify_client, volume_adapter_override=volume_adapter) as client:
+        response = client.patch("/api/v1/volume", json={"value": 64, "muted": False, "deviceId": "pipzo-device-id"})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "unified", "reason": None, "value": 64, "muted": False}
+    assert spotify_client.volume_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "refreshed-access-token",
+            "volume_percent": 64,
+            "device_id": "pipzo-device-id",
+        }
+    ]
+    assert volume_adapter.set_calls == [(64, False)]
+
+
+def test_hardware_volume_patch_reports_partial_os_only_when_spotify_volume_fails(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient(playback_failure=SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND)
+    volume_adapter = FakeVolumeAdapter()
+
+    with make_client(settings, spotify_client=spotify_client, volume_adapter_override=volume_adapter) as client:
+        response = client.patch("/api/v1/volume", json={"value": 31, "muted": True})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "os_only",
+        "reason": "spotify_volume_unsupported",
+        "value": 31,
+        "muted": True,
+    }
 
 
 def test_mock_library_browse_and_constrained_search_work_without_spotify_auth(tmp_path):

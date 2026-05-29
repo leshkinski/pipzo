@@ -10,7 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from .adapters import create_app_state_adapter
 from .adapters.bluez import BlueZCommandError, BlueZUnavailable, BluetoothctlAdapter
 from .adapters.network_manager import NetworkCommandError, NetworkManagerUnavailable, NmcliNetworkAdapter
-from .adapters.production import BlueZAdapter, NetworkManagerAdapter, ProductionAdapterNotImplemented, ProductionAdapters
+from .adapters.production import (
+    BlueZAdapter,
+    NetworkManagerAdapter,
+    ProductionAdapterNotImplemented,
+    ProductionAdapters,
+    VolumeAdapter,
+)
+from .adapters.volume import PipeWireVolumeAdapter, VolumeCommandError, VolumeUnavailable
 from .bluetooth_store import BluetoothSpeakerStore
 from .config import Settings, get_settings
 from .contract import (
@@ -56,6 +63,10 @@ from .contract import (
     SpotifyAuthStatus,
     SpotifyPlaybackToken,
     SpotifyPlaybackTransferRequest,
+    VolumeHealth,
+    VolumePatch,
+    VolumeReason,
+    VolumeStatus,
     Warning,
     WifiScanResults,
     utc_now,
@@ -97,6 +108,7 @@ def create_app(
     spotify_client_override: Optional[SpotifyClient] = None,
     network_adapter_override: Optional[NetworkManagerAdapter] = None,
     bluetooth_adapter_override: Optional[BlueZAdapter] = None,
+    volume_adapter_override: Optional[VolumeAdapter] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
@@ -108,6 +120,9 @@ def create_app(
 
     def bluetooth_adapter(settings: Settings) -> BlueZAdapter:
         return bluetooth_adapter_override or BluetoothctlAdapter(BluetoothSpeakerStore(settings.db_path))
+
+    def volume_adapter(settings: Settings) -> VolumeAdapter:
+        return volume_adapter_override or PipeWireVolumeAdapter()
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)
@@ -164,12 +179,26 @@ def create_app(
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:
-        return read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings))
+        return read_snapshot(
+            settings,
+            mock_store,
+            settings_store(),
+            network_adapter(settings),
+            bluetooth_adapter(settings),
+            volume_adapter(settings),
+        )
 
     @app.websocket("/api/v1/events/ws")
     async def events_ws(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
         try:
-            initial_snapshot = read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings))
+            initial_snapshot = read_snapshot(
+                settings,
+                mock_store,
+                settings_store(),
+                network_adapter(settings),
+                bluetooth_adapter(settings),
+                volume_adapter(settings),
+            )
         except HTTPException as exc:
             await websocket.close(code=1011, reason=str(exc.detail))
             return
@@ -210,7 +239,15 @@ def create_app(
         mock_store.apply_settings(updated)
         event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
         if settings.app_mode == "mock":
-            event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, settings_store(), network_adapter(settings), bluetooth_adapter(settings)).model_dump(mode="json", by_alias=True))
+            snapshot = read_snapshot(
+                settings,
+                mock_store,
+                settings_store(),
+                network_adapter(settings),
+                bluetooth_adapter(settings),
+                volume_adapter(settings),
+            )
+            event_hub.publish("app.snapshot", snapshot.model_dump(mode="json", by_alias=True))
         return updated
 
     @app.patch("/api/v1/display", response_model=DisplayHealth)
@@ -230,6 +267,17 @@ def create_app(
             result = run_spotify_playback_control(settings, spotify_client, body)
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
+
+    @app.patch("/api/v1/volume", response_model=VolumeHealth)
+    def volume_patch(body: VolumePatch, settings: Settings = Depends(get_settings)) -> VolumeHealth:
+        if settings.app_mode == "mock":
+            updated = mock_store.set_volume(body.value, body.muted)
+        else:
+            updated = set_unified_volume(settings, spotify_client, volume_adapter(settings), body)
+        event_hub.publish("volume.changed", updated.model_dump(mode="json", by_alias=True))
+        if settings.app_mode == "mock":
+            event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
+        return updated
 
     @app.get("/api/v1/network/status", response_model=NetworkHealth)
     def network_status(settings: Settings = Depends(get_settings)) -> NetworkHealth:
@@ -693,11 +741,13 @@ def read_snapshot(
     app_settings_store: AppSettingsStore,
     network_adapter: Optional[NetworkManagerAdapter] = None,
     bluetooth_adapter: Optional[BlueZAdapter] = None,
+    volume_adapter: Optional[VolumeAdapter] = None,
 ) -> AppSnapshot:
-    if network_adapter is not None or bluetooth_adapter is not None:
+    if network_adapter is not None or bluetooth_adapter is not None or volume_adapter is not None:
         production_adapters = ProductionAdapters(
             network=network_adapter if network_adapter is not None else ProductionAdapters().network,
             bluetooth=bluetooth_adapter if bluetooth_adapter is not None else ProductionAdapters().bluetooth,
+            volume=volume_adapter if volume_adapter is not None else ProductionAdapters().volume,
         )
     else:
         production_adapters = None
@@ -1004,6 +1054,75 @@ def run_spotify_playback_control(
         started_at=started_at,
         completed_at=utc_now(),
     )
+
+
+def set_unified_volume(
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    volume_adapter: VolumeAdapter,
+    body: VolumePatch,
+) -> VolumeHealth:
+    spotify_reason: Optional[VolumeReason] = None
+    os_reason: Optional[VolumeReason] = None
+    spotify_succeeded = False
+    os_health: Optional[VolumeHealth] = None
+
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        spotify_client.set_playback_volume(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+            volume_percent=body.value,
+            device_id=body.device_id,
+        )
+        spotify_succeeded = True
+    except HTTPException:
+        spotify_reason = VolumeReason.SPOTIFY_VOLUME_UNSUPPORTED
+    except SpotifyPlaybackApiError as exc:
+        spotify_reason = spotify_volume_reason_from_api_error(exc)
+
+    try:
+        os_health = volume_adapter.set_volume(body.value, body.muted)
+    except VolumeUnavailable as exc:
+        os_reason = exc.reason
+    except VolumeCommandError as exc:
+        os_reason = exc.reason
+
+    if spotify_succeeded and os_health is not None and os_health.status != VolumeStatus.OUT_OF_SYNC:
+        return VolumeHealth(
+            status=VolumeStatus.UNIFIED,
+            value=os_health.value if os_health.value is not None else body.value,
+            muted=os_health.muted if os_health.muted is not None else body.muted,
+        )
+    if spotify_succeeded:
+        if os_health is not None and os_health.status == VolumeStatus.OUT_OF_SYNC:
+            return os_health.model_copy(update={"status": VolumeStatus.OUT_OF_SYNC})
+        return VolumeHealth(
+            status=VolumeStatus.SPOTIFY_ONLY,
+            reason=os_reason,
+            value=body.value,
+            muted=body.muted,
+        )
+    if os_health is not None:
+        if os_health.status == VolumeStatus.OUT_OF_SYNC:
+            return os_health
+        return os_health.model_copy(update={"status": VolumeStatus.OS_ONLY, "reason": spotify_reason})
+    return VolumeHealth(
+        status=VolumeStatus.UNAVAILABLE,
+        reason=os_reason or spotify_reason or VolumeReason.UNKNOWN,
+    )
+
+
+def spotify_volume_reason_from_api_error(exc: SpotifyPlaybackApiError) -> VolumeReason:
+    if exc.failure in {
+        SpotifyPlaybackApiFailure.AUTH,
+        SpotifyPlaybackApiFailure.PREMIUM_REQUIRED,
+        SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND,
+    }:
+        return VolumeReason.SPOTIFY_VOLUME_UNSUPPORTED
+    if exc.failure == SpotifyPlaybackApiFailure.NETWORK:
+        return VolumeReason.RECONNECT_RESYNC_NEEDED
+    return VolumeReason.UNKNOWN
 
 
 def _playback_action_result_from_http_error(action: str, started_at, exc: HTTPException) -> ActionResult:

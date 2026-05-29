@@ -78,6 +78,7 @@ Useful endpoints:
 - `GET/PATCH http://127.0.0.1:8000/api/v1/settings`
 - `PATCH http://127.0.0.1:8000/api/v1/display`
 - `POST http://127.0.0.1:8000/api/v1/playback/control`
+- `PATCH http://127.0.0.1:8000/api/v1/volume`
 - `GET http://127.0.0.1:8000/api/v1/network/status`
 - `POST http://127.0.0.1:8000/api/v1/network/scan`
 - `GET http://127.0.0.1:8000/api/v1/network/scan-results`
@@ -121,7 +122,7 @@ Degraded runtime mode keeps Settings, Wi-Fi recovery, Bluetooth speaker recovery
 
 Library browsing V1 exposes backend-owned Spotify Web API catalog endpoints for playlists, saved albums, liked songs, recently played tracks, and an Artists category derived from saved/recent music so no extra `user-follow-read` scope is required. Search is constrained: it filters the account/library sections Pipzo already fetches instead of presenting an unrestricted Spotify discovery surface. Selecting playable playlist/album contexts or tracks calls the backend `POST /api/v1/library/play` start seam when playback/device readiness allows it. Mock and local fallback modes include representative library/search fixtures and do not require a live Spotify account.
 
-The kiosk frontend loads Spotify's Web Playback SDK once when it is connected to the backend and Spotify auth is ready, registers the browser player as `Pipzo`, surfaces SDK readiness/device ID/error/transfer state in Now Playing and Settings, and requests backend playback transfer when Spotify reports the SDK device as ready. The backend exposes `GET /api/v1/spotify/playback/token` for the SDK's short-lived access-token callback; it refreshes access backend-side when needed and never returns refresh tokens, PKCE data, encryption key material, or raw token responses. Hardware-mode playback transfer and play/pause/next/previous controls call Spotify Web API through the backend token boundary. Mock/local modes remain usable without a live Spotify account.
+The kiosk frontend loads Spotify's Web Playback SDK once when it is connected to the backend and Spotify auth is ready, registers the browser player as `Pipzo`, surfaces SDK readiness/device ID/error/transfer state in Now Playing and Settings, and requests backend playback transfer when Spotify reports the SDK device as ready. The backend exposes `GET /api/v1/spotify/playback/token` for the SDK's short-lived access-token callback; it refreshes access backend-side when needed and never returns refresh tokens, PKCE data, encryption key material, or raw token responses. Hardware-mode playback transfer and play/pause/next/previous controls call Spotify Web API through the backend token boundary. The single app volume control calls Spotify device volume and the local OS output sink where available; partial failures are reported as `spotify_only`, `os_only`, `out_of_sync`, or `unavailable` volume health rather than fake success. Mock/local modes remain usable without a live Spotify account or audio hardware.
 
 This SDK slice registers and selects the browser playback device only. Bluetooth speaker pairing/output and full audio validation are separate V1 platform work.
 

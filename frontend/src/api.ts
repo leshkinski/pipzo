@@ -25,6 +25,7 @@ import type {
   SpotifyAuthSession,
   SpotifyPlaybackToken,
   SpotifyPlaybackTransferRequest,
+  VolumePatch,
   WifiScanResults,
 } from "./contracts";
 
@@ -80,6 +81,10 @@ export function patchDisplay(body: DisplayPatch): Promise<HealthState["display"]
 
 export function controlPlayback(body: PlaybackControlRequest): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/playback/control", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function patchVolume(body: VolumePatch): Promise<HealthState["volume"]> {
+  return request<HealthState["volume"]>("/api/v1/volume", { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export function fetchSpotifyPlaybackToken(): Promise<SpotifyPlaybackToken> {

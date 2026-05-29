@@ -286,6 +286,12 @@ export type PlaybackControlRequest = {
   deviceId?: string;
 };
 
+export type VolumePatch = {
+  value: number;
+  muted?: boolean;
+  deviceId?: string;
+};
+
 export type SpotifyPlaybackToken = {
   accessToken: string;
   tokenType: "Bearer" | string;
@@ -417,6 +423,7 @@ export type AppEvent =
   | { type: "app.snapshot"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "settings.changed"; payload: AppSettings; emittedAt: string; schemaVersion: "v1" }
   | { type: "display.changed"; payload: HealthState["display"]; emittedAt: string; schemaVersion: "v1" }
+  | { type: "volume.changed"; payload: HealthState["volume"]; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.step_changed"; payload: SetupState; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.completed"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.playback_test_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }

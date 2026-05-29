@@ -834,6 +834,20 @@ class MockScenarioStore:
             completed_at=now,
         )
 
+    def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
+        bounded = max(0, min(100, value))
+        status = VolumeStatus.UNIFIED if self._snapshot.capabilities.can_control_volume else VolumeStatus.UNAVAILABLE
+        reason = None if status == VolumeStatus.UNIFIED else self._snapshot.health.volume.reason or VolumeReason.UNKNOWN
+        updated = VolumeHealth(
+            status=status,
+            reason=reason,
+            value=bounded if status != VolumeStatus.UNAVAILABLE else self._snapshot.health.volume.value,
+            muted=muted if status != VolumeStatus.UNAVAILABLE else self._snapshot.health.volume.muted,
+        )
+        self._snapshot.health.volume = updated
+        self._snapshot.updated_at = utc_now()
+        return updated
+
     def list_recovery_actions(self) -> List[RecoveryAction]:
         return self.get_snapshot().recovery_actions
 

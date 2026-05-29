@@ -17,7 +17,7 @@ All hardware and OS integrations should sit behind clear interfaces with mock im
 
 This lets the app be developed and tested without a Raspberry Pi attached, while the real adapters can be validated on hardware.
 
-When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit production adapter seams. The first production Wi-Fi slice reads NetworkManager state through `nmcli` and projects network readiness into setup state. The first production Bluetooth slice reads BlueZ state through `bluetoothctl`, persists one primary speaker address/display name, and projects connected-speaker readiness into setup state. Display, volume, and playback still have bounded placeholder or app-owned behavior until their adapters are implemented and validated.
+When `PIPZO_MODE=hardware`, `/api/v1/app/state` routes through explicit production adapter seams. The first production Wi-Fi slice reads NetworkManager state through `nmcli` and projects network readiness into setup state. The first production Bluetooth slice reads BlueZ state through `bluetoothctl`, persists one primary speaker address/display name, and projects connected-speaker readiness into setup state. The first volume slice reads and writes the default desktop audio sink through `wpctl` or `pactl` and coordinates it with Spotify device volume through the backend Spotify token boundary. Display and broader playback validation still have bounded placeholder or app-owned behavior until their adapters are implemented and validated.
 This keeps desktop scenarios useful without implying that mock state is production device state.
 
 The backend initializes a local SQLite database at startup using `PIPZO_DB_PATH`.
@@ -38,6 +38,8 @@ Spotify token refresh is exposed as a backend helper for startup/pre-call integr
 Wi-Fi status, scan, connect, forget, and internet-probe retry are implemented behind a NetworkManager/nmcli adapter. The adapter invokes `nmcli` with argument vectors rather than shell strings, returns coarse contract reasons for failures, and does not expose Wi-Fi passwords in logs, events, or responses. Hardware mode without `nmcli` or required NetworkManager permissions returns honest unavailable responses instead of fake success.
 
 Bluetooth speaker status, scan, pair/trust/connect, reconnect, and forget are implemented behind a BlueZ/bluetoothctl adapter. The adapter invokes `bluetoothctl` as a subprocess with fixed argument vectors and newline-delimited commands rather than shell strings, parses `devices` and `info` output through testable seams, stores only one primary speaker, and maps missing tools, disabled Bluetooth, pairing rejection, timeouts, out-of-range devices, connect failures, and audio-profile failures to coarse contract reasons. Hardware mode without `bluetoothctl` or BlueZ permissions returns unavailable responses instead of fake success. Real A2DP route selection and reconnect behavior still require target Pi validation.
+
+Unified volume control is exposed as one app surface backed by `PATCH /api/v1/volume`. In mock mode it deterministically projects `health.volume` without audio hardware. In hardware mode the backend attempts Spotify device volume first, then the OS sink through the volume adapter. The response may be `unified`, `spotify_only`, `os_only`, `out_of_sync`, or `unavailable`, so the UI can show honest partial behavior when Spotify read/write, PipeWire/WirePlumber, the default sink, or permissions are missing. The adapter uses fixed subprocess argument vectors and does not log Spotify tokens.
 
 ## High-Level Components
 

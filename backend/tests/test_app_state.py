@@ -15,6 +15,7 @@ from pipzo_api.contract import (
     SpeakerHealth,
     SpeakerScanResults,
     SpeakerSummary,
+    VolumeHealth,
     WifiNetwork,
     WifiScanResults,
     utc_now,
@@ -24,8 +25,8 @@ from pipzo_api.main import create_app
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
 
 
-def make_client(settings: Optional[Settings] = None) -> TestClient:
-    app = create_app(settings_override=settings)
+def make_client(settings: Optional[Settings] = None, **overrides) -> TestClient:
+    app = create_app(settings_override=settings, **overrides)
     return TestClient(app)
 
 
@@ -141,6 +142,23 @@ class FakeBluetoothAdapter:
             started_at=utc_now(),
             completed_at=utc_now(),
         )
+
+
+class FakeVolumeAdapter:
+    def __init__(self, status: Optional[VolumeHealth] = None) -> None:
+        self.health = status or VolumeHealth(status="os_only", value=38, muted=False)
+        self.set_calls: list[tuple[int, bool]] = []
+
+    def probe(self) -> None:
+        return None
+
+    def status(self) -> VolumeHealth:
+        return self.health
+
+    def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
+        self.set_calls.append((value, muted))
+        self.health = VolumeHealth(status="os_only", value=value, muted=muted)
+        return self.health
 
 
 def test_health_reports_mock_mode_by_default(tmp_path):
@@ -527,6 +545,40 @@ def test_playback_control_reports_mock_success_and_unavailable_state(tmp_path):
     assert unavailable_response.status_code == 200
     assert unavailable_response.json()["state"] == "blocked"
     assert unavailable_response.json()["reason"] == "speaker_unavailable"
+
+
+def test_mock_volume_patch_updates_projected_app_state(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "volume-mock.sqlite3"))) as client:
+        client.post("/api/v1/mock/scenarios/ready_healthy/activate")
+
+        response = client.patch("/api/v1/volume", json={"value": 27, "muted": True})
+        state_response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "unified", "reason": None, "value": 27, "muted": True}
+    assert state_response.json()["health"]["volume"] == response.json()
+
+
+def test_hardware_app_state_projects_volume_adapter_status(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-volume.sqlite3"))
+    volume = FakeVolumeAdapter(VolumeHealth(status="os_only", value=38, muted=False))
+
+    with make_client(
+        settings,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=volume,
+    ) as client:
+        response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    assert response.json()["health"]["volume"] == {
+        "status": "os_only",
+        "reason": None,
+        "value": 38,
+        "muted": False,
+    }
+    assert response.json()["capabilities"]["canControlVolume"] is True
 
 
 def test_playback_test_and_recovery_actions_are_mockable(tmp_path):

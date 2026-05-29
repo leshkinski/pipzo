@@ -456,6 +456,12 @@ class PlaybackControlRequest(ContractModel):
     device_id: Optional[str] = None
 
 
+class VolumePatch(ContractModel):
+    value: int = Field(ge=0, le=100)
+    muted: bool = False
+    device_id: Optional[str] = None
+
+
 class SpotifyPlaybackTransferRequest(ContractModel):
     device_id: str
     play: bool = False

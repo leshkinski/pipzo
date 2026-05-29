@@ -18,6 +18,7 @@ import {
   logoutSpotifyAuth,
   patchDisplay,
   patchSettings,
+  patchVolume,
   pairSpeaker,
   playLibraryItem,
   retryInternetProbe,
@@ -54,6 +55,7 @@ import {
   speakerSetupViewModel,
   startSleepTimer,
   spotifyAuthViewModel,
+  volumeControlViewModel,
   wifiSetupViewModel,
   type SleepTimerPresetMinutes,
   type SleepTimerState,
@@ -107,6 +109,12 @@ type SleepTimerControls = {
   onCancel: () => void;
 };
 
+type VolumeControls = {
+  busy: boolean;
+  message: string;
+  onChange: (value: number, muted?: boolean) => void;
+};
+
 type LibraryControls = {
   home: LibraryHomeResponse;
   activeCategory: LibraryCategoryId;
@@ -154,6 +162,8 @@ export function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [sleepTimer, setSleepTimer] = useState<SleepTimerState>({ status: "idle" });
   const [sleepTimerBusy, setSleepTimerBusy] = useState(false);
+  const [volumeBusy, setVolumeBusy] = useState(false);
+  const [volumeMessage, setVolumeMessage] = useState("Volume follows the app control.");
   const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("playlists");
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -939,6 +949,41 @@ export function App() {
     setStatusText("Local scenario playback controls do not call Spotify.");
   }
 
+  async function updateVolume(value: number, muted = snapshot.health.volume.muted ?? false) {
+    const bounded = Math.max(0, Math.min(100, Math.round(value)));
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    setVolumeBusy(true);
+    if (dataSource === "backend") {
+      try {
+        const volume = await patchVolume({ value: bounded, muted, deviceId });
+        setSnapshot((current) => ({ ...current, health: { ...current.health, volume } }));
+        setVolumeMessage(volume.status === "unified" ? "Volume updated." : `Volume partially updated: ${labelFromId(volume.reason ?? volume.status)}.`);
+        setStatusText(volume.status === "unified" ? "Volume updated." : "Volume control is partially available.");
+        return;
+      } catch {
+        setVolumeMessage("Volume command could not be sent.");
+        setStatusText("Volume command could not be sent.");
+      } finally {
+        setVolumeBusy(false);
+      }
+    }
+    setSnapshot((current) => ({
+      ...current,
+      health: {
+        ...current.health,
+        volume: {
+          ...current.health.volume,
+          status: current.capabilities.canControlVolume ? "unified" : "unavailable",
+          value: bounded,
+          muted,
+        },
+      },
+    }));
+    setVolumeMessage("Local volume mock updated.");
+    setStatusText("Local volume mock updated.");
+    setVolumeBusy(false);
+  }
+
   function setSleepTimerPreset(minutes: SleepTimerPresetMinutes) {
     const startedAt = Date.now();
     setIdleActive(false);
@@ -997,6 +1042,11 @@ export function App() {
     busy: sleepTimerBusy,
     onStart: setSleepTimerPreset,
     onCancel: clearSleepTimer,
+  };
+  const volumeControls = {
+    busy: volumeBusy,
+    message: volumeMessage,
+    onChange: updateVolume,
   };
   const libraryControls = {
     home: libraryHome,
@@ -1090,6 +1140,7 @@ export function App() {
               onActivateSpotify={activateSpotifyPlayer}
               onPlaybackAction={sendPlaybackAction}
               sleepTimer={sleepTimerControls}
+              volume={volumeControls}
             />
           )}
           {activeSurface === "settings" && (
@@ -1103,6 +1154,7 @@ export function App() {
               onActivateSpotify={activateSpotifyPlayer}
               onIdleSettingsChange={updateIdleSettings}
               sleepTimer={sleepTimerControls}
+              volume={volumeControls}
             />
           )}
           {activeSurface === "idle" && <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} />}
@@ -1364,6 +1416,7 @@ function NowPlayingSurface({
   onActivateSpotify,
   onPlaybackAction,
   sleepTimer,
+  volume,
 }: {
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
@@ -1371,6 +1424,7 @@ function NowPlayingSurface({
   onActivateSpotify: () => void;
   onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
   sleepTimer: SleepTimerControls;
+  volume: VolumeControls;
 }) {
   const playing = snapshot.nowPlaying;
   const progress = playing?.durationMs ? Math.min(100, ((playing.progressMs ?? 0) / playing.durationMs) * 100) : 0;
@@ -1394,11 +1448,7 @@ function NowPlayingSurface({
           <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing?.isPlaying ? "pause" : "play")}>{playing?.isPlaying ? "Pause" : "Play"}</button>
           <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")}>Next</button>
         </div>
-        <div className="volume-row">
-          <span>Volume</span>
-          <meter min="0" max="100" value={snapshot.health.volume.value ?? 0} />
-          <strong>{snapshot.health.volume.status === "out_of_sync" ? "Out of sync" : `${snapshot.health.volume.value ?? 0}%`}</strong>
-        </div>
+        <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
         <SpotifyPlaybackPanel
           playbackGateDetail={playbackGateDetail}
           spotifySdk={spotifySdk}
@@ -1420,6 +1470,7 @@ function SettingsSurface({
   onActivateSpotify,
   onIdleSettingsChange,
   sleepTimer,
+  volume,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
@@ -1430,6 +1481,7 @@ function SettingsSurface({
   onActivateSpotify: () => void;
   onIdleSettingsChange: (patch: AppSettingsPatch) => void;
   sleepTimer: SleepTimerControls;
+  volume: VolumeControls;
 }) {
   return (
     <div className="settings-layout">
@@ -1444,6 +1496,7 @@ function SettingsSurface({
         </div>
       </section>
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
+      <VolumeControlPanel snapshot={snapshot} controls={volume} />
       <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
       <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
@@ -1463,6 +1516,50 @@ function SettingsSurface({
         ))}
       </section>
     </div>
+  );
+}
+
+function VolumeControlPanel({
+  snapshot,
+  controls,
+  compact = false,
+}: {
+  snapshot: AppSnapshot;
+  controls: VolumeControls;
+  compact?: boolean;
+}) {
+  const view = volumeControlViewModel(snapshot);
+  const value = view.value;
+  return (
+    <section className={`volume-panel volume-${view.tone}${compact ? " compact" : ""}`} aria-label="Volume">
+      <div>
+        <p className="eyebrow">Volume</p>
+        <h2>App volume</h2>
+        <p>{view.detail}</p>
+        <p className="subtle">{controls.message}</p>
+      </div>
+      <div className="volume-controls">
+        <label>
+          <span>Level</span>
+          <input
+            disabled={view.disabled || controls.busy}
+            min="0"
+            max="100"
+            type="range"
+            value={value}
+            onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
+          />
+          <strong>{view.statusLabel}</strong>
+        </label>
+        <button
+          disabled={view.disabled || controls.busy}
+          type="button"
+          onClick={() => controls.onChange(value, !view.muted)}
+        >
+          {view.muted ? "Unmute" : "Mute"}
+        </button>
+      </div>
+    </section>
   );
 }
 

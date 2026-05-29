@@ -18,6 +18,7 @@ import {
   speakerSetupViewModel,
   startSleepTimer,
   spotifyAuthViewModel,
+  volumeControlViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
 
@@ -95,6 +96,30 @@ describe("kiosk shell view model", () => {
     });
     expect(canPlayLibraryItem(offline, item)).toBe(false);
     expect(canPlayLibraryItem(ready, { ...item, playbackKind: "unavailable", playable: false })).toBe(false);
+  });
+
+  it("models the single app volume control from volume health", () => {
+    const ready = localScenarios.ready_healthy.snapshot;
+    const outOfSync = localScenarios.volume_out_of_sync.snapshot;
+    const unavailable = localScenarios.first_boot_empty.snapshot;
+
+    expect(volumeControlViewModel(ready)).toMatchObject({
+      value: 42,
+      disabled: false,
+      statusLabel: "42%",
+      tone: "ready",
+    });
+    expect(volumeControlViewModel(outOfSync)).toMatchObject({
+      value: 42,
+      disabled: false,
+      statusLabel: "Out of sync",
+      tone: "attention",
+    });
+    expect(volumeControlViewModel(unavailable)).toMatchObject({
+      disabled: true,
+      statusLabel: "Unavailable",
+      tone: "attention",
+    });
   });
 
   it("offers local Spotify setup when authorization is required", () => {

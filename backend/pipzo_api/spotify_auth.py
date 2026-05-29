@@ -137,6 +137,16 @@ class SpotifyClient(Protocol):
     ) -> None:
         ...
 
+    def set_playback_volume(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        volume_percent: int,
+        device_id: Optional[str],
+    ) -> None:
+        ...
+
     def fetch_library_json(
         self,
         *,
@@ -345,6 +355,24 @@ class UrlLibSpotifyClient:
                 "Content-Type": "application/json",
             },
             method=method,
+        )
+        self._send_empty_spotify_api_request(request)
+
+    def set_playback_volume(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        volume_percent: int,
+        device_id: Optional[str],
+    ) -> None:
+        params: Dict[str, object] = {"volume_percent": volume_percent}
+        if device_id:
+            params["device_id"] = device_id
+        request = Request(
+            f"{api_base_url.rstrip('/')}/v1/me/player/volume?{urlencode(params)}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            method="PUT",
         )
         self._send_empty_spotify_api_request(request)
 

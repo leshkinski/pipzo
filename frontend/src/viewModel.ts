@@ -158,6 +158,52 @@ export function canPlayLibraryItem(snapshot: AppSnapshot, item: LibraryItem): bo
   return libraryAvailability(snapshot).canStartPlayback && item.playable && item.playbackKind !== "unavailable";
 }
 
+export type VolumeControlViewModel = {
+  value: number;
+  muted: boolean;
+  disabled: boolean;
+  statusLabel: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention";
+};
+
+export function volumeControlViewModel(snapshot: AppSnapshot): VolumeControlViewModel {
+  const volume = snapshot.health.volume;
+  const value = volume.value ?? 0;
+  const muted = volume.muted ?? false;
+  const disabled = !snapshot.capabilities.canControlVolume || volume.status === "unavailable";
+  const reason = volume.reason ? labelFromId(volume.reason) : undefined;
+
+  if (volume.status === "unified") {
+    return {
+      value,
+      muted,
+      disabled,
+      statusLabel: muted ? "Muted" : `${value}%`,
+      detail: "Spotify and Pi output volume are linked.",
+      tone: "ready",
+    };
+  }
+  if (volume.status === "spotify_only" || volume.status === "os_only" || volume.status === "write_only") {
+    return {
+      value,
+      muted,
+      disabled,
+      statusLabel: `${value}%`,
+      detail: `${labelFromId(volume.status)}${reason ? `: ${reason}` : "."}`,
+      tone: "waiting",
+    };
+  }
+  return {
+    value,
+    muted,
+    disabled,
+    statusLabel: volume.status === "out_of_sync" ? "Out of sync" : "Unavailable",
+    detail: reason ? `Volume is limited: ${reason}.` : "Volume control is unavailable right now.",
+    tone: "attention",
+  };
+}
+
 export function labelFromId(value: string): string {
   return value
     .split("_")
