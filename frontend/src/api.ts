@@ -3,6 +3,8 @@ import type {
   AppSettings,
   AppSettingsPatch,
   AppSnapshot,
+  DisplayPatch,
+  HealthState,
   PlaybackControlRequest,
   RecoveryAction,
   RunRecoveryActionRequest,
@@ -51,6 +53,10 @@ export function fetchSettings(): Promise<AppSettings> {
 
 export function patchSettings(body: AppSettingsPatch): Promise<AppSettings> {
   return request<AppSettings>("/api/v1/settings", { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function patchDisplay(body: DisplayPatch): Promise<HealthState["display"]> {
+  return request<HealthState["display"]>("/api/v1/display", { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export function controlPlayback(body: PlaybackControlRequest): Promise<ActionResult> {

@@ -18,7 +18,8 @@ body {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -110,7 +111,7 @@ button:disabled {
 
 .developer-panel {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1fr) 2fr;
+  grid-template-columns: minmax(150px, 0.6fr) minmax(210px, 0.8fr) minmax(280px, 1.2fr) 1.5fr;
   align-items: center;
   gap: 12px;
   margin-top: 16px;
@@ -126,6 +127,24 @@ button:disabled {
   border-radius: 8px;
   padding: 0 12px;
   background: #fffdf7;
+}
+
+.display-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 120px;
+  align-items: center;
+  gap: 10px;
+}
+
+.display-controls label {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.display-controls input {
+  width: 100%;
 }
 
 .developer-panel p {
@@ -334,6 +353,21 @@ button:disabled {
 .volume-row meter {
   flex: 1;
   height: 22px;
+}
+
+.display-summary {
+  display: inline-grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f4f1ea;
+}
+
+.display-summary small {
+  color: #65716b;
 }
 
 .health-row {

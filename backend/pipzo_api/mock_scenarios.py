@@ -9,6 +9,10 @@ from .contract import (
     AppSnapshot,
     CapabilityState,
     DiagnosticsSummary,
+    DisplayHealth,
+    DisplayPatch,
+    DisplayReason,
+    DisplayStatus,
     HealthState,
     IdleMode,
     KioskBootPhase,
@@ -111,6 +115,7 @@ def _base_snapshot() -> AppSnapshot:
             speaker=SpeakerHealth(status=SpeakerStatus.CONNECTED, primary=speaker),
             playback_device=PlaybackDeviceHealth(status=PlaybackDeviceStatus.AVAILABLE, device_id="pipzo-web-player"),
             volume=VolumeHealth(status=VolumeStatus.UNIFIED, value=42, muted=False),
+            display=DisplayHealth(status=DisplayStatus.NORMAL, brightness=80),
             kiosk=KioskHealth(phase=KioskBootPhase.APP_READY),
         ),
         surfaces=SurfaceState(current=SurfaceId.HOME, route="/", idle_mode=IdleMode.CLOCK),
@@ -279,10 +284,47 @@ def _boot_probe_delayed() -> AppSnapshot:
     snap.health.speaker = SpeakerHealth(status=SpeakerStatus.STARTING, reason=SpeakerReason.BOOT_PROBE_PENDING)
     snap.health.playback_device = PlaybackDeviceHealth(status=PlaybackDeviceStatus.STARTING, reason=PlaybackDeviceReason.SDK_NOT_READY)
     snap.health.volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BOOT_PROBE_PENDING)
+    snap.health.display = DisplayHealth(status=DisplayStatus.UNAVAILABLE, reason=DisplayReason.BOOT_PROBE_PENDING, brightness=0)
     snap.health.kiosk = KioskHealth(phase=KioskBootPhase.ADAPTERS_PROBING)
     snap.surfaces = SurfaceState(current=SurfaceId.SETUP, route="/starting", idle_mode=IdleMode.CLOCK)
     snap.warnings = []
     snap.recovery_actions = []
+    return snap
+
+
+def _idle_clock() -> AppSnapshot:
+    snap = _base_snapshot()
+    snap.surfaces = SurfaceState(current=SurfaceId.IDLE, route="/idle", idle_mode=IdleMode.CLOCK)
+    snap.settings = AppSettings(
+        idle_mode=IdleMode.CLOCK,
+        artwork_in_idle=False,
+        default_sleep_timer_minutes=30,
+        brightness=45,
+    )
+    snap.health.display = DisplayHealth(status=DisplayStatus.DIMMED, reason=DisplayReason.IDLE, brightness=45)
+    return snap
+
+
+def _idle_with_artwork() -> AppSnapshot:
+    snap = _idle_clock()
+    snap.surfaces.idle_mode = IdleMode.CLOCK_WITH_ARTWORK
+    snap.settings.idle_mode = IdleMode.CLOCK_WITH_ARTWORK
+    snap.settings.artwork_in_idle = True
+    snap.settings.brightness = 65
+    if snap.now_playing is not None:
+        snap.now_playing.is_playing = True
+    snap.health.display = DisplayHealth(status=DisplayStatus.NORMAL, reason=DisplayReason.IDLE, brightness=65)
+    return snap
+
+
+def _dimmed_bedtime() -> AppSnapshot:
+    snap = _idle_clock()
+    snap.settings.bedtime_brightness = 12
+    snap.health.display = DisplayHealth(
+        status=DisplayStatus.DIMMED,
+        reason=DisplayReason.BEDTIME,
+        brightness=snap.settings.bedtime_brightness,
+    )
     return snap
 
 
@@ -294,6 +336,9 @@ SCENARIO_FACTORIES: Dict[str, Callable[[], AppSnapshot]] = {
     "wifi_local_only": _wifi_local_only,
     "volume_out_of_sync": _volume_out_of_sync,
     "boot_probe_delayed": _boot_probe_delayed,
+    "idle_clock": _idle_clock,
+    "idle_with_artwork": _idle_with_artwork,
+    "dimmed_bedtime": _dimmed_bedtime,
 }
 
 
@@ -305,6 +350,9 @@ SCENARIO_LABELS: Dict[str, str] = {
     "wifi_local_only": "Wi-Fi local only",
     "volume_out_of_sync": "Volume out of sync",
     "boot_probe_delayed": "Boot probe delayed",
+    "idle_clock": "Idle clock",
+    "idle_with_artwork": "Idle with artwork",
+    "dimmed_bedtime": "Dimmed bedtime",
 }
 
 
@@ -316,6 +364,9 @@ SCENARIO_DESCRIPTIONS: Dict[str, str] = {
     "wifi_local_only": "The Pi is connected to Wi-Fi without internet reachability.",
     "volume_out_of_sync": "Spotify and OS/Bluetooth volume readback disagree.",
     "boot_probe_delayed": "Backend is up while adapters are still in the boot probing window.",
+    "idle_clock": "Clock-first bedside idle mode with artwork disabled.",
+    "idle_with_artwork": "Optional richer idle mode when artwork is enabled in settings.",
+    "dimmed_bedtime": "Bedtime display state with a lower mock brightness level.",
 }
 
 
@@ -374,8 +425,21 @@ class MockScenarioStore:
         current.update(updates)
         self._snapshot.settings = AppSettings.model_validate(current)
         self._snapshot.surfaces.idle_mode = self._snapshot.settings.idle_mode
+        if "brightness" in updates:
+            self._snapshot.health.display.brightness = self._snapshot.settings.brightness
+            self._snapshot.health.display.reason = DisplayReason.USER_SETTING
         self._snapshot.updated_at = utc_now()
         return self.get_snapshot().settings
+
+    def patch_display(self, patch: DisplayPatch) -> DisplayHealth:
+        if patch.brightness is not None:
+            self._snapshot.health.display.brightness = patch.brightness
+            self._snapshot.settings.brightness = patch.brightness
+        if patch.status is not None:
+            self._snapshot.health.display.status = patch.status
+        self._snapshot.health.display.reason = DisplayReason.USER_SETTING
+        self._snapshot.updated_at = utc_now()
+        return self.get_snapshot().health.display
 
     def run_playback_test(self, action: str) -> RecoveryAction:
         now = utc_now()

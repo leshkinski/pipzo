@@ -12,6 +12,8 @@ from .contract import (
     AppSettings,
     AppSettingsPatch,
     AppSnapshot,
+    DisplayHealth,
+    DisplayPatch,
     HealthResponse,
     PlaybackControlRequest,
     RecoveryAction,
@@ -129,6 +131,14 @@ def create_app(settings_override: Optional[Settings] = None) -> FastAPI:
         require_action_mock_mode(settings)
         updated = mock_store.patch_settings(body)
         event_hub.publish("settings.changed", updated.model_dump(mode="json", by_alias=True))
+        return updated
+
+    @app.patch("/api/v1/display", response_model=DisplayHealth)
+    def display_patch(body: DisplayPatch, settings: Settings = Depends(get_settings)) -> DisplayHealth:
+        require_action_mock_mode(settings)
+        updated = mock_store.patch_display(body)
+        event_hub.publish("display.changed", updated.model_dump(mode="json", by_alias=True))
+        event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
         return updated
 
     @app.post("/api/v1/playback/control", response_model=ActionResult)

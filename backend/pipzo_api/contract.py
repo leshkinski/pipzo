@@ -157,6 +157,22 @@ class VolumeReason(str, Enum):
     UNKNOWN = "unknown"
 
 
+class DisplayStatus(str, Enum):
+    NORMAL = "normal"
+    DIMMED = "dimmed"
+    OFF = "off"
+    UNAVAILABLE = "unavailable"
+
+
+class DisplayReason(str, Enum):
+    IDLE = "idle"
+    BEDTIME = "bedtime"
+    USER_SETTING = "user_setting"
+    BOOT_PROBE_PENDING = "boot_probe_pending"
+    HARDWARE_UNAVAILABLE = "hardware_unavailable"
+    UNKNOWN = "unknown"
+
+
 class SpotifyAuthStatus(str, Enum):
     STARTING = "starting"
     NONE = "none"
@@ -201,7 +217,7 @@ class WarningCode(str, Enum):
     DIAGNOSTICS_LIMITED = "diagnostics_limited"
 
 
-Reason = Union[NetworkReason, SpeakerReason, SpotifyAuthReason, PlaybackDeviceReason, VolumeReason]
+Reason = Union[NetworkReason, SpeakerReason, SpotifyAuthReason, PlaybackDeviceReason, VolumeReason, DisplayReason]
 
 
 class SetupStep(ContractModel):
@@ -264,6 +280,12 @@ class VolumeHealth(ContractModel):
     muted: Optional[bool] = None
 
 
+class DisplayHealth(ContractModel):
+    status: DisplayStatus
+    reason: Optional[DisplayReason] = None
+    brightness: int = Field(default=80, ge=0, le=100)
+
+
 class KioskHealth(ContractModel):
     phase: KioskBootPhase
     last_restart_at: Optional[datetime] = None
@@ -275,6 +297,7 @@ class HealthState(ContractModel):
     speaker: SpeakerHealth
     playback_device: PlaybackDeviceHealth
     volume: VolumeHealth
+    display: DisplayHealth
     kiosk: KioskHealth
 
 
@@ -360,6 +383,8 @@ class AppSettings(ContractModel):
     idle_timeout_seconds: int = Field(default=300, ge=30, le=3600)
     artwork_in_idle: bool = False
     default_sleep_timer_minutes: Optional[int] = Field(default=None, ge=0, le=120)
+    brightness: int = Field(default=80, ge=0, le=100)
+    bedtime_brightness: int = Field(default=20, ge=0, le=100)
 
 
 class AppSettingsPatch(ContractModel):
@@ -367,6 +392,13 @@ class AppSettingsPatch(ContractModel):
     idle_timeout_seconds: Optional[int] = Field(default=None, ge=30, le=3600)
     artwork_in_idle: Optional[bool] = None
     default_sleep_timer_minutes: Optional[int] = Field(default=None, ge=0, le=120)
+    brightness: Optional[int] = Field(default=None, ge=0, le=100)
+    bedtime_brightness: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class DisplayPatch(ContractModel):
+    brightness: Optional[int] = Field(default=None, ge=0, le=100)
+    status: Optional[DisplayStatus] = None
 
 
 class NowPlayingSummary(ContractModel):

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { activateBackendScenario, fetchAppState, fetchBackendScenarios } from "./api";
-import type { AppSnapshot, ScenarioSummary, SurfaceId } from "./contracts";
+import { activateBackendScenario, fetchAppState, fetchBackendScenarios, patchDisplay } from "./api";
+import type { AppSnapshot, DisplayStatus, ScenarioSummary, SurfaceId } from "./contracts";
 import { localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import { canOpenSurface, formatMs, isSetupGated, labelFromId, preferredSurface, primarySurfaces } from "./viewModel";
 
@@ -67,7 +67,7 @@ export function App() {
 
   async function switchScenario(scenarioId: string) {
     setSelectedScenario(scenarioId);
-    if (dataSource === "backend" && !["idle_clock", "idle_with_artwork"].includes(scenarioId)) {
+    if (dataSource === "backend") {
       try {
         const state = await activateBackendScenario(scenarioId);
         setSnapshot(state);
@@ -79,6 +79,32 @@ export function App() {
     }
     setSnapshot(localScenarioSnapshot(scenarioId));
     setStatusText("Local scenario active.");
+  }
+
+  async function updateDisplay(brightness: number, status: DisplayStatus = snapshot.health.display.status) {
+    if (dataSource === "backend") {
+      try {
+        const display = await patchDisplay({ brightness, status });
+        setSnapshot((current) => ({
+          ...current,
+          health: { ...current.health, display },
+          settings: { ...current.settings, brightness: display.brightness },
+        }));
+        setStatusText("Backend display mock updated.");
+        return;
+      } catch {
+        setDataSource("local");
+      }
+    }
+    setSnapshot((current) => ({
+      ...current,
+      health: {
+        ...current.health,
+        display: { ...current.health.display, brightness, status, reason: "user_setting" },
+      },
+      settings: { ...current.settings, brightness },
+    }));
+    setStatusText("Local display mock updated.");
   }
 
   return (
@@ -101,7 +127,9 @@ export function App() {
         selectedScenario={selectedScenario}
         currentScenario={currentScenario}
         dataSource={dataSource}
+        display={snapshot.health.display}
         onChange={switchScenario}
+        onDisplayChange={updateDisplay}
       />
 
       {visibleWarnings.length > 0 && (
@@ -151,7 +179,9 @@ function DeveloperPanel(props: {
   selectedScenario: string;
   currentScenario?: ScenarioSummary;
   dataSource: DataSource;
+  display: AppSnapshot["health"]["display"];
   onChange: (scenarioId: string) => void;
+  onDisplayChange: (brightness: number, status?: DisplayStatus) => void;
 }) {
   return (
     <section className="developer-panel" aria-label="Developer mock scenarios">
@@ -166,6 +196,27 @@ function DeveloperPanel(props: {
           </option>
         ))}
       </select>
+      <div className="display-controls">
+        <label>
+          <span>Brightness</span>
+          <input
+            min="0"
+            max="100"
+            type="range"
+            value={props.display.brightness}
+            onChange={(event) => props.onDisplayChange(Number(event.target.value))}
+          />
+          <strong>{props.display.brightness}%</strong>
+        </label>
+        <select
+          value={props.display.status}
+          onChange={(event) => props.onDisplayChange(props.display.brightness, event.target.value as DisplayStatus)}
+        >
+          <option value="normal">Normal</option>
+          <option value="dimmed">Dimmed</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
       <p>{props.currentScenario?.description}</p>
     </section>
   );
@@ -273,6 +324,11 @@ function SettingsSurface({ snapshot }: { snapshot: AppSnapshot }) {
         <p className="eyebrow">Settings and recovery</p>
         <h1>{snapshot.appPhase === "degraded" ? "Recovery mode is available" : "Device settings"}</h1>
         <p>{snapshot.surfaces.returnSurface ? `Return target: ${labelFromId(snapshot.surfaces.returnSurface)}` : "App reset is separate from Wi-Fi and speaker forget actions."}</p>
+        <div className="display-summary">
+          <span>Display</span>
+          <strong>{snapshot.health.display.brightness}%</strong>
+          <small>{labelFromId(snapshot.health.display.status)}{snapshot.health.display.reason ? ` / ${labelFromId(snapshot.health.display.reason)}` : ""}</small>
+        </div>
       </section>
       <HealthRows snapshot={snapshot} />
       <section className="actions">
@@ -305,6 +361,7 @@ function HealthRows({ snapshot }: { snapshot: AppSnapshot }) {
     ["Speaker", snapshot.health.speaker.status, snapshot.health.speaker.reason ?? snapshot.health.speaker.primary?.displayName],
     ["Playback", snapshot.health.playbackDevice.status, snapshot.health.playbackDevice.reason ?? snapshot.health.playbackDevice.deviceId],
     ["Volume", snapshot.health.volume.status, snapshot.health.volume.reason ?? `${snapshot.health.volume.value ?? 0}%`],
+    ["Display", snapshot.health.display.status, snapshot.health.display.reason ?? `${snapshot.health.display.brightness}%`],
   ];
   return (
     <section className="health-list">

@@ -61,16 +61,17 @@ Useful endpoints:
 - `POST http://127.0.0.1:8000/api/v1/setup/complete`
 - `POST http://127.0.0.1:8000/api/v1/setup/playback-test`
 - `GET/PATCH http://127.0.0.1:8000/api/v1/settings`
+- `PATCH http://127.0.0.1:8000/api/v1/display`
 - `POST http://127.0.0.1:8000/api/v1/playback/control`
 - `GET http://127.0.0.1:8000/api/v1/recovery/actions`
 - `POST http://127.0.0.1:8000/api/v1/recovery/actions/{actionId}/run`
 - `GET http://127.0.0.1:8000/api/v1/mock/scenarios`
 - `POST http://127.0.0.1:8000/api/v1/mock/scenarios/ready_healthy/activate`
 
-WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `playback.control_changed`, and `recovery.action_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
+WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, and `recovery.action_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
 Mock endpoints are intended for desktop development only and are gated by `PIPZO_MODE=mock`.
-The action endpoints currently simulate behavior only in mock mode. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify, playback, or reset success.
+The action endpoints currently simulate behavior only in mock mode, including display brightness/status changes through `PATCH /api/v1/display` with fields such as `{"brightness": 25, "status": "dimmed"}`. The hardware adapter path is an explicit future seam; unimplemented hardware-mode actions return `501` rather than fake Wi-Fi, Bluetooth, Spotify, playback, display, or reset success.
 
 Backend tests:
 
@@ -86,7 +87,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. When the backend is running in `PIPZO_MODE=mock`, Vite proxies `/api` to `http://127.0.0.1:8000` and the developer mock scenario switcher activates backend scenarios. If the backend is not running, the UI falls back to checked-in local scenarios for first boot, ready, degraded, speaker disconnected, Wi-Fi local only, volume out of sync, boot probe delayed, and idle mode.
+Open `http://127.0.0.1:5173`. When the backend is running in `PIPZO_MODE=mock`, Vite proxies `/api` to `http://127.0.0.1:8000` and the developer mock panel activates backend scenarios or adjusts mock display brightness/status. If the backend is not running, the UI falls back to checked-in local scenarios for first boot, ready, degraded, speaker disconnected, Wi-Fi local only, volume out of sync, boot probe delayed, idle clock, idle with artwork, and dimmed bedtime.
 
 Frontend validation:
 

@@ -41,6 +41,7 @@ function readySnapshot(): AppSnapshot {
       },
       playbackDevice: { status: "available", deviceId: "pipzo-web-player" },
       volume: { status: "unified", value: 42, muted: false },
+      display: { status: "normal", brightness: 80 },
       kiosk: { phase: "app_ready" },
     },
     surfaces: { current: "home", route: "/", idleMode: "clock" },
@@ -64,6 +65,8 @@ function readySnapshot(): AppSnapshot {
       idleTimeoutSeconds: 300,
       artworkInIdle: false,
       defaultSleepTimerMinutes: 30,
+      brightness: 80,
+      bedtimeBrightness: 20,
     },
     nowPlaying: {
       title: "Bedtime Song",
@@ -170,6 +173,7 @@ bootProbeDelayed.health.spotifyAuth = { status: "starting", reason: "boot_probe_
 bootProbeDelayed.health.speaker = { status: "starting", reason: "boot_probe_pending" };
 bootProbeDelayed.health.playbackDevice = { status: "starting", reason: "sdk_not_ready" };
 bootProbeDelayed.health.volume = { status: "unavailable", reason: "boot_probe_pending" };
+bootProbeDelayed.health.display = { status: "unavailable", reason: "boot_probe_pending", brightness: 0 };
 bootProbeDelayed.health.kiosk = { phase: "adapters_probing" };
 bootProbeDelayed.surfaces = { current: "setup", route: "/starting", idleMode: "clock" };
 bootProbeDelayed.recoveryActions = [];
@@ -177,12 +181,18 @@ bootProbeDelayed.warnings = [];
 
 const idleClock = clone(ready);
 idleClock.surfaces = { current: "idle", route: "/idle", idleMode: "clock" };
-idleClock.settings = { ...idleClock.settings, artworkInIdle: false, idleMode: "clock" };
+idleClock.settings = { ...idleClock.settings, artworkInIdle: false, idleMode: "clock", brightness: 45 };
+idleClock.health.display = { status: "dimmed", reason: "idle", brightness: 45 };
 
 const idleArtwork = clone(ready);
 idleArtwork.surfaces = { current: "idle", route: "/idle", idleMode: "clock_with_artwork" };
-idleArtwork.settings = { ...idleArtwork.settings, artworkInIdle: true, idleMode: "clock_with_artwork" };
+idleArtwork.settings = { ...idleArtwork.settings, artworkInIdle: true, idleMode: "clock_with_artwork", brightness: 65 };
+idleArtwork.health.display = { status: "normal", reason: "idle", brightness: 65 };
 idleArtwork.nowPlaying = { ...idleArtwork.nowPlaying!, isPlaying: true };
+
+const dimmedBedtime = clone(idleClock);
+dimmedBedtime.settings = { ...dimmedBedtime.settings, brightness: 12, bedtimeBrightness: 12 };
+dimmedBedtime.health.display = { status: "dimmed", reason: "bedtime", brightness: 12 };
 
 export const localScenarios: Record<string, LocalScenario> = {
   first_boot_empty: {
@@ -238,6 +248,12 @@ export const localScenarios: Record<string, LocalScenario> = {
     label: "Idle with artwork",
     description: "Optional richer idle mode when artwork is enabled in settings.",
     snapshot: idleArtwork,
+  },
+  dimmed_bedtime: {
+    id: "dimmed_bedtime",
+    label: "Dimmed bedtime",
+    description: "Bedtime display state with a lower mock brightness level.",
+    snapshot: dimmedBedtime,
   },
 };
 

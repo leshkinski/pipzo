@@ -38,6 +38,8 @@ def test_app_state_returns_first_boot_snapshot_contract(tmp_path):
     assert body["setup"]["blockingStep"] == "wifi"
     assert body["readiness"]["minimumReady"] is False
     assert body["health"]["speaker"]["status"] == "none_saved"
+    assert body["health"]["display"]["status"] == "normal"
+    assert body["health"]["display"]["brightness"] == 80
     assert body["capabilities"]["canOpenSettings"] is True
 
 
@@ -55,6 +57,9 @@ def test_mock_scenarios_include_required_initial_set(tmp_path):
         "wifi_local_only",
         "volume_out_of_sync",
         "boot_probe_delayed",
+        "idle_clock",
+        "idle_with_artwork",
+        "dimmed_bedtime",
     }.issubset(scenario_ids)
 
 
@@ -179,6 +184,36 @@ def test_settings_get_and_patch_existing_fields(tmp_path):
     assert state_response.json()["settings"]["idleTimeoutSeconds"] == 120
 
 
+def test_display_mock_state_can_be_adjusted(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "display.sqlite3"))) as client:
+        client.post("/api/v1/mock/scenarios/ready_healthy/activate")
+
+        response = client.patch("/api/v1/display", json={"brightness": 25, "status": "dimmed"})
+        state_response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    assert response.json()["brightness"] == 25
+    assert response.json()["status"] == "dimmed"
+    assert response.json()["reason"] == "user_setting"
+    assert state_response.json()["health"]["display"]["brightness"] == 25
+    assert state_response.json()["settings"]["brightness"] == 25
+
+
+def test_display_scenarios_cover_idle_and_bedtime_state(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "display-scenarios.sqlite3"))) as client:
+        idle_clock = client.post("/api/v1/mock/scenarios/idle_clock/activate").json()
+        idle_artwork = client.post("/api/v1/mock/scenarios/idle_with_artwork/activate").json()
+        bedtime = client.post("/api/v1/mock/scenarios/dimmed_bedtime/activate").json()
+
+    assert idle_clock["surfaces"]["current"] == "idle"
+    assert idle_clock["health"]["display"]["status"] == "dimmed"
+    assert idle_clock["settings"]["artworkInIdle"] is False
+    assert idle_artwork["surfaces"]["idleMode"] == "clock_with_artwork"
+    assert idle_artwork["settings"]["artworkInIdle"] is True
+    assert bedtime["health"]["display"]["brightness"] == bedtime["settings"]["bedtimeBrightness"]
+    assert bedtime["health"]["display"]["reason"] == "bedtime"
+
+
 def test_playback_control_reports_mock_success_and_unavailable_state(tmp_path):
     with make_client(Settings(db_path=str(tmp_path / "playback.sqlite3"))) as client:
         client.post("/api/v1/mock/scenarios/ready_healthy/activate")
@@ -224,6 +259,7 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
             client.post("/api/v1/setup/complete"),
             client.post("/api/v1/setup/playback-test", json={"action": "start"}),
             client.patch("/api/v1/settings", json={"idleMode": "off"}),
+            client.patch("/api/v1/display", json={"brightness": 10}),
             client.post("/api/v1/playback/control", json={"action": "pause"}),
             client.post("/api/v1/recovery/actions/reset-app/run", json={"confirm": True}),
         ]

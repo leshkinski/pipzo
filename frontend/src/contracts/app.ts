@@ -72,6 +72,9 @@ export type VolumeReason =
   | "permission_denied"
   | "unknown";
 
+export type DisplayStatus = "normal" | "dimmed" | "off" | "unavailable";
+export type DisplayReason = "idle" | "bedtime" | "user_setting" | "boot_probe_pending" | "hardware_unavailable" | "unknown";
+
 export type SpotifyAuthStatus = "starting" | "none" | "waiting" | "connected" | "expired" | "reconnect_required" | "error";
 export type SpotifyAuthReason =
   | "boot_probe_pending"
@@ -99,7 +102,7 @@ export type WarningCode =
   | "kiosk_recovered"
   | "diagnostics_limited";
 
-export type Reason = NetworkReason | SpeakerReason | SpotifyAuthReason | PlaybackDeviceReason | VolumeReason;
+export type Reason = NetworkReason | SpeakerReason | SpotifyAuthReason | PlaybackDeviceReason | VolumeReason | DisplayReason;
 
 export type SetupStep = {
   id: SetupStepId;
@@ -135,6 +138,7 @@ export type HealthState = {
   speaker: { status: SpeakerStatus; reason?: SpeakerReason; primary?: SpeakerSummary };
   playbackDevice: { status: PlaybackDeviceStatus; reason?: PlaybackDeviceReason; deviceId?: string };
   volume: { status: VolumeStatus; reason?: VolumeReason; value?: number; muted?: boolean };
+  display: { status: DisplayStatus; reason?: DisplayReason; brightness: number };
   kiosk: { phase: KioskBootPhase; lastRestartAt?: string };
 };
 
@@ -207,9 +211,16 @@ export type AppSettings = {
   idleTimeoutSeconds: number;
   artworkInIdle: boolean;
   defaultSleepTimerMinutes?: number | null;
+  brightness: number;
+  bedtimeBrightness: number;
 };
 
 export type AppSettingsPatch = Partial<AppSettings>;
+
+export type DisplayPatch = {
+  brightness?: number;
+  status?: DisplayStatus;
+};
 
 export type PlaybackControlRequest = {
   action: "play" | "pause" | "next" | "previous" | "stop";
@@ -273,6 +284,7 @@ export type HealthResponse = {
 export type AppEvent =
   | { type: "app.snapshot"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "settings.changed"; payload: AppSettings; emittedAt: string; schemaVersion: "v1" }
+  | { type: "display.changed"; payload: HealthState["display"]; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.step_changed"; payload: SetupState; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.completed"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.playback_test_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
