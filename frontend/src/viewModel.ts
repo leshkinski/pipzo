@@ -3,7 +3,13 @@ import type { AppSnapshot, IdleMode, SpeakerDevice, SpotifyAuthSession, SurfaceI
 export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
 
 export function isSetupGated(snapshot: AppSnapshot): boolean {
-  return snapshot.appPhase === "setup" || !snapshot.readiness.minimumReady;
+  if (snapshot.appPhase === "setup") {
+    return true;
+  }
+  if (snapshot.appPhase === "degraded" || snapshot.readiness.setupCompletedAt) {
+    return false;
+  }
+  return !snapshot.readiness.minimumReady;
 }
 
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
@@ -36,6 +42,46 @@ export function preferredSurface(snapshot: AppSnapshot): SurfaceId {
     return canOpenSurface(snapshot, snapshot.surfaces.current) ? snapshot.surfaces.current : "settings";
   }
   return snapshot.surfaces.current;
+}
+
+export type DegradedModeViewModel = {
+  active: boolean;
+  title: string;
+  detail: string;
+  available: string[];
+  unavailable: string[];
+};
+
+export function degradedModeViewModel(snapshot: AppSnapshot): DegradedModeViewModel {
+  const offline = snapshot.health.network.status !== "online";
+  const spotifyUnavailable = snapshot.health.spotifyAuth.status !== "connected" || !snapshot.readiness.spotifyAuthorized;
+  const speakerUnavailable = snapshot.health.speaker.status !== "connected";
+  const playbackUnavailable = !snapshot.capabilities.canStartPlayback || !snapshot.capabilities.canControlPlayback;
+  const active = snapshot.appPhase === "degraded" || offline || spotifyUnavailable || speakerUnavailable || playbackUnavailable;
+
+  const unavailable: string[] = [];
+  if (offline) unavailable.push("live library browsing");
+  if (spotifyUnavailable) unavailable.push("Spotify library access");
+  if (speakerUnavailable) unavailable.push("speaker playback");
+  if (playbackUnavailable) unavailable.push("music playback");
+
+  const primaryReason = offline
+    ? "Internet is unavailable."
+    : spotifyUnavailable
+      ? "Spotify needs reconnecting."
+      : speakerUnavailable
+        ? "The Bluetooth speaker is not connected."
+        : "Playback is unavailable right now.";
+
+  return {
+    active,
+    title: active ? "Recovery mode" : "Ready",
+    detail: active
+      ? `${primaryReason} Settings, Wi-Fi, Bluetooth, and reset stay available. Offline music playback is not supported.`
+      : "All core playback dependencies are available.",
+    available: ["Settings", "Wi-Fi recovery", "Bluetooth recovery", "App reset"],
+    unavailable: Array.from(new Set(unavailable)),
+  };
 }
 
 export function labelFromId(value: string): string {

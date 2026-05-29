@@ -28,6 +28,7 @@ from .contract import (
     NetworkStatus,
     PlaybackControlRequest,
     PlaybackDeviceReason,
+    PlaybackDeviceStatus,
     RecoveryAction,
     RecoveryActionKind,
     RecoveryActionState,
@@ -687,10 +688,98 @@ def project_setup_readiness(snapshot: AppSnapshot) -> None:
     )
     snapshot.setup.blocking_step = blocking
     snapshot.setup.steps = setup_steps_for_blocking(blocking)
-    if not snapshot.readiness.minimum_ready and snapshot.app_phase != "starting":
+    if snapshot.readiness.minimum_ready:
+        return
+    if snapshot.app_phase == "starting":
+        return
+    if snapshot.readiness.setup_completed_at is not None or snapshot.app_phase == "degraded":
+        project_degraded_runtime(snapshot)
+        return
+    if not snapshot.readiness.minimum_ready:
         snapshot.app_phase = "setup"
         snapshot.surfaces.current = "setup"
         snapshot.surfaces.route = route_for_blocking(blocking)
+
+
+def project_degraded_runtime(snapshot: AppSnapshot) -> None:
+    snapshot.app_phase = "degraded"
+    if snapshot.surfaces.current not in {"settings", "home", "now_playing", "idle"}:
+        snapshot.surfaces.current = "settings"
+        snapshot.surfaces.route = "/settings/recovery"
+    if snapshot.surfaces.return_surface is None and snapshot.surfaces.current != "settings":
+        snapshot.surfaces.return_surface = snapshot.surfaces.current
+
+    network_online = snapshot.health.network.status == NetworkStatus.ONLINE
+    spotify_ready = snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED and snapshot.readiness.spotify_authorized
+    speaker_ready = snapshot.health.speaker.status == SpeakerStatus.CONNECTED and bool(snapshot.health.speaker.primary)
+    playback_ready = (
+        network_online
+        and spotify_ready
+        and speaker_ready
+        and snapshot.health.playback_device.status in {PlaybackDeviceStatus.AVAILABLE, PlaybackDeviceStatus.TRANSFER_REQUIRED}
+    )
+
+    snapshot.capabilities.can_browse = network_online and spotify_ready
+    snapshot.capabilities.can_search = network_online and spotify_ready
+    snapshot.capabilities.can_start_playback = playback_ready
+    snapshot.capabilities.can_control_playback = playback_ready
+    snapshot.capabilities.can_control_volume = speaker_ready and snapshot.health.volume.status != "unavailable"
+    snapshot.capabilities.can_use_sleep_timer = playback_ready
+
+    if not network_online:
+        snapshot.staleness.is_stale = True
+        snapshot.staleness.stale_since = snapshot.staleness.stale_since or utc_now()
+        snapshot.staleness.reason = "network_offline" if snapshot.health.network.status == NetworkStatus.OFFLINE else "network_local_only"
+        append_warning_once(
+            snapshot,
+            Warning(
+                code="network_local_only" if snapshot.health.network.status == NetworkStatus.LOCAL_ONLY else "network_offline",
+                reason=snapshot.health.network.reason,
+                surface="settings",
+                action="connect_wifi",
+            ),
+        )
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.NETWORK_UNAVAILABLE
+    if not spotify_ready:
+        append_warning_once(
+            snapshot,
+            Warning(
+                code="spotify_reconnect_required",
+                reason=snapshot.health.spotify_auth.reason,
+                surface="settings",
+                action="spotify_reconnect",
+            ),
+        )
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.AUTH_REQUIRED
+    if not speaker_ready:
+        append_warning_once(
+            snapshot,
+            Warning(
+                code="speaker_disconnected",
+                reason=snapshot.health.speaker.reason,
+                surface="settings",
+                action="reconnect_speaker",
+            ),
+        )
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.SPEAKER_UNAVAILABLE
+    if snapshot.health.playback_device.status != PlaybackDeviceStatus.AVAILABLE:
+        append_warning_once(
+            snapshot,
+            Warning(
+                code="playback_device_unavailable",
+                reason=snapshot.health.playback_device.reason,
+                surface="now_playing",
+                action="open_settings",
+            ),
+        )
+
+
+def append_warning_once(snapshot: AppSnapshot, warning: Warning) -> None:
+    if not any(existing.code == warning.code for existing in snapshot.warnings):
+        snapshot.warnings.append(warning)
 
 
 def setup_blocking_step(network_ready: bool, spotify_ready: bool, speaker_ready: bool, playback_ready: bool) -> SetupStepId:

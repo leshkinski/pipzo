@@ -45,6 +45,7 @@ button:disabled {
 .topbar,
 .developer-panel,
 .warning-band,
+.degraded-banner,
 .shell {
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -165,6 +166,50 @@ button:disabled {
   border-radius: 8px;
   background: #f7dfc6;
   border: 1px solid #d59c6a;
+}
+
+.degraded-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #d59c6a;
+  border-radius: 8px;
+  background: #fff6e8;
+}
+
+.degraded-banner h2 {
+  margin: 5px 0 7px;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.degraded-banner p {
+  max-width: 760px;
+  margin: 0;
+  color: #526058;
+  line-height: 1.35;
+}
+
+.degraded-lists {
+  display: grid;
+  gap: 8px;
+}
+
+.degraded-lists div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.degraded-lists span {
+  color: #65716b;
+  overflow-wrap: anywhere;
 }
 
 .shell {
@@ -658,6 +703,7 @@ button:disabled {
   .developer-panel,
   .shell,
   .surface-grid,
+  .degraded-banner,
   .spotify-panel,
   .wifi-panel,
   .speaker-panel,

@@ -138,6 +138,43 @@ degraded.recoveryActions = [
 ];
 degraded.staleness = { isStale: true, staleSince: now(), reason: "network_offline" };
 
+const offlineSettingsMode = clone(degraded);
+offlineSettingsMode.surfaces = { current: "settings", route: "/settings/network", returnSurface: "home", idleMode: "clock" };
+offlineSettingsMode.warnings = [
+  { code: "network_offline", reason: "no_known_network", surface: "settings", action: "connect_wifi" },
+  { code: "stale_content", reason: "network_unavailable", surface: "home" },
+  { code: "playback_device_unavailable", reason: "network_unavailable", surface: "now_playing" },
+];
+offlineSettingsMode.capabilities = { ...offlineSettingsMode.capabilities, canControlPlayback: false };
+offlineSettingsMode.recoveryActions = [
+  { id: "connect-wifi", kind: "connect_wifi", state: "available", reason: "no_known_network", requiresConfirmation: false },
+  { id: "reconnect-speaker", kind: "reconnect_speaker", state: "available", requiresConfirmation: false },
+  { id: "reset-app", kind: "reset_app", state: "confirm_required", requiresConfirmation: true },
+];
+
+const spotifyAuthUnavailable = clone(ready);
+spotifyAuthUnavailable.appPhase = "degraded";
+spotifyAuthUnavailable.health.spotifyAuth = { status: "reconnect_required", reason: "token_refresh_failed" };
+spotifyAuthUnavailable.health.playbackDevice = { status: "unavailable", reason: "auth_required" };
+spotifyAuthUnavailable.readiness = { ...spotifyAuthUnavailable.readiness, spotifyAuthorized: false, minimumReady: false };
+spotifyAuthUnavailable.surfaces = { current: "settings", route: "/settings/spotify", returnSurface: "home", idleMode: "clock" };
+spotifyAuthUnavailable.warnings = [
+  { code: "spotify_reconnect_required", reason: "token_refresh_failed", surface: "settings", action: "spotify_reconnect" },
+  { code: "playback_device_unavailable", reason: "auth_required", surface: "now_playing" },
+];
+spotifyAuthUnavailable.capabilities = {
+  ...spotifyAuthUnavailable.capabilities,
+  canBrowse: false,
+  canSearch: false,
+  canStartPlayback: false,
+  canControlPlayback: false,
+};
+spotifyAuthUnavailable.recoveryActions = [
+  { id: "start-spotify-auth", kind: "start_spotify_auth", state: "available", reason: "token_refresh_failed", requiresConfirmation: false },
+  { id: "reset-app", kind: "reset_app", state: "confirm_required", requiresConfirmation: true },
+];
+spotifyAuthUnavailable.staleness = { isStale: true, staleSince: now(), reason: "spotify_reconnect_required" };
+
 const speakerDisconnected = clone(ready);
 speakerDisconnected.health.speaker.status = "saved_disconnected";
 speakerDisconnected.health.speaker.reason = "device_out_of_range";
@@ -147,6 +184,25 @@ speakerDisconnected.warnings = [{ code: "speaker_disconnected", reason: "device_
 speakerDisconnected.capabilities = { ...speakerDisconnected.capabilities, canStartPlayback: false, canControlPlayback: false };
 speakerDisconnected.recoveryActions = [
   { id: "reconnect-speaker", kind: "reconnect_speaker", state: "available", reason: "device_out_of_range", requiresConfirmation: false },
+];
+
+const deviceConnectivityDegraded = clone(speakerDisconnected);
+deviceConnectivityDegraded.appPhase = "degraded";
+deviceConnectivityDegraded.surfaces = { current: "settings", route: "/settings/speaker", returnSurface: "now_playing", idleMode: "clock" };
+deviceConnectivityDegraded.capabilities = {
+  ...deviceConnectivityDegraded.capabilities,
+  canBrowse: true,
+  canSearch: true,
+  canControlVolume: false,
+};
+deviceConnectivityDegraded.warnings = [
+  { code: "speaker_disconnected", reason: "device_out_of_range", surface: "settings", action: "reconnect_speaker" },
+  { code: "playback_device_unavailable", reason: "speaker_unavailable", surface: "now_playing" },
+];
+deviceConnectivityDegraded.recoveryActions = [
+  { id: "reconnect-speaker", kind: "reconnect_speaker", state: "available", reason: "device_out_of_range", requiresConfirmation: false },
+  { id: "forget-speaker", kind: "forget_speaker", state: "confirm_required", reason: "device_out_of_range", requiresConfirmation: true },
+  { id: "reset-app", kind: "reset_app", state: "confirm_required", requiresConfirmation: true },
 ];
 
 const wifiLocalOnly = clone(ready);
@@ -212,6 +268,24 @@ export const localScenarios: Record<string, LocalScenario> = {
     label: "Degraded recovery",
     description: "Setup was completed earlier, but network loss blocks playback and browse.",
     snapshot: degraded,
+  },
+  offline_settings_mode: {
+    id: "offline_settings_mode",
+    label: "Offline settings mode",
+    description: "Internet is unavailable, but Settings, Wi-Fi, Bluetooth, and reset recovery stay reachable.",
+    snapshot: offlineSettingsMode,
+  },
+  spotify_auth_unavailable: {
+    id: "spotify_auth_unavailable",
+    label: "Spotify auth unavailable",
+    description: "Spotify auth needs reconnect while local device settings remain usable.",
+    snapshot: spotifyAuthUnavailable,
+  },
+  device_connectivity_degraded: {
+    id: "device_connectivity_degraded",
+    label: "Device connectivity degraded",
+    description: "The network and Spotify are available, but the saved Bluetooth speaker is disconnected.",
+    snapshot: deviceConnectivityDegraded,
   },
   speaker_saved_disconnected: {
     id: "speaker_saved_disconnected",

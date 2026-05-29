@@ -4,6 +4,7 @@ import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
 import {
   canOpenSurface,
+  degradedModeViewModel,
   idlePresentation,
   isSetupGated,
   preferredSurface,
@@ -30,6 +31,32 @@ describe("kiosk shell view model", () => {
     expect(preferredSurface(snapshot)).toBe("settings");
     expect(canOpenSurface(snapshot, "settings")).toBe(true);
     expect(canOpenSurface(snapshot, "browse")).toBe(false);
+  });
+
+  it("treats post-setup degraded auth loss as recovery mode instead of first-run setup", () => {
+    const snapshot = localScenarios.spotify_auth_unavailable.snapshot;
+    const degraded = degradedModeViewModel(snapshot);
+
+    expect(isSetupGated(snapshot)).toBe(false);
+    expect(preferredSurface(snapshot)).toBe("settings");
+    expect(canOpenSurface(snapshot, "settings")).toBe(true);
+    expect(canOpenSurface(snapshot, "home")).toBe(true);
+    expect(canOpenSurface(snapshot, "browse")).toBe(false);
+    expect(degraded.active).toBe(true);
+    expect(degraded.detail).toContain("Offline music playback is not supported");
+    expect(degraded.unavailable).toContain("Spotify library access");
+    expect(degraded.unavailable).toContain("music playback");
+  });
+
+  it("keeps Wi-Fi, Bluetooth, and reset recovery visible in offline settings mode", () => {
+    const snapshot = localScenarios.offline_settings_mode.snapshot;
+    const degraded = degradedModeViewModel(snapshot);
+
+    expect(isSetupGated(snapshot)).toBe(false);
+    expect(canOpenSurface(snapshot, "settings")).toBe(true);
+    expect(canOpenSurface(snapshot, "now_playing")).toBe(true);
+    expect(degraded.available).toEqual(["Settings", "Wi-Fi recovery", "Bluetooth recovery", "App reset"]);
+    expect(degraded.unavailable).toEqual(["live library browsing", "music playback"]);
   });
 
   it("offers local Spotify setup when authorization is required", () => {

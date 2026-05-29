@@ -182,6 +182,9 @@ def test_mock_scenarios_include_required_initial_set(tmp_path):
         "first_boot_empty",
         "ready_healthy",
         "degraded_recovery",
+        "offline_settings_mode",
+        "spotify_auth_unavailable",
+        "device_connectivity_degraded",
         "speaker_saved_disconnected",
         "wifi_local_only",
         "volume_out_of_sync",
@@ -190,6 +193,24 @@ def test_mock_scenarios_include_required_initial_set(tmp_path):
         "idle_with_artwork",
         "dimmed_bedtime",
     }.issubset(scenario_ids)
+
+
+def test_degraded_mock_scenarios_keep_recovery_surfaces_available(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "degraded-scenarios.sqlite3"))) as client:
+        offline = client.post("/api/v1/mock/scenarios/offline_settings_mode/activate").json()
+        spotify = client.post("/api/v1/mock/scenarios/spotify_auth_unavailable/activate").json()
+        device = client.post("/api/v1/mock/scenarios/device_connectivity_degraded/activate").json()
+
+    for body in (offline, spotify, device):
+        assert body["appPhase"] == "degraded"
+        assert body["capabilities"]["canOpenSettings"] is True
+        assert body["surfaces"]["current"] == "settings"
+        assert any(action["kind"] == "reset_app" for action in body["recoveryActions"])
+        assert body["capabilities"]["canStartPlayback"] is False
+
+    assert any(action["kind"] == "connect_wifi" for action in offline["recoveryActions"])
+    assert any(action["kind"] == "start_spotify_auth" for action in spotify["recoveryActions"])
+    assert any(action["kind"] == "reconnect_speaker" for action in device["recoveryActions"])
 
 
 def test_activating_mock_scenario_updates_app_state(tmp_path):

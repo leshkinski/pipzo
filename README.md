@@ -109,6 +109,8 @@ The SQLite DB and token key are a pair for backup and restore. Back up both toge
 
 The React Setup and Settings surfaces expose local-device controls to start authorization, open/continue the local Chromium flow, poll status, cancel pending setup, and logout/reconnect an account using only safe session/account metadata. The backend has an explicit refresh helper for startup/pre-call integration: it uses the stored refresh token plus `client_id`, keeps the existing refresh token when Spotify omits a replacement, updates safe auth metadata, and maps network/revoked/key failures to safe `health.spotifyAuth` state. Phone QR/relay OAuth remains follow-on work.
 
+Degraded runtime mode keeps Settings, Wi-Fi recovery, Bluetooth speaker recovery, and app reset reachable after setup when internet, Spotify auth, or the playback device is unavailable. Library browsing and playback controls are blocked honestly in those states, and Pipzo does not offer or imply offline music playback.
+
 The kiosk frontend loads Spotify's Web Playback SDK once when it is connected to the backend and Spotify auth is ready, registers the browser player as `Pipzo`, surfaces SDK readiness/device ID/error/transfer state in Now Playing and Settings, and requests backend playback transfer when Spotify reports the SDK device as ready. The backend exposes `GET /api/v1/spotify/playback/token` for the SDK's short-lived access-token callback; it refreshes access backend-side when needed and never returns refresh tokens, PKCE data, encryption key material, or raw token responses. Hardware-mode playback transfer and play/pause/next/previous controls call Spotify Web API through the backend token boundary. Mock/local modes remain usable without a live Spotify account.
 
 This SDK slice registers and selects the browser playback device only. Bluetooth speaker pairing/output and full audio validation are separate V1 platform work.
@@ -134,7 +136,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. When the backend is running in `PIPZO_MODE=mock`, Vite proxies `/api` to `http://127.0.0.1:8000` and the developer mock panel activates backend scenarios or adjusts mock display brightness/status. If the backend is not running, the UI falls back to checked-in local scenarios for first boot, ready, degraded, speaker disconnected, Wi-Fi local only, volume out of sync, boot probe delayed, idle clock, idle with artwork, and dimmed bedtime.
+Open `http://127.0.0.1:5173`. When the backend is running in `PIPZO_MODE=mock`, Vite proxies `/api` to `http://127.0.0.1:8000` and the developer mock panel activates backend scenarios or adjusts mock display brightness/status. If the backend is not running, the UI falls back to checked-in local scenarios for first boot, ready, degraded recovery, offline settings mode, Spotify auth unavailable, device connectivity degraded, speaker disconnected, Wi-Fi local only, volume out of sync, boot probe delayed, idle clock, idle with artwork, and dimmed bedtime.
 
 Frontend validation:
 

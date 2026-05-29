@@ -219,6 +219,7 @@ def _degraded_recovery() -> AppSnapshot:
     snap.capabilities.can_browse = False
     snap.capabilities.can_search = False
     snap.capabilities.can_start_playback = False
+    snap.capabilities.can_control_playback = False
     snap.recovery_actions = [
         RecoveryAction(
             id="retry-internet-probe",
@@ -229,6 +230,115 @@ def _degraded_recovery() -> AppSnapshot:
         )
     ]
     snap.staleness = StalenessState(is_stale=True, stale_since=utc_now(), reason="network_offline")
+    return snap
+
+
+def _offline_settings_mode() -> AppSnapshot:
+    snap = _degraded_recovery()
+    snap.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings/network", return_surface=SurfaceId.HOME, idle_mode=IdleMode.CLOCK)
+    snap.warnings = [
+        Warning(code=WarningCode.NETWORK_OFFLINE, reason=NetworkReason.NO_KNOWN_NETWORK, surface=SurfaceId.SETTINGS, action="connect_wifi"),
+        Warning(code=WarningCode.STALE_CONTENT, reason=PlaybackDeviceReason.NETWORK_UNAVAILABLE, surface=SurfaceId.HOME),
+        Warning(code=WarningCode.PLAYBACK_DEVICE_UNAVAILABLE, reason=PlaybackDeviceReason.NETWORK_UNAVAILABLE, surface=SurfaceId.NOW_PLAYING),
+    ]
+    snap.recovery_actions = [
+        RecoveryAction(
+            id="connect-wifi",
+            kind=RecoveryActionKind.CONNECT_WIFI,
+            state=RecoveryActionState.AVAILABLE,
+            reason=NetworkReason.NO_KNOWN_NETWORK,
+            requires_confirmation=False,
+        ),
+        RecoveryAction(
+            id="reconnect-speaker",
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
+            state=RecoveryActionState.AVAILABLE,
+            requires_confirmation=False,
+        ),
+        RecoveryAction(
+            id="reset-app",
+            kind=RecoveryActionKind.RESET_APP,
+            state=RecoveryActionState.CONFIRM_REQUIRED,
+            requires_confirmation=True,
+        ),
+    ]
+    return snap
+
+
+def _spotify_auth_unavailable() -> AppSnapshot:
+    snap = _base_snapshot()
+    snap.app_phase = AppPhase.DEGRADED
+    snap.health.spotify_auth = SpotifyAuthHealth(
+        status=SpotifyAuthStatus.RECONNECT_REQUIRED,
+        reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
+    )
+    snap.health.playback_device = PlaybackDeviceHealth(
+        status=PlaybackDeviceStatus.UNAVAILABLE,
+        reason=PlaybackDeviceReason.AUTH_REQUIRED,
+    )
+    snap.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings/spotify", return_surface=SurfaceId.HOME, idle_mode=IdleMode.CLOCK)
+    snap.readiness.spotify_authorized = False
+    snap.readiness.minimum_ready = False
+    snap.warnings = [
+        Warning(code=WarningCode.SPOTIFY_RECONNECT_REQUIRED, reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED, surface=SurfaceId.SETTINGS, action="spotify_reconnect"),
+        Warning(code=WarningCode.PLAYBACK_DEVICE_UNAVAILABLE, reason=PlaybackDeviceReason.AUTH_REQUIRED, surface=SurfaceId.NOW_PLAYING),
+    ]
+    snap.capabilities.can_browse = False
+    snap.capabilities.can_search = False
+    snap.capabilities.can_start_playback = False
+    snap.capabilities.can_control_playback = False
+    snap.recovery_actions = [
+        RecoveryAction(
+            id="start-spotify-auth",
+            kind=RecoveryActionKind.START_SPOTIFY_AUTH,
+            state=RecoveryActionState.AVAILABLE,
+            reason=SpotifyAuthReason.TOKEN_REFRESH_FAILED,
+            requires_confirmation=False,
+        ),
+        RecoveryAction(
+            id="reset-app",
+            kind=RecoveryActionKind.RESET_APP,
+            state=RecoveryActionState.CONFIRM_REQUIRED,
+            requires_confirmation=True,
+        ),
+    ]
+    snap.staleness = StalenessState(is_stale=True, stale_since=utc_now(), reason="spotify_reconnect_required")
+    return snap
+
+
+def _device_connectivity_degraded() -> AppSnapshot:
+    snap = _speaker_saved_disconnected()
+    snap.app_phase = AppPhase.DEGRADED
+    snap.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings/speaker", return_surface=SurfaceId.NOW_PLAYING, idle_mode=IdleMode.CLOCK)
+    snap.capabilities.can_browse = True
+    snap.capabilities.can_search = True
+    snap.capabilities.can_control_volume = False
+    snap.warnings = [
+        Warning(code=WarningCode.SPEAKER_DISCONNECTED, reason=SpeakerReason.DEVICE_OUT_OF_RANGE, surface=SurfaceId.SETTINGS, action="reconnect_speaker"),
+        Warning(code=WarningCode.PLAYBACK_DEVICE_UNAVAILABLE, reason=PlaybackDeviceReason.SPEAKER_UNAVAILABLE, surface=SurfaceId.NOW_PLAYING),
+    ]
+    snap.recovery_actions = [
+        RecoveryAction(
+            id="reconnect-speaker",
+            kind=RecoveryActionKind.RECONNECT_SPEAKER,
+            state=RecoveryActionState.AVAILABLE,
+            reason=SpeakerReason.DEVICE_OUT_OF_RANGE,
+            requires_confirmation=False,
+        ),
+        RecoveryAction(
+            id="forget-speaker",
+            kind=RecoveryActionKind.FORGET_SPEAKER,
+            state=RecoveryActionState.CONFIRM_REQUIRED,
+            reason=SpeakerReason.DEVICE_OUT_OF_RANGE,
+            requires_confirmation=True,
+        ),
+        RecoveryAction(
+            id="reset-app",
+            kind=RecoveryActionKind.RESET_APP,
+            state=RecoveryActionState.CONFIRM_REQUIRED,
+            requires_confirmation=True,
+        ),
+    ]
     return snap
 
 
@@ -337,6 +447,9 @@ SCENARIO_FACTORIES: Dict[str, Callable[[], AppSnapshot]] = {
     "first_boot_empty": _first_boot_empty,
     "ready_healthy": _base_snapshot,
     "degraded_recovery": _degraded_recovery,
+    "offline_settings_mode": _offline_settings_mode,
+    "spotify_auth_unavailable": _spotify_auth_unavailable,
+    "device_connectivity_degraded": _device_connectivity_degraded,
     "speaker_saved_disconnected": _speaker_saved_disconnected,
     "wifi_local_only": _wifi_local_only,
     "volume_out_of_sync": _volume_out_of_sync,
@@ -351,6 +464,9 @@ SCENARIO_LABELS: Dict[str, str] = {
     "first_boot_empty": "First boot empty",
     "ready_healthy": "Ready and healthy",
     "degraded_recovery": "Degraded recovery",
+    "offline_settings_mode": "Offline settings mode",
+    "spotify_auth_unavailable": "Spotify auth unavailable",
+    "device_connectivity_degraded": "Device connectivity degraded",
     "speaker_saved_disconnected": "Saved speaker disconnected",
     "wifi_local_only": "Wi-Fi local only",
     "volume_out_of_sync": "Volume out of sync",
@@ -365,6 +481,9 @@ SCENARIO_DESCRIPTIONS: Dict[str, str] = {
     "first_boot_empty": "No Wi-Fi, Spotify session, speaker, or playback test readiness exists yet.",
     "ready_healthy": "Setup is complete and all core adapters are healthy.",
     "degraded_recovery": "Setup was completed earlier, but network loss blocks playback and browse.",
+    "offline_settings_mode": "Internet is unavailable, but Settings, Wi-Fi, Bluetooth, and reset recovery stay reachable.",
+    "spotify_auth_unavailable": "Spotify auth needs reconnect while local device settings remain usable.",
+    "device_connectivity_degraded": "The network and Spotify are available, but the saved Bluetooth speaker is disconnected.",
     "speaker_saved_disconnected": "A primary speaker is saved but currently not connected.",
     "wifi_local_only": "The Pi is connected to Wi-Fi without internet reachability.",
     "volume_out_of_sync": "Spotify and OS/Bluetooth volume readback disagree.",

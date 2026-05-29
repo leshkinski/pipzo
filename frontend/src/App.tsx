@@ -34,6 +34,7 @@ import {
 } from "./spotifyWebPlayback";
 import {
   canOpenSurface,
+  degradedModeViewModel,
   formatMs,
   idlePresentation,
   isSetupGated,
@@ -226,6 +227,7 @@ export function App() {
   const gated = isSetupGated(snapshot);
   const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
   const visibleWarnings = snapshot.warnings;
+  const degradedMode = degradedModeViewModel(snapshot);
   const spotifyPlaybackGate = useMemo(() => spotifySdkGate(snapshot, dataSource, backendMode ?? undefined), [snapshot, dataSource, backendMode]);
   const currentScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
@@ -805,6 +807,15 @@ export function App() {
         </section>
       )}
 
+      {degradedMode.active && !gated && (
+        <DegradedModeBanner
+          available={degradedMode.available}
+          detail={degradedMode.detail}
+          title={degradedMode.title}
+          unavailable={degradedMode.unavailable}
+        />
+      )}
+
       <main className="shell">
         <nav className="nav" aria-label="Primary">
           {primarySurfaces.map((surface) => {
@@ -854,6 +865,38 @@ export function App() {
         </>
       )}
     </div>
+  );
+}
+
+function DegradedModeBanner({
+  title,
+  detail,
+  available,
+  unavailable,
+}: {
+  title: string;
+  detail: string;
+  available: string[];
+  unavailable: string[];
+}) {
+  return (
+    <section className="degraded-banner" aria-label="Recovery mode">
+      <div>
+        <p className="eyebrow">Degraded mode</p>
+        <h2>{title}</h2>
+        <p>{detail}</p>
+      </div>
+      <div className="degraded-lists">
+        <div>
+          <strong>Available</strong>
+          <span>{available.join(", ")}</span>
+        </div>
+        <div>
+          <strong>Unavailable</strong>
+          <span>{unavailable.length > 0 ? unavailable.join(", ") : "None"}</span>
+        </div>
+      </div>
+    </section>
   );
 }
 
