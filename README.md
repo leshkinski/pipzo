@@ -26,12 +26,15 @@ Private early project scaffold. GitHub Issues are the canonical backlog once the
 ## Repository Layout
 
 ```text
-backend/        Python backend service
-frontend/       React touchscreen UI
-provisioning/   Raspberry Pi OS, systemd, kiosk, Wi-Fi, and Bluetooth setup
+backend/        FastAPI backend, contracts, persistence, auth/session logic, tests
+frontend/       React/Vite/TypeScript kiosk UI, API helpers, view models, tests
+provisioning/   Raspberry Pi OS, systemd, Chromium kiosk, Wi-Fi, Bluetooth setup work
 scripts/        Local developer and maintenance scripts
-docs/           Architecture, setup, product, and runbook docs
+docs/           Architecture, product scope, setup, contribution, and planning docs
+data/           Local generated SQLite/key material; ignored by Git
 ```
+
+See [Contributing](docs/contributing.md) for local setup, validation commands, commit hygiene, issue sync, and documentation conventions.
 
 ## Local Contract API
 
@@ -51,12 +54,13 @@ Configuration is environment-driven:
 - `PIPZO_LOG_LEVEL=debug|info|warning|error|critical`; logs are JSON lines.
 - `SPOTIFY_CLIENT_ID`; public client ID from the Spotify developer app. Do not configure or store a client secret for the PKCE flow.
 - `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/api/v1/spotify/auth/callback`; register this exact local callback in the Spotify dashboard for desktop/Pi Chromium setup.
-- `SPOTIFY_AUTH_URL` and `SPOTIFY_TOKEN_URL`; default to Spotify Accounts authorize/token endpoints.
-- `SPOTIFY_SCOPES`; space-separated scopes requested by the local setup flow.
+- `SPOTIFY_AUTH_URL`, `SPOTIFY_TOKEN_URL`, and `SPOTIFY_SCOPES`; Spotify Accounts endpoints and requested scopes.
 - `SPOTIFY_TOKEN_STORAGE_PROTECTION=local_key_encrypted`; Spotify access and refresh token fields are encrypted before SQLite writes with a local app-managed key.
-- `PIPZO_TOKEN_KEY_PATH=./data/spotify-token.key`; local Fernet key file used for Spotify token encryption. Generated keys are written with `0600` permissions where the OS allows it. On the Pi, keep the parent directory private to the service user, for example owned by the Pipzo user with mode `0700`.
-- `PIPZO_TOKEN_KEY_AUTO_CREATE=true`; when true, the backend creates the token key if it is missing. If false and the key is missing or invalid, stored Spotify auth is treated as unusable and the UI should reconnect Spotify.
+- `PIPZO_TOKEN_KEY_PATH=./data/spotify-token.key`; local Fernet key file used for Spotify token encryption.
+- `PIPZO_TOKEN_KEY_AUTO_CREATE=true`; when true, the backend creates the token key if it is missing.
 - `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
+
+See [Spotify Developer Setup](docs/spotify-developer-setup.md) for app creation, redirect URI rules, scopes, Premium requirement, token-key caveats, and V1 deferred OAuth surfaces.
 
 Startup, request, and mock action logs use structured fields. Request logs include method, path, status, and duration only; they do not log query strings or request bodies, so future Wi-Fi passwords and OAuth secrets are not captured by the skeleton logger. Spotify access tokens, refresh tokens, authorization codes, PKCE verifiers, OAuth state, Authorization headers, and raw Spotify response bodies must remain backend-only and out of APIs, frontend contracts, events, diagnostics, issue comments, and logs.
 
