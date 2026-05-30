@@ -1,3 +1,4 @@
+import logging
 import re
 import shutil
 import subprocess
@@ -45,6 +46,8 @@ class DeviceInspection:
 
 
 BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], BluetoothCommandResult]
+
+logger = logging.getLogger("pipzo.bluez")
 
 MAC_RE = re.compile(r"(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})", re.IGNORECASE)
 MAC_EXACT_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", re.IGNORECASE)
@@ -139,12 +142,15 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         return SpeakerReason.CONNECT_FAILED
     if "inprogress" in text or "in progress" in text or "operation already in progress" in text or "discovery" in text:
         return SpeakerReason.PAIR_TIMEOUT
-    if "authentication" in text or "rejected" in text or "not authorized" in text or "cancel" in text:
+    if "authenticationtimeout" in text:
+        return SpeakerReason.PAIR_TIMEOUT
+    if "authentication" in text or "authenticationfailed" in text or "rejected" in text or "not authorized" in text or "cancel" in text:
         return SpeakerReason.PAIR_REJECTED
     if "timeout" in text or "timed out" in text:
         return SpeakerReason.PAIR_TIMEOUT
     if (
         "br-connection" in text
+        or "connectionattemptfailed" in text
         or "failed to connect" in text
         or "connection failed" in text
         or "input/output error" in text
@@ -374,8 +380,23 @@ class BluetoothctlAdapter:
                 raise BlueZCommandError(SpeakerReason.BLUETOOTH_DISABLED, result.stdout)
 
     def _run_script(self, commands: Iterable[str], timeout_seconds: int) -> BluetoothCommandResult:
-        input_text = "\n".join(commands) + "\n"
-        return self._runner([self._bluetoothctl()], timeout_seconds, input_text)
+        command_list = list(commands)
+        input_text = "\n".join(command_list) + "\n"
+        result = self._runner([self._bluetoothctl()], timeout_seconds, input_text)
+        if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
+            logger.warning(
+                "bluetoothctl command failed",
+                extra={
+                    "details": {
+                        "commands": command_list,
+                        "returncode": result.returncode,
+                        "reason": map_bluetoothctl_failure(result.stderr, result.stdout).value,
+                        "stdout": _truncate_log_text(result.stdout),
+                        "stderr": _truncate_log_text(result.stderr),
+                    }
+                },
+            )
+        return result
 
     def _stop_discovery(self) -> None:
         result = self._run_script(["scan off"], timeout_seconds=self._discovery_cleanup_timeout_seconds)
@@ -428,6 +449,13 @@ def _has_failed_output(stdout: str, stderr: str) -> bool:
 def _already_paired_output(stdout: str, stderr: str) -> bool:
     text = f"{stdout}\n{stderr}".lower()
     return "alreadyexists" in text or "already exists" in text or "already paired" in text or "device already exists" in text
+
+
+def _truncate_log_text(value: str, limit: int = 600) -> str:
+    compact = value.strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."
 
 
 def _normalize_address(address: str) -> str:

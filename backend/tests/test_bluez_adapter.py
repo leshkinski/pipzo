@@ -1,6 +1,7 @@
 from pipzo_api.adapters.bluez import (
     BluetoothCommandResult,
     BluetoothctlAdapter,
+    logger as bluez_logger,
     info_looks_like_audio_device,
     map_bluetoothctl_failure,
     parse_device_lines,
@@ -75,6 +76,8 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("connect error: Input/output error") == SpeakerReason.CONNECT_FAILED
     assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.Failed") == SpeakerReason.PAIR_REJECTED
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.ConnectionAttemptFailed") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.AuthenticationTimeout") == SpeakerReason.PAIR_TIMEOUT
 
 
 def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
@@ -338,6 +341,63 @@ def test_adapter_pair_connects_already_paired_replacement_device(tmp_path):
     assert not any(call[2] == "pair 11:22:33:44:55:66\n" for call in calls)
     assert (["/usr/bin/bluetoothctl"], 30, "trust 11:22:33:44:55:66\n") in calls
     assert (["/usr/bin/bluetoothctl"], 30, "connect 11:22:33:44:55:66\n") in calls
+
+
+def test_adapter_pair_attempts_audio_icon_device_without_prepair_audio_uuid_and_logs_failure(tmp_path, monkeypatch):
+    calls = []
+    logs = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 20:64:DE:30:D6:F2 (public)",
+                        "\tName: SRS-XE300",
+                        "\tAlias: SRS-XE300",
+                        "\tIcon: audio-card",
+                        "\tPaired: no",
+                        "\tBonded: no",
+                        "\tTrusted: no",
+                        "\tConnected: no",
+                        "\tUUID: Vendor specific           (fa349b5f-8050-0030-0010-00001bbb231d)",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "pair 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                0,
+                "Attempting to pair with 20:64:DE:30:D6:F2\nFailed to pair: org.bluez.Error.ConnectionAttemptFailed\n",
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-srs-pair-failure.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+    monkeypatch.setattr(bluez_logger, "warning", lambda message, extra=None: logs.append((message, extra or {})))
+
+    action = adapter.pair("20:64:DE:30:D6:F2", "SRS-XE300")
+
+    assert action.state == "failed"
+    assert action.reason == SpeakerReason.CONNECT_FAILED
+    assert store.get_primary() is None
+    assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") in calls
+    assert any(
+        message == "bluetoothctl command failed"
+        and extra["details"]["commands"] == ["pair 20:64:DE:30:D6:F2"]
+        and extra["details"]["reason"] == SpeakerReason.CONNECT_FAILED.value
+        and "ConnectionAttemptFailed" in extra["details"]["stdout"]
+        for message, extra in logs
+    )
 
 
 def test_adapter_forget_clears_saved_primary_when_bluez_already_removed_device(tmp_path):
