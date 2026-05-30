@@ -540,7 +540,10 @@ button:disabled {
 .art-panel {
   display: grid;
   place-items: center;
-  min-height: 430px;
+  align-self: start;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
   background: linear-gradient(135deg, #2f6f73, #a8c66c 54%, #f0b35a);
   overflow: hidden;
 }

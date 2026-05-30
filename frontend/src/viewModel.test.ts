@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+// @ts-expect-error Node types are intentionally not part of the browser app tsconfig.
+import { readFileSync } from "node:fs";
 import { localScenarios } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
 import {
@@ -11,6 +13,7 @@ import {
   idlePresentation,
   isSetupGated,
   libraryAvailability,
+  nowPlayingEmptyState,
   preferredSurface,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
@@ -287,6 +290,31 @@ describe("kiosk shell view model", () => {
       shouldStop: true,
       action: "stop",
       deviceId: "pipzo-web-player",
+    });
+  });
+
+  it("keeps now-playing artwork panels square in CSS", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const artPanelRule = css.match(/\.art-panel\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(artPanelRule).toContain("aspect-ratio: 1 / 1");
+    expect(artPanelRule).toContain("min-height: 0");
+  });
+
+  it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      nowPlaying: null,
+      diagnostics: {
+        ...localScenarios.ready_healthy.snapshot.diagnostics,
+        lastCommand: "spotify.current_playback",
+        rawAdapterCode: "device_mismatch:stored=old:active=new",
+      },
+    };
+
+    expect(nowPlayingEmptyState(snapshot)).toEqual({
+      title: "Playback is on another Spotify device",
+      detail: "device_mismatch:stored=old:active=new",
     });
   });
 });

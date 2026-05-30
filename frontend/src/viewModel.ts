@@ -32,6 +32,51 @@ export type SleepTimerExpiryCommand = {
   blockedReason?: string;
 };
 
+export type NowPlayingEmptyState = {
+  title: string;
+  detail: string;
+};
+
+export function nowPlayingEmptyState(snapshot: AppSnapshot): NowPlayingEmptyState {
+  if (snapshot.nowPlaying) {
+    return {
+      title: snapshot.nowPlaying.title,
+      detail: `${snapshot.nowPlaying.artist}${snapshot.nowPlaying.album ? ` / ${snapshot.nowPlaying.album}` : ""}`,
+    };
+  }
+  if (snapshot.health.playbackDevice.reason === "spotify_api_error") {
+    return {
+      title: "Playback state unavailable",
+      detail: "Spotify did not return current track details. Open Settings if this persists.",
+    };
+  }
+  if (snapshot.diagnostics.lastCommand === "spotify.current_playback") {
+    const code = snapshot.diagnostics.rawAdapterCode ?? "unknown";
+    if (code.startsWith("device_mismatch:")) {
+      return {
+        title: "Playback is on another Spotify device",
+        detail: code,
+      };
+    }
+    if (code === "empty_response") {
+      return {
+        title: "No current track from Spotify",
+        detail: "Pipzo is ready, but Spotify returned no active playback payload.",
+      };
+    }
+    if (code.startsWith("unsupported_payload:")) {
+      return {
+        title: "Current Spotify item is not a track",
+        detail: code,
+      };
+    }
+  }
+  return {
+    title: "Nothing playing",
+    detail: "Choose music from Home or Browse when playback is available.",
+  };
+}
+
 export function isSetupGated(snapshot: AppSnapshot): boolean {
   if (snapshot.appPhase === "setup") {
     return true;

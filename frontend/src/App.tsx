@@ -48,6 +48,7 @@ import {
   isSetupGated,
   labelFromId,
   libraryAvailability,
+  nowPlayingEmptyState,
   preferredSurface,
   primarySurfaces,
   shouldEnterIdleMode,
@@ -1567,7 +1568,7 @@ function NowPlayingSurface({
   const displayedProgressMs = currentProgressMs(playing, nowMs);
   const progress = playing?.durationMs ? Math.min(100, (displayedProgressMs / playing.durationMs) * 100) : 0;
   const canSendControls = snapshot.capabilities.canControlPlayback && (spotifySdk.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId));
-  const unknownState = !playing && snapshot.health.playbackDevice.reason === "spotify_api_error";
+  const emptyState = nowPlayingEmptyState(snapshot);
   return (
     <div className="surface-grid">
       <section className="art-panel" aria-label="Artwork placeholder">
@@ -1575,8 +1576,8 @@ function NowPlayingSurface({
       </section>
       <section className="player-panel">
         <p className="eyebrow">Now Playing</p>
-        <h1>{playing?.title ?? (unknownState ? "Playback state unavailable" : "Nothing playing")}</h1>
-        <p>{playing ? `${playing.artist}${playing.album ? ` / ${playing.album}` : ""}` : unknownState ? "Pipzo is ready, but Spotify did not return current track details yet." : "Choose music from Home or Browse when playback is available."}</p>
+        <h1>{emptyState.title}</h1>
+        <p>{emptyState.detail}</p>
         <div className="progress"><span style={{ width: `${progress}%` }} /></div>
         <div className="time-row">
           <span>{formatMs(displayedProgressMs)}</span>

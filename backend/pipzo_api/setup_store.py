@@ -44,6 +44,23 @@ class SetupStateStore:
             connection.commit()
         return StoredSetupState(playback_test_passed=True, playback_device_id=device_id)
 
+    def store_playback_device_id(self, device_id: str) -> StoredSetupState:
+        initialize_database(self._db_path)
+        current = self.get_state()
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute(
+                """
+                insert into setup_state (id, playback_test_passed, playback_device_id)
+                values (1, ?, ?)
+                on conflict(id) do update set
+                    playback_device_id = excluded.playback_device_id,
+                    updated_at = current_timestamp
+                """,
+                (1 if current.playback_test_passed else 0, device_id),
+            )
+            connection.commit()
+        return StoredSetupState(playback_test_passed=current.playback_test_passed, playback_device_id=device_id)
+
     def clear_playback_test(self) -> None:
         initialize_database(self._db_path)
         with sqlite3.connect(self._db_path) as connection:

@@ -984,6 +984,95 @@ def test_hardware_state_projects_current_pipzo_playback_metadata(tmp_path):
             "access_token": "stored-access-token",
         }
     ]
+    assert body["diagnostics"]["lastCommand"] == "spotify.current_playback"
+    assert body["diagnostics"]["rawAdapterCode"] == "ok:device=pipzo-sdk-device"
+
+
+def test_hardware_transfer_updates_stored_playback_device_for_current_metadata(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-now-playing-device-refresh.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    from pipzo_api.setup_store import SetupStateStore
+
+    SetupStateStore(settings.db_path).mark_playback_test_passed("stale-sdk-device")
+    spotify_client = FakeSpotifyPlaybackClient(
+        current_playback={
+            "device": {"id": "fresh-sdk-device", "name": "Pipzo"},
+            "is_playing": True,
+            "progress_ms": 1000,
+            "currently_playing_type": "track",
+            "item": {
+                "name": "Fresh Device Song",
+                "duration_ms": 120000,
+                "artists": [{"name": "Fresh Artist"}],
+                "album": {"name": "Fresh Album", "images": [{"url": "https://i.scdn.co/image/fresh"}]},
+            },
+        }
+    )
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        transfer = client.post("/api/v1/spotify/playback/transfer", json={"deviceId": "fresh-sdk-device", "play": False})
+        state_response = client.get("/api/v1/app/state")
+
+    assert transfer.status_code == 200
+    assert transfer.json()["state"] == "succeeded"
+    state = state_response.json()
+    assert state["health"]["playbackDevice"]["deviceId"] == "fresh-sdk-device"
+    assert state["nowPlaying"]["title"] == "Fresh Device Song"
+    assert spotify_client.transfer_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "stored-access-token",
+            "device_id": "fresh-sdk-device",
+            "play": False,
+        }
+    ]
+
+
+def test_hardware_state_exposes_current_playback_device_mismatch_diagnostic(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-now-playing-mismatch.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    from pipzo_api.setup_store import SetupStateStore
+
+    SetupStateStore(settings.db_path).mark_playback_test_passed("stored-sdk-device")
+    spotify_client = FakeSpotifyPlaybackClient(
+        current_playback={
+            "device": {"id": "other-device", "name": "Phone"},
+            "is_playing": True,
+            "currently_playing_type": "track",
+            "item": {"name": "Phone Song", "artists": [], "album": {}},
+        }
+    )
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        response = client.get("/api/v1/app/state")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["nowPlaying"] is None
+    assert body["diagnostics"]["lastCommand"] == "spotify.current_playback"
+    assert body["diagnostics"]["rawAdapterCode"] == "device_mismatch:stored=stored-sdk-device:active=other-device"
 
 
 def test_hardware_library_play_success_marks_playback_test_passed_with_real_device(tmp_path):

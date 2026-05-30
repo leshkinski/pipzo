@@ -582,6 +582,8 @@ def create_app(
             )
         else:
             result = transfer_spotify_playback(settings, spotify_client, body)
+            if result.state == RecoveryActionState.SUCCEEDED:
+                SetupStateStore(settings.db_path).store_playback_device_id(body.device_id)
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
         return result
 
@@ -948,6 +950,7 @@ def project_now_playing(settings: Settings, spotify_client: Optional[SpotifyClie
         )
     except (HTTPException, SpotifyPlaybackApiError):
         snapshot.health.playback_device.reason = PlaybackDeviceReason.SPOTIFY_API_ERROR
+        mark_current_playback_diagnostic(snapshot, "spotify_api_error")
         append_warning_once(
             snapshot,
             Warning(
@@ -961,20 +964,33 @@ def project_now_playing(settings: Settings, spotify_client: Optional[SpotifyClie
 
     if not payload:
         snapshot.now_playing = None
+        mark_current_playback_diagnostic(snapshot, "empty_response")
         return
 
     device = payload.get("device") if isinstance(payload.get("device"), dict) else {}
     active_device_id = str(device.get("id") or "")
     if active_device_id and active_device_id != target_device_id:
         snapshot.now_playing = None
+        mark_current_playback_diagnostic(
+            snapshot,
+            f"device_mismatch:stored={target_device_id}:active={active_device_id}",
+        )
         return
 
     item = payload.get("item") if isinstance(payload.get("item"), dict) else None
     if item is None or payload.get("currently_playing_type") not in {None, "track"}:
         snapshot.now_playing = None
+        playing_type = str(payload.get("currently_playing_type") or "missing_item")
+        mark_current_playback_diagnostic(snapshot, f"unsupported_payload:{playing_type}")
         return
 
     snapshot.now_playing = now_playing_from_spotify_payload(payload, item)
+    mark_current_playback_diagnostic(snapshot, f"ok:device={active_device_id or 'unknown'}")
+
+
+def mark_current_playback_diagnostic(snapshot: AppSnapshot, code: str) -> None:
+    snapshot.diagnostics.last_command = "spotify.current_playback"
+    snapshot.diagnostics.raw_adapter_code = code
 
 
 def now_playing_from_spotify_payload(payload: dict, item: dict) -> NowPlayingSummary:
