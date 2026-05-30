@@ -50,18 +50,33 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("No default controller available") == SpeakerReason.ADAPTER_UNAVAILABLE
     assert map_bluetoothctl_failure("Authentication Failed") == SpeakerReason.PAIR_REJECTED
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed br-connection-profile-unavailable") == SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
+    assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.AlreadyExists") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to start discovery: org.bluez.Error.InProgress") == SpeakerReason.PAIR_TIMEOUT
 
 
-def test_adapter_pair_uses_safe_script_and_persists_primary(tmp_path):
+def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
     calls = []
+    device_state = {"paired": False, "trusted": False, "connected": False}
 
     def runner(argv, timeout_seconds, input_text=None):
         calls.append((list(argv), timeout_seconds, input_text))
         if input_text == "show\n":
             return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
-        if input_text and "pair AA:BB:CC:DD:EE:FF" in input_text:
-            return BluetoothCommandResult(0, "Pairing successful\nConnection successful\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "pair AA:BB:CC:DD:EE:FF\n":
+            device_state["paired"] = True
+            return BluetoothCommandResult(0, "Pairing successful\n", "")
+        if input_text == "trust AA:BB:CC:DD:EE:FF\n":
+            device_state["trusted"] = True
+            return BluetoothCommandResult(0, "Changing AA:BB:CC:DD:EE:FF trust succeeded\n", "")
+        if input_text == "connect AA:BB:CC:DD:EE:FF\n":
+            device_state["connected"] = True
+            return BluetoothCommandResult(0, "Connection successful\n", "")
         if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            if not device_state["paired"]:
+                return BluetoothCommandResult(1, "", "Device AA:BB:CC:DD:EE:FF not available\n")
             return BluetoothCommandResult(
                 0,
                 "\n".join(
@@ -69,9 +84,9 @@ def test_adapter_pair_uses_safe_script_and_persists_primary(tmp_path):
                         "Device AA:BB:CC:DD:EE:FF",
                         "\tName: Pipzo Speaker",
                         "\tAlias: Bedroom speaker",
-                        "\tPaired: yes",
-                        "\tTrusted: yes",
-                        "\tConnected: yes",
+                        f"\tPaired: {'yes' if device_state['paired'] else 'no'}",
+                        f"\tTrusted: {'yes' if device_state['trusted'] else 'no'}",
+                        f"\tConnected: {'yes' if device_state['connected'] else 'no'}",
                         "\tUUID: Audio Sink",
                     ]
                 ),
@@ -89,9 +104,50 @@ def test_adapter_pair_uses_safe_script_and_persists_primary(tmp_path):
     assert status.status == "connected"
     assert status.primary is not None
     assert status.primary.display_name == "Pipzo Speaker"
-    pair_call = next(call for call in calls if call[2] and "pair AA:BB:CC:DD:EE:FF" in call[2])
-    assert pair_call[0] == ["/usr/bin/bluetoothctl"]
-    assert "trust AA:BB:CC:DD:EE:FF" in pair_call[2]
+    assert (["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n") in calls
+    pair_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n"))
+    trust_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n"))
+    connect_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n"))
+    assert pair_call_index < trust_call_index < connect_call_index
+
+
+def test_adapter_pair_adopts_already_connected_audio_device(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device AA:BB:CC:DD:EE:FF",
+                        "\tName: Pipzo Speaker",
+                        "\tAlias: Bedroom speaker",
+                        "\tPaired: yes",
+                        "\tBonded: yes",
+                        "\tTrusted: yes",
+                        "\tConnected: yes",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-adopt.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("aa:bb:cc:dd:ee:ff")
+
+    assert action.state == "succeeded"
+    assert store.get_primary() is not None
+    assert store.get_primary().address == "AA:BB:CC:DD:EE:FF"
+    assert not any(call[2] == "pair AA:BB:CC:DD:EE:FF\n" for call in calls)
 
 
 def test_adapter_reports_pair_failure_without_saving_primary(tmp_path):

@@ -37,9 +37,16 @@ class BluetoothCommandResult:
     stderr: str
 
 
+@dataclass(frozen=True)
+class DeviceInspection:
+    device: SpeakerDevice
+    has_audio_profile: bool
+
+
 BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], BluetoothCommandResult]
 
 MAC_RE = re.compile(r"(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})", re.IGNORECASE)
+MAC_EXACT_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", re.IGNORECASE)
 AUDIO_UUID_MARKERS = ("audio sink", "advanced audio distribution", "a/v remote control", "headset", "handsfree")
 
 
@@ -81,6 +88,8 @@ def parse_info(stdout: str, fallback_address: str, fallback_name: Optional[str] 
             alias = line.split(":", 1)[1].strip() or None
         elif line.startswith("Paired:"):
             paired = _yes_value(line)
+        elif line.startswith("Bonded:") and _yes_value(line):
+            paired = True
         elif line.startswith("Connected:"):
             connected = _yes_value(line)
         elif line.startswith("UUID:") and any(marker in line.lower() for marker in AUDIO_UUID_MARKERS):
@@ -101,11 +110,19 @@ def info_has_audio_profile(stdout: str) -> bool:
 
 def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
     text = f"{stderr}\n{stdout}".lower()
-    if "no default controller" in text or "not available" in text or "no controller" in text:
+    if "no default controller" in text or "no controller" in text or ("controller" in text and "not available" in text):
         return SpeakerReason.ADAPTER_UNAVAILABLE
+    if "not ready" in text:
+        return SpeakerReason.BLUETOOTH_DISABLED
     if "not powered" in text or "powered off" in text or "bluetooth is disabled" in text:
         return SpeakerReason.BLUETOOTH_DISABLED
-    if "authentication" in text or "rejected" in text or "not authorized" in text:
+    if "profile-unavailable" in text or "profile unavailable" in text or "a2dp" in text or "profile" in text:
+        return SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
+    if "alreadyexists" in text or "already exists" in text or "already paired" in text or "device already exists" in text:
+        return SpeakerReason.CONNECT_FAILED
+    if "inprogress" in text or "in progress" in text or "operation already in progress" in text or "discovery" in text:
+        return SpeakerReason.PAIR_TIMEOUT
+    if "authentication" in text or "rejected" in text or "not authorized" in text or "cancel" in text:
         return SpeakerReason.PAIR_REJECTED
     if "timeout" in text or "timed out" in text:
         return SpeakerReason.PAIR_TIMEOUT
@@ -113,8 +130,6 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         return SpeakerReason.CONNECT_FAILED
     if "not available" in text or "not found" in text or "does not exist" in text:
         return SpeakerReason.DEVICE_OUT_OF_RANGE
-    if "profile" in text or "a2dp" in text:
-        return SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
     return SpeakerReason.UNKNOWN
 
 
@@ -181,26 +196,63 @@ class BluetoothctlAdapter:
     def pair(self, address: str, display_name: Optional[str] = None) -> RecoveryAction:
         started_at = utc_now()
         self._ensure_powered()
-        address = address.upper()
-        result = self._run_script(
-            [
-                "agent NoInputNoOutput",
-                "default-agent",
-                f"pair {address}",
-                f"trust {address}",
-                f"connect {address}",
-            ],
-            timeout_seconds=self._command_timeout_seconds,
-        )
-        if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
-            return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, map_bluetoothctl_failure(result.stderr, result.stdout))
+        address = _normalize_address(address)
+        inspection = self._inspect_device(address, display_name, allow_missing=True)
+        if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
+            self._save_primary(address, inspection.device, connected=True)
+            return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
+
+        agent_result = self._run_script(["agent NoInputNoOutput", "default-agent"], timeout_seconds=self._command_timeout_seconds)
+        if agent_result.returncode != 0 or _has_failed_output(agent_result.stdout, agent_result.stderr):
+            return self._action(
+                "speaker-pair",
+                RecoveryActionState.FAILED,
+                started_at,
+                map_bluetoothctl_failure(agent_result.stderr, agent_result.stdout),
+            )
+
+        if inspection is None or not inspection.device.paired:
+            pair_result = self._run_script([f"pair {address}"], timeout_seconds=self._command_timeout_seconds)
+            if pair_result.returncode != 0 or _has_failed_output(pair_result.stdout, pair_result.stderr):
+                reason = map_bluetoothctl_failure(pair_result.stderr, pair_result.stdout)
+                if not _already_paired_output(pair_result.stdout, pair_result.stderr):
+                    return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
+
+        inspection = self._inspect_device(address, display_name, allow_missing=False)
+        if inspection is None or not inspection.device.paired:
+            return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.PAIR_REJECTED)
+
+        trust_result = self._run_script([f"trust {address}"], timeout_seconds=self._command_timeout_seconds)
+        if trust_result.returncode != 0 or _has_failed_output(trust_result.stdout, trust_result.stderr):
+            return self._action(
+                "speaker-pair",
+                RecoveryActionState.FAILED,
+                started_at,
+                map_bluetoothctl_failure(trust_result.stderr, trust_result.stdout),
+            )
+
+        inspection = self._inspect_device(address, display_name, allow_missing=False)
+        if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
+            self._save_primary(address, inspection.device, connected=True)
+            return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
+
+        connect_result = self._run_script([f"connect {address}"], timeout_seconds=self._command_timeout_seconds)
+        if connect_result.returncode != 0 or _has_failed_output(connect_result.stdout, connect_result.stderr):
+            return self._action(
+                "speaker-pair",
+                RecoveryActionState.FAILED,
+                started_at,
+                map_bluetoothctl_failure(connect_result.stderr, connect_result.stdout),
+            )
         try:
-            device = self._device_info(address, display_name)
+            inspection = self._device_inspection(address, display_name)
         except BlueZCommandError as exc:
             return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, exc.reason)
-        if not device.connected:
+        if not inspection.has_audio_profile:
+            return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.AUDIO_PROFILE_UNAVAILABLE)
+        if not inspection.device.connected:
             return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.CONNECT_FAILED)
-        self._store.save_primary(SpeakerSummary(address=address, display_name=device.display_name, alias=device.alias, connected=True))
+        self._save_primary(address, inspection.device, connected=True)
         return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
     def reconnect(self) -> RecoveryAction:
@@ -217,11 +269,12 @@ class BluetoothctlAdapter:
     def forget(self, address: str) -> RecoveryAction:
         started_at = utc_now()
         self._ensure_powered()
-        result = self._run_script([f"remove {address.upper()}"], timeout_seconds=self._command_timeout_seconds)
+        address = _normalize_address(address)
+        result = self._run_script([f"remove {address}"], timeout_seconds=self._command_timeout_seconds)
         if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
             return self._action("speaker-forget", RecoveryActionState.FAILED, started_at, map_bluetoothctl_failure(result.stderr, result.stdout))
         primary = self._store.get_primary()
-        if primary is not None and primary.address.upper() == address.upper():
+        if primary is not None and primary.address.upper() == address:
             self._store.delete_primary()
         return self._action("speaker-forget", RecoveryActionState.SUCCEEDED, started_at)
 
@@ -240,10 +293,22 @@ class BluetoothctlAdapter:
         return _dedupe_devices(devices)
 
     def _device_info(self, address: str, fallback_name: Optional[str] = None) -> SpeakerDevice:
-        result = self._run_script([f"info {address.upper()}"], timeout_seconds=10)
+        return self._device_inspection(address, fallback_name).device
+
+    def _device_inspection(self, address: str, fallback_name: Optional[str] = None) -> DeviceInspection:
+        address = _normalize_address(address)
+        result = self._run_script([f"info {address}"], timeout_seconds=10)
         if result.returncode != 0 or "Device " in result.stderr and "not available" in result.stderr:
             raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
-        return parse_info(result.stdout, address, fallback_name)
+        return DeviceInspection(device=parse_info(result.stdout, address, fallback_name), has_audio_profile=info_has_audio_profile(result.stdout))
+
+    def _inspect_device(self, address: str, fallback_name: Optional[str] = None, allow_missing: bool = False) -> Optional[DeviceInspection]:
+        try:
+            return self._device_inspection(address, fallback_name)
+        except BlueZCommandError as exc:
+            if allow_missing and exc.reason == SpeakerReason.DEVICE_OUT_OF_RANGE:
+                return None
+            raise
 
     def _ensure_powered(self) -> None:
         result = self._run_script(["show"], timeout_seconds=10)
@@ -283,6 +348,11 @@ class BluetoothctlAdapter:
             completed_at=utc_now(),
         )
 
+    def _save_primary(self, address: str, device: SpeakerDevice, connected: bool) -> SpeakerSummary:
+        return self._store.save_primary(
+            SpeakerSummary(address=address, display_name=device.display_name, alias=device.alias, connected=connected)
+        )
+
 
 def _yes_value(line: str) -> bool:
     return line.split(":", 1)[1].strip().lower() in {"yes", "true", "on"}
@@ -290,7 +360,21 @@ def _yes_value(line: str) -> bool:
 
 def _has_failed_output(stdout: str, stderr: str) -> bool:
     text = f"{stdout}\n{stderr}".lower()
-    return "failed" in text or "not available" in text or "not authorized" in text
+    if _already_paired_output(stdout, stderr):
+        return False
+    return "failed" in text or "not available" in text or "not authorized" in text or "not ready" in text
+
+
+def _already_paired_output(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    return "alreadyexists" in text or "already exists" in text or "already paired" in text or "device already exists" in text
+
+
+def _normalize_address(address: str) -> str:
+    normalized = address.strip().upper()
+    if not MAC_EXACT_RE.fullmatch(normalized):
+        raise BlueZCommandError(SpeakerReason.DEVICE_OUT_OF_RANGE, "invalid bluetooth address")
+    return normalized
 
 
 def _dedupe_devices(devices: Iterable[SpeakerDevice]) -> List[SpeakerDevice]:
