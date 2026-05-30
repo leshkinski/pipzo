@@ -39,6 +39,7 @@ import {
   type SpotifyPlayerInstance,
   type SpotifySdkState,
 } from "./spotifyWebPlayback";
+import { useExplicitDragScroll } from "./explicitDragScroll";
 import {
   canOpenSurface,
   canPlayLibraryItem,
@@ -196,8 +197,11 @@ export function App() {
     transferred: false,
   });
   const spotifyPlayerRef = useRef<SpotifyPlayerInstance | null>(null);
+  const appRef = useRef<HTMLDivElement | null>(null);
   const snapshotRefreshInFlightRef = useRef<Promise<AppSnapshot> | null>(null);
   const scheduledSnapshotRefreshIdsRef = useRef<number[]>([]);
+
+  useExplicitDragScroll(appRef);
 
   useEffect(() => {
     let cancelled = false;
@@ -1272,7 +1276,7 @@ export function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div className={appClassName}>
+    <div className={appClassName} data-drag-scroll ref={appRef}>
       {idleActive ? (
         <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} active />
       ) : (
@@ -1340,7 +1344,7 @@ export function App() {
           })}
         </nav>
 
-        <section className="surface" aria-live="polite" data-surface={activeSurface}>
+        <section className="surface" aria-live="polite" data-drag-scroll data-surface={activeSurface}>
           {activeSurface === "setup" && (
             <SetupSurface
               snapshot={snapshot}
@@ -1571,7 +1575,7 @@ function HomeSurface({ snapshot, sleepTimer, library }: { snapshot: AppSnapshot;
           Refresh library
         </button>
       </section>
-      <div className="side-stack">
+      <div className="side-stack" data-drag-scroll>
         <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} compact />
         {homeSections.map((section) => (
           <LibrarySectionPanel
@@ -1622,7 +1626,7 @@ function BrowseSurface({ snapshot, library }: { snapshot: AppSnapshot; library: 
         </form>
         <p className="subtle">{library.message}</p>
       </section>
-      <div className="side-stack">
+      <div className="side-stack" data-drag-scroll>
         <section className="category-tabs" aria-label="Library categories">
           {categories.map((category) => (
             <button
