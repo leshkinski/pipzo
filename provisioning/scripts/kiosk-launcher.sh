@@ -4,6 +4,7 @@ set -euo pipefail
 KIOSK_URL="${PIPZO_KIOSK_URL:-http://127.0.0.1:8000/}"
 PROFILE_PATH="${PIPZO_CHROMIUM_PROFILE:-$HOME/.local/share/pipzo/chromium-profile}"
 CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"
+CHROMIUM_EXTRA_FLAGS="${PIPZO_CHROMIUM_EXTRA_FLAGS:-}"
 
 if [[ "$PROFILE_PATH" != /* ]]; then
   PROFILE_PATH="$HOME/$PROFILE_PATH"
@@ -40,17 +41,25 @@ COMMON_FLAGS=(
   --user-data-dir="$PROFILE_PATH"
 )
 
+EXTRA_FLAGS=()
+if [[ -n "$CHROMIUM_EXTRA_FLAGS" ]]; then
+  # shellcheck disable=SC2206
+  EXTRA_FLAGS=($CHROMIUM_EXTRA_FLAGS)
+fi
+
 case "$CHROMIUM_MODE" in
   app-maximized)
     exec "$CHROMIUM_BIN" \
       --app="$KIOSK_URL" \
       --start-maximized \
-      "${COMMON_FLAGS[@]}"
+      "${COMMON_FLAGS[@]}" \
+      "${EXTRA_FLAGS[@]}"
     ;;
   kiosk)
     exec "$CHROMIUM_BIN" \
       --kiosk "$KIOSK_URL" \
-      "${COMMON_FLAGS[@]}"
+      "${COMMON_FLAGS[@]}" \
+      "${EXTRA_FLAGS[@]}"
     ;;
   *)
     echo "Unsupported PIPZO_CHROMIUM_MODE '$CHROMIUM_MODE'. Use app-maximized or kiosk." >&2

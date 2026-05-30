@@ -43,3 +43,18 @@ def test_kiosk_runtime_defaults_to_true_fullscreen_with_osk_fallback():
     assert "--app=\"$KIOSK_URL\"" in launcher
     assert "documented fallback" in docs
     assert "Squeekboard" in docs
+
+
+def test_kiosk_launcher_supports_opt_in_chromium_diagnostic_flags():
+    launcher = (REPO_ROOT / "provisioning/scripts/kiosk-launcher.sh").read_text()
+    kiosk_env = (REPO_ROOT / "provisioning/env/pipzo-kiosk.env.example").read_text()
+    docs = (REPO_ROOT / "docs/provisioning.md").read_text()
+    probe = (REPO_ROOT / "provisioning/touch-event-probe.html").read_text()
+
+    assert 'CHROMIUM_EXTRA_FLAGS="${PIPZO_CHROMIUM_EXTRA_FLAGS:-}"' in launcher
+    assert 'EXTRA_FLAGS=($CHROMIUM_EXTRA_FLAGS)' in launcher
+    assert '"${EXTRA_FLAGS[@]}"' in launcher
+    assert "PIPZO_CHROMIUM_EXTRA_FLAGS=" in kiosk_env
+    assert "--touch-events=enabled" in docs
+    assert "pointermove" in probe
+    assert "touchmove" in probe

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pipzo touch event probe</title>
+    <style>
+      :root {
+        color: #17211c;
+        background: #f4f1ea;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100dvh;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 34vw);
+        gap: 16px;
+        min-height: 100dvh;
+        padding: 16px;
+      }
+
+      .pane {
+        min-height: 0;
+        border: 1px solid #c9c5bb;
+        border-radius: 8px;
+        background: #fffdf7;
+      }
+
+      .scroll-region {
+        height: calc(100dvh - 32px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .row {
+        min-height: 104px;
+        margin: 12px;
+        padding: 18px;
+        border: 1px solid #c9c5bb;
+        border-radius: 8px;
+        background: #fdf8ea;
+        font-size: 24px;
+      }
+
+      .status {
+        padding: 14px;
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 6px 10px;
+        margin: 0 0 12px;
+      }
+
+      dt {
+        font-weight: 700;
+      }
+
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      pre {
+        height: calc(100dvh - 210px);
+        margin: 0;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-size: 13px;
+      }
+
+      button {
+        min-height: 48px;
+        border: 1px solid #9c9689;
+        border-radius: 8px;
+        background: #2f6f73;
+        color: white;
+        font: inherit;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+
+        .scroll-region {
+          height: 58dvh;
+        }
+
+        pre {
+          height: 22dvh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="scrollRegion" class="pane scroll-region" aria-label="Touch scroll test region">
+        <div class="row">Drag inside this list. Native panning should move the list.</div>
+        <div class="row">The event log should show pointermove or touchmove while your finger moves.</div>
+        <div class="row">If taps work but move counts stay at zero, Chromium is not exposing drag move events to the page.</div>
+        <div class="row">Row 4</div>
+        <div class="row">Row 5</div>
+        <div class="row">Row 6</div>
+        <div class="row">Row 7</div>
+        <div class="row">Row 8</div>
+        <div class="row">Row 9</div>
+        <div class="row">Row 10</div>
+        <div class="row">Row 11</div>
+        <div class="row">Row 12</div>
+      </section>
+      <aside class="pane status">
+        <dl>
+          <dt>Touch points</dt>
+          <dd id="touchPoints"></dd>
+          <dt>Pointer down</dt>
+          <dd id="pointerDown"></dd>
+          <dt>Pointer move</dt>
+          <dd id="pointerMove"></dd>
+          <dt>Touch start</dt>
+          <dd id="touchStart"></dd>
+          <dt>Touch move</dt>
+          <dd id="touchMove"></dd>
+          <dt>Scroll top</dt>
+          <dd id="scrollTop"></dd>
+        </dl>
+        <button id="clearButton" type="button">Clear log</button>
+        <pre id="log" aria-label="Event log"></pre>
+      </aside>
+    </main>
+    <script>
+      const counts = {
+        pointerdown: 0,
+        pointermove: 0,
+        touchstart: 0,
+        touchmove: 0,
+      };
+      const log = document.getElementById("log");
+      const scrollRegion = document.getElementById("scrollRegion");
+
+      function updateSummary() {
+        document.getElementById("touchPoints").textContent = String(navigator.maxTouchPoints ?? "unknown");
+        document.getElementById("pointerDown").textContent = String(counts.pointerdown);
+        document.getElementById("pointerMove").textContent = String(counts.pointermove);
+        document.getElementById("touchStart").textContent = String(counts.touchstart);
+        document.getElementById("touchMove").textContent = String(counts.touchmove);
+        document.getElementById("scrollTop").textContent = String(Math.round(scrollRegion.scrollTop));
+      }
+
+      function write(line) {
+        log.textContent = `${new Date().toISOString()} ${line}\n${log.textContent}`.slice(0, 8000);
+      }
+
+      function describePointer(event) {
+        return `${event.type} pointerType=${event.pointerType} id=${event.pointerId} x=${Math.round(event.clientX)} y=${Math.round(event.clientY)}`;
+      }
+
+      function describeTouch(event) {
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        const position = touch ? `x=${Math.round(touch.clientX)} y=${Math.round(touch.clientY)}` : "no-touch";
+        return `${event.type} touches=${event.touches.length} changed=${event.changedTouches.length} ${position}`;
+      }
+
+      ["pointerdown", "pointermove", "pointerup", "pointercancel"].forEach((type) => {
+        scrollRegion.addEventListener(
+          type,
+          (event) => {
+            if (type in counts) {
+              counts[type] += 1;
+            }
+            write(describePointer(event));
+            updateSummary();
+          },
+          { passive: true },
+        );
+      });
+
+      ["touchstart", "touchmove", "touchend", "touchcancel"].forEach((type) => {
+        scrollRegion.addEventListener(
+          type,
+          (event) => {
+            if (type in counts) {
+              counts[type] += 1;
+            }
+            write(describeTouch(event));
+            updateSummary();
+          },
+          { passive: true },
+        );
+      });
+
+      scrollRegion.addEventListener("scroll", () => {
+        write(`scroll top=${Math.round(scrollRegion.scrollTop)}`);
+        updateSummary();
+      });
+
+      document.getElementById("clearButton").addEventListener("click", () => {
+        Object.keys(counts).forEach((key) => {
+          counts[key] = 0;
+        });
+        log.textContent = "";
+        updateSummary();
+      });
+
+      updateSummary();
+    </script>
+  </body>
+</html>

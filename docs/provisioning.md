@@ -131,6 +131,8 @@ The launcher passes conservative Chromium flags:
 
 `--password-store=basic` keeps the dedicated Pipzo Chromium profile from asking the desktop Secret Service/keyring to unlock before the kiosk is usable. This is intended only for the local kiosk profile; Spotify OAuth tokens remain backend-owned and encrypted in Pipzo storage, and Chromium still handles the local Spotify PKCE web flow and Spotify Web Playback SDK runtime.
 
+`PIPZO_CHROMIUM_EXTRA_FLAGS` is a diagnostic-only escape hatch for Raspberry Pi validation. Leave it empty for normal runtime. Chromium documents command-line switches as temporary controls that may change, so use this only to isolate platform/browser behavior and then remove the flags after testing.
+
 If `/etc/pipzo/kiosk.env` already exists from an older install, rerunning `install-app.sh` preserves that local file. Confirm or change the normal appliance setting explicitly:
 
 ```bash
@@ -147,6 +149,51 @@ If Squeekboard does not appear over true kiosk fullscreen during setup or later 
 
 ```bash
 sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
+systemctl --user restart pipzo-kiosk.service
+```
+
+## Touch Panning Diagnostics
+
+If taps work but direct finger panning does not scroll Pipzo regions, first confirm whether Chromium is delivering move events from the touch device. The app has already been hardened against text selection and has explicit drag-scroll handling; if both native panning and explicit drag-scroll fail, the next boundary to test is browser/input event delivery.
+
+Run the local event probe from an updated checkout on the Pi:
+
+```bash
+cd /opt/pipzo/app
+PROBE_URL="file:///opt/pipzo/app/provisioning/touch-event-probe.html"
+sudo sh -c "grep -q '^PIPZO_CHROMIUM_EXTRA_FLAGS=' /etc/pipzo/kiosk.env || printf '\nPIPZO_CHROMIUM_EXTRA_FLAGS=\n' >> /etc/pipzo/kiosk.env"
+sudo sed -i "s|^PIPZO_KIOSK_URL=.*|PIPZO_KIOSK_URL=$PROBE_URL|" /etc/pipzo/kiosk.env
+sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
+sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc/pipzo/kiosk.env
+systemctl --user restart pipzo-kiosk.service
+```
+
+Drag inside the left probe region with a finger and record:
+
+- whether the list itself scrolls;
+- whether `pointermove` increments;
+- whether `touchmove` increments;
+- the displayed `navigator.maxTouchPoints` value.
+
+Then force Chromium's touch-event feature detection on and repeat the same probe:
+
+```bash
+sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=--touch-events=enabled/' /etc/pipzo/kiosk.env
+systemctl --user restart pipzo-kiosk.service
+```
+
+Interpretation:
+
+- If `pointerdown` or `touchstart` increments but `pointermove` and `touchmove` stay at zero during a drag, Chromium/labwc is not exposing drag movement to the page.
+- If `touchmove` appears only after `--touch-events=enabled`, keep that flag as a candidate workaround for one validation cycle and retest the real app for taps, Browse/Search with Squeekboard, playback, and direct panning.
+- If move events appear but `scroll top` never changes in the probe, the browser is receiving events but native scrolling is blocked by browser/CSS behavior.
+- If the probe scrolls normally but the real app does not, route back to frontend implementation with the probe result attached.
+
+Restore normal Pipzo runtime after the probe:
+
+```bash
+sudo sed -i 's|^PIPZO_KIOSK_URL=.*|PIPZO_KIOSK_URL=http://127.0.0.1:8000/|' /etc/pipzo/kiosk.env
+sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc/pipzo/kiosk.env
 systemctl --user restart pipzo-kiosk.service
 ```
 
