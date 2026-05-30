@@ -23,6 +23,7 @@ from .bluetooth_store import BluetoothSpeakerStore
 from .config import Settings, get_settings
 from .contract import (
     ActionResult,
+    AppPhase,
     AppSettings,
     AppSettingsPatch,
     AppSnapshot,
@@ -64,6 +65,7 @@ from .contract import (
     SpotifyAuthStatus,
     SpotifyPlaybackToken,
     SpotifyPlaybackTransferRequest,
+    SurfaceId,
     VolumeHealth,
     VolumePatch,
     VolumeReason,
@@ -77,6 +79,7 @@ from .events import EventHub
 from .logging import configure_logging, get_logger
 from .mock_scenarios import MockScenarioStore
 from .settings_store import AppSettingsStore
+from .setup_store import SetupStateStore
 from .spotify_auth import (
     SpotifyAuthCallbackError,
     SpotifyAuthSessionService,
@@ -225,9 +228,32 @@ def create_app(
 
     @app.post("/api/v1/setup/playback-test", response_model=RecoveryAction)
     def setup_playback_test(body: SetupPlaybackTestRequest, settings: Settings = Depends(get_settings)) -> RecoveryAction:
-        require_action_mock_mode(settings)
-        action = mock_store.run_playback_test(body.action)
+        if settings.app_mode == "mock":
+            action = mock_store.run_playback_test(body.action)
+        else:
+            action = run_hardware_playback_test(
+                settings,
+                spotify_client,
+                body,
+                mock_store,
+                settings_store(),
+                network_adapter(settings),
+                bluetooth_adapter(settings),
+                volume_adapter(settings),
+            )
         event_hub.publish("setup.playback_test_changed", action.model_dump(mode="json", by_alias=True))
+        if settings.app_mode != "mock":
+            event_hub.publish(
+                "app.snapshot",
+                read_snapshot(
+                    settings,
+                    mock_store,
+                    settings_store(),
+                    network_adapter(settings),
+                    bluetooth_adapter(settings),
+                    volume_adapter(settings),
+                ).model_dump(mode="json", by_alias=True),
+            )
         return action
 
     @app.get("/api/v1/settings", response_model=AppSettings)
@@ -832,6 +858,11 @@ def read_snapshot(
     snapshot.settings = app_settings_store.get_settings()
     snapshot.surfaces.idle_mode = snapshot.settings.idle_mode
     snapshot.health.display.brightness = snapshot.settings.brightness
+    if settings.app_mode != "mock":
+        setup_state = SetupStateStore(settings.db_path).get_state()
+        snapshot.readiness.playback_test_passed = setup_state.playback_test_passed
+        if setup_state.playback_device_id:
+            snapshot.health.playback_device.device_id = setup_state.playback_device_id
     try:
         auth_record = SpotifyAuthStore.from_settings(settings).get_auth_record()
     except SpotifyAuthTokenStorageError:
@@ -869,23 +900,36 @@ def read_snapshot(
 
 
 def project_setup_readiness(snapshot: AppSnapshot) -> None:
+    network_ready = snapshot.readiness.network_configured
+    spotify_ready = snapshot.readiness.spotify_authorized
     speaker_ready = snapshot.health.speaker.status == SpeakerStatus.CONNECTED and bool(snapshot.health.speaker.primary)
     snapshot.readiness.primary_speaker_saved = speaker_ready
+    project_playback_device(snapshot, network_ready, spotify_ready, speaker_ready)
+    playback_ready = snapshot.health.playback_device.status == PlaybackDeviceStatus.AVAILABLE
+    snapshot.capabilities.can_browse = network_ready and spotify_ready
+    snapshot.capabilities.can_search = network_ready and spotify_ready
+    snapshot.capabilities.can_start_playback = playback_ready
+    snapshot.capabilities.can_control_playback = playback_ready
+    snapshot.capabilities.can_control_volume = speaker_ready and snapshot.health.volume.status != VolumeStatus.UNAVAILABLE
+    snapshot.capabilities.can_use_sleep_timer = playback_ready
     snapshot.readiness.minimum_ready = (
-        snapshot.readiness.network_configured
-        and snapshot.readiness.spotify_authorized
+        network_ready
+        and spotify_ready
         and speaker_ready
         and snapshot.readiness.playback_test_passed
     )
     blocking = setup_blocking_step(
-        snapshot.readiness.network_configured,
-        snapshot.readiness.spotify_authorized,
+        network_ready,
+        spotify_ready,
         speaker_ready,
         snapshot.readiness.playback_test_passed,
     )
     snapshot.setup.blocking_step = blocking
     snapshot.setup.steps = setup_steps_for_blocking(blocking)
     if snapshot.readiness.minimum_ready:
+        snapshot.app_phase = AppPhase.READY
+        snapshot.surfaces.current = SurfaceId.HOME
+        snapshot.surfaces.route = "/"
         return
     if snapshot.app_phase == "starting":
         return
@@ -896,6 +940,30 @@ def project_setup_readiness(snapshot: AppSnapshot) -> None:
         snapshot.app_phase = "setup"
         snapshot.surfaces.current = "setup"
         snapshot.surfaces.route = route_for_blocking(blocking)
+
+
+def project_playback_device(snapshot: AppSnapshot, network_ready: bool, spotify_ready: bool, speaker_ready: bool) -> None:
+    if not network_ready:
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.NETWORK_UNAVAILABLE
+        snapshot.health.playback_device.device_id = None
+        return
+    if not spotify_ready:
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.AUTH_REQUIRED
+        snapshot.health.playback_device.device_id = None
+        return
+    if not speaker_ready:
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.UNAVAILABLE
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.SPEAKER_UNAVAILABLE
+        snapshot.health.playback_device.device_id = None
+        return
+    if snapshot.readiness.playback_test_passed:
+        snapshot.health.playback_device.status = PlaybackDeviceStatus.AVAILABLE
+        snapshot.health.playback_device.reason = None
+        return
+    snapshot.health.playback_device.status = PlaybackDeviceStatus.TRANSFER_REQUIRED
+    snapshot.health.playback_device.reason = PlaybackDeviceReason.DEVICE_NOT_REGISTERED
 
 
 def project_degraded_runtime(snapshot: AppSnapshot) -> None:
@@ -1031,11 +1099,90 @@ def clear_spotify_auth_state(
     mock_store: MockScenarioStore,
 ) -> SpotifyAuthHealth:
     SpotifyAuthStore.from_settings(settings).delete_auth_record()
+    SetupStateStore(settings.db_path).clear_playback_test()
     spotify_auth_sessions.clear_sessions()
     health = SpotifyAuthHealth(status=SpotifyAuthStatus.NONE, reason=SpotifyAuthReason.NO_SESSION)
     event_hub.publish("spotify.auth_changed", health.model_dump(mode="json", by_alias=True))
     event_hub.publish("app.snapshot", read_snapshot(settings, mock_store, AppSettingsStore(settings.db_path)).model_dump(mode="json", by_alias=True))
     return health
+
+
+def run_hardware_playback_test(
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    body: SetupPlaybackTestRequest,
+    mock_store: MockScenarioStore,
+    app_settings_store: AppSettingsStore,
+    network_adapter: NetworkManagerAdapter,
+    bluetooth_adapter: BlueZAdapter,
+    volume_adapter: VolumeAdapter,
+) -> RecoveryAction:
+    started_at = utc_now()
+    snapshot = read_snapshot(settings, mock_store, app_settings_store, network_adapter, bluetooth_adapter, volume_adapter)
+    reason = playback_test_blocking_reason(snapshot)
+    if body.action == "stop":
+        return RecoveryAction(
+            id="setup-playback-test",
+            kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+            state=RecoveryActionState.AVAILABLE if reason is None else RecoveryActionState.BLOCKED,
+            reason=reason,
+            requires_confirmation=False,
+            started_at=started_at,
+            completed_at=utc_now(),
+        )
+    if reason is not None:
+        return RecoveryAction(
+            id="setup-playback-test",
+            kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+            state=RecoveryActionState.BLOCKED,
+            reason=reason,
+            requires_confirmation=False,
+            started_at=started_at,
+            completed_at=utc_now(),
+        )
+    device_id = (body.device_id or "").strip()
+    if not device_id:
+        return RecoveryAction(
+            id="setup-playback-test",
+            kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+            state=RecoveryActionState.BLOCKED,
+            reason=PlaybackDeviceReason.DEVICE_NOT_REGISTERED,
+            requires_confirmation=False,
+            started_at=started_at,
+            completed_at=utc_now(),
+        )
+
+    transfer = transfer_spotify_playback(settings, spotify_client, SpotifyPlaybackTransferRequest(device_id=device_id, play=False))
+    if transfer.state != RecoveryActionState.SUCCEEDED:
+        return RecoveryAction(
+            id="setup-playback-test",
+            kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+            state=RecoveryActionState.BLOCKED,
+            reason=transfer.reason or PlaybackDeviceReason.TRANSFER_FAILED,
+            requires_confirmation=False,
+            started_at=started_at,
+            completed_at=utc_now(),
+        )
+
+    SetupStateStore(settings.db_path).mark_playback_test_passed(device_id)
+    return RecoveryAction(
+        id="setup-playback-test",
+        kind=RecoveryActionKind.RUN_PLAYBACK_TEST,
+        state=RecoveryActionState.SUCCEEDED,
+        requires_confirmation=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
+
+
+def playback_test_blocking_reason(snapshot: AppSnapshot) -> Optional[PlaybackDeviceReason]:
+    if not snapshot.readiness.network_configured:
+        return PlaybackDeviceReason.NETWORK_UNAVAILABLE
+    if not snapshot.readiness.spotify_authorized:
+        return PlaybackDeviceReason.AUTH_REQUIRED
+    if not snapshot.readiness.primary_speaker_saved:
+        return PlaybackDeviceReason.SPEAKER_UNAVAILABLE
+    return None
 
 
 def issue_spotify_playback_token(settings: Settings, spotify_client: SpotifyClient) -> SpotifyPlaybackToken:

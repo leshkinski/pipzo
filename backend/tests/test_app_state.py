@@ -280,7 +280,45 @@ def test_database_initialization_creates_schema_marker_and_is_idempotent(tmp_pat
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute("select key, value from schema_metadata").fetchall()
 
-    assert rows == [("schema_version", "4")]
+    assert rows == [("schema_version", "5")]
+
+
+def persist_connected_spotify(settings: Settings) -> None:
+    now = datetime.now(timezone.utc)
+    SpotifyAuthStore.from_settings(settings).upsert_auth_record(
+        StoredSpotifyAuthRecord(
+            access_token="stored-access-token",
+            refresh_token="stored-refresh-token",
+            token_type="Bearer",
+            scope="streaming user-read-private user-modify-playback-state",
+            expires_at=now + timedelta(seconds=3600),
+            issued_at=now,
+            connected_at=now,
+            updated_at=now,
+            account=StoredSpotifyAccount(
+                account_id="spotify-user-id",
+                display_name="Pipzo Account",
+                product="premium",
+                country="GB",
+                is_premium=True,
+            ),
+        )
+    )
+
+
+class FakeSpotifyPlaybackClient:
+    def __init__(self) -> None:
+        self.transfer_calls: list[dict] = []
+
+    def transfer_playback(self, *, api_base_url: str, access_token: str, device_id: str, play: bool) -> None:
+        self.transfer_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "device_id": device_id,
+                "play": play,
+            }
+        )
 
 
 def test_spotify_auth_store_upserts_reads_and_deletes_single_account_record(tmp_path):
@@ -678,7 +716,10 @@ def test_hardware_mode_does_not_fake_state_changing_actions(tmp_path):
     assert responses[4].status_code == 200
     assert responses[4].json()["state"] == "blocked"
     assert responses[4].json()["reason"] == "auth_required"
-    assert all(response.status_code == 501 for index, response in enumerate(responses) if index != 4)
+    assert responses[2].status_code == 200
+    assert responses[2].json()["state"] == "blocked"
+    assert responses[2].json()["reason"] in {"auth_required", "network_unavailable", "speaker_unavailable"}
+    assert all(response.status_code == 501 for index, response in enumerate(responses) if index not in {2, 4})
 
 
 def test_hardware_network_missing_nmcli_reports_unavailable_without_fake_success(tmp_path):
@@ -748,3 +789,80 @@ def test_hardware_bluetooth_adapter_success_path_projects_speaker_readiness(tmp_
     assert status_response.json()["status"] == "connected"
     assert reconnect_response.json()["state"] == "succeeded"
     assert forget_response.json()["state"] == "succeeded"
+
+
+def test_hardware_state_projects_playback_transfer_required_after_prerequisites(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-playback-ready.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+
+    with make_client(
+        settings,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        response = client.get("/api/v1/app/state")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["setup"]["blockingStep"] == "playback_test"
+    assert body["readiness"]["spotifyAuthorized"] is True
+    assert body["readiness"]["primarySpeakerSaved"] is True
+    assert body["health"]["playbackDevice"]["status"] == "transfer_required"
+    assert body["health"]["playbackDevice"]["reason"] == "device_not_registered"
+    assert body["health"]["playbackDevice"]["reason"] != "speaker_unavailable"
+    assert body["capabilities"]["canBrowse"] is True
+    assert body["capabilities"]["canStartPlayback"] is False
+
+
+def test_hardware_playback_test_requires_sdk_device_then_persists_passed_state(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-playback-test.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    spotify_client = FakeSpotifyPlaybackClient()
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        missing_device = client.post("/api/v1/setup/playback-test", json={"action": "start"})
+        passed = client.post("/api/v1/setup/playback-test", json={"action": "start", "deviceId": "pipzo-sdk-device"})
+        state_response = client.get("/api/v1/app/state")
+
+    assert missing_device.status_code == 200
+    assert missing_device.json()["state"] == "blocked"
+    assert missing_device.json()["reason"] == "device_not_registered"
+    assert passed.status_code == 200
+    assert passed.json()["state"] == "succeeded"
+    assert spotify_client.transfer_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "stored-access-token",
+            "device_id": "pipzo-sdk-device",
+            "play": False,
+        }
+    ]
+    state = state_response.json()
+    assert state["readiness"]["playbackTestPassed"] is True
+    assert state["readiness"]["minimumReady"] is True
+    assert state["appPhase"] == "ready"
+    assert state["capabilities"]["canBrowse"] is True
+    assert state["capabilities"]["canStartPlayback"] is True
+    assert state["capabilities"]["canControlPlayback"] is True
+    assert state["health"]["playbackDevice"] == {
+        "status": "available",
+        "reason": None,
+        "deviceId": "pipzo-sdk-device",
+    }

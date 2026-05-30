@@ -356,6 +356,7 @@ export type LibraryPlayRequest = {
 
 export type SetupPlaybackTestRequest = {
   action: "start" | "stop";
+  deviceId?: string;
 };
 
 export type RunRecoveryActionRequest = {

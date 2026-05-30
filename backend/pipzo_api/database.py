@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 
 @dataclass(frozen=True)
@@ -69,6 +69,16 @@ def initialize_database(db_path: Union[str, Path]) -> DatabaseInitializationResu
                 display_name text not null,
                 alias text,
                 created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists setup_state (
+                id integer primary key check (id = 1),
+                playback_test_passed integer not null default 0,
+                playback_device_id text,
                 updated_at text not null default current_timestamp
             )
             """

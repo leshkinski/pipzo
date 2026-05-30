@@ -23,6 +23,7 @@ import {
   playLibraryItem,
   retryInternetProbe,
   reconnectSpeaker,
+  runSetupPlaybackTest,
   scanSpeakers,
   scanNetwork,
   searchLibrary,
@@ -115,6 +116,12 @@ type VolumeControls = {
   onChange: (value: number, muted?: boolean) => void;
 };
 
+type SetupPlaybackControls = {
+  busy: boolean;
+  message: string;
+  onConfirm: () => void;
+};
+
 type LibraryControls = {
   home: LibraryHomeResponse;
   activeCategory: LibraryCategoryId;
@@ -164,6 +171,8 @@ export function App() {
   const [sleepTimerBusy, setSleepTimerBusy] = useState(false);
   const [volumeBusy, setVolumeBusy] = useState(false);
   const [volumeMessage, setVolumeMessage] = useState("Volume follows the app control.");
+  const [playbackTestBusy, setPlaybackTestBusy] = useState(false);
+  const [playbackTestMessage, setPlaybackTestMessage] = useState("Activate and select the browser player before confirming playback.");
   const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("playlists");
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -941,6 +950,39 @@ export function App() {
     }
   }
 
+  async function confirmSetupPlaybackTest() {
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    setPlaybackTestBusy(true);
+    if (!deviceId) {
+      setPlaybackTestMessage("Activate the browser player so Spotify registers a Pipzo device.");
+      setStatusText("Playback test is waiting for the browser player.");
+      setPlaybackTestBusy(false);
+      return;
+    }
+    if (!spotifySdkState.transferred) {
+      setPlaybackTestMessage("Select the Pipzo browser device before confirming playback.");
+      setStatusText("Playback test is waiting for transfer to Pipzo.");
+      setPlaybackTestBusy(false);
+      return;
+    }
+    try {
+      if (dataSource === "backend") {
+        const result = await runSetupPlaybackTest({ action: "start", deviceId });
+        setPlaybackTestMessage(result.state === "succeeded" ? "Playback device selected and test passed." : `Playback test blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        setStatusText(result.state === "succeeded" ? "Playback test passed." : "Playback test is still blocked.");
+        await refreshSnapshot();
+      } else {
+        setPlaybackTestMessage("Local playback test confirmed.");
+        setStatusText("Local playback test confirmed.");
+      }
+    } catch {
+      setPlaybackTestMessage("Playback test could not be confirmed.");
+      setStatusText("Playback test could not be confirmed.");
+    } finally {
+      setPlaybackTestBusy(false);
+    }
+  }
+
   async function sendPlaybackAction(action: "play" | "pause" | "next" | "previous") {
     const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
     if (dataSource === "backend") {
@@ -1054,6 +1096,11 @@ export function App() {
     message: volumeMessage,
     onChange: updateVolume,
   };
+  const setupPlaybackControls = {
+    busy: playbackTestBusy,
+    message: playbackTestMessage,
+    onConfirm: confirmSetupPlaybackTest,
+  };
   const libraryControls = {
     home: libraryHome,
     activeCategory: libraryCategory,
@@ -1137,7 +1184,18 @@ export function App() {
         </nav>
 
         <section className="surface" aria-live="polite">
-          {activeSurface === "setup" && <SetupSurface snapshot={snapshot} spotifyAuth={spotifyAuthControls} wifi={wifiControls} speaker={speakerControls} />}
+          {activeSurface === "setup" && (
+            <SetupSurface
+              snapshot={snapshot}
+              spotifyAuth={spotifyAuthControls}
+              wifi={wifiControls}
+              speaker={speakerControls}
+              spotifySdk={spotifySdkState}
+              playbackGateDetail={spotifyPlaybackGate.detail}
+              onActivateSpotify={activateSpotifyPlayer}
+              playbackTest={setupPlaybackControls}
+            />
+          )}
           {activeSurface === "home" && <HomeSurface snapshot={snapshot} sleepTimer={sleepTimerControls} library={libraryControls} />}
           {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} library={libraryControls} />}
           {activeSurface === "now_playing" && (
@@ -1259,12 +1317,21 @@ function SetupSurface({
   spotifyAuth,
   wifi,
   speaker,
+  spotifySdk,
+  playbackGateDetail,
+  onActivateSpotify,
+  playbackTest,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
   wifi: WifiControls;
   speaker: SpeakerControls;
+  spotifySdk: SpotifySdkState;
+  playbackGateDetail: string;
+  onActivateSpotify: () => void;
+  playbackTest: SetupPlaybackControls;
 }) {
+  const playbackActive = snapshot.setup.blockingStep === "playback_test" || snapshot.readiness.primarySpeakerSaved;
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -1290,6 +1357,14 @@ function SetupSurface({
         <WifiPanel snapshot={snapshot} controls={wifi} context="setup" />
         <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="setup" />
         <SpeakerPanel snapshot={snapshot} controls={speaker} context="setup" />
+        {playbackActive && (
+          <SpotifyPlaybackPanel
+            playbackGateDetail={playbackGateDetail}
+            spotifySdk={spotifySdk}
+            onActivateSpotify={onActivateSpotify}
+            playbackTest={playbackTest}
+          />
+        )}
       </div>
     </div>
   );
@@ -1851,10 +1926,12 @@ function SpotifyPlaybackPanel({
   spotifySdk,
   playbackGateDetail,
   onActivateSpotify,
+  playbackTest,
 }: {
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
+  playbackTest?: SetupPlaybackControls;
 }) {
   return (
     <section className={`spotify-panel playback-${spotifySdk.status}`} aria-label="Spotify browser playback">
@@ -1876,7 +1953,13 @@ function SpotifyPlaybackPanel({
         <button disabled={spotifySdk.status === "disabled" || spotifySdk.status === "auth_required"} type="button" onClick={onActivateSpotify}>
           Activate player
         </button>
+        {playbackTest && (
+          <button disabled={playbackTest.busy || spotifySdk.status !== "ready" || !spotifySdk.transferred} type="button" onClick={playbackTest.onConfirm}>
+            Confirm playback test
+          </button>
+        )}
       </div>
+      {playbackTest && <p className="subtle">{playbackTest.message}</p>}
     </section>
   );
 }

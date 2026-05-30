@@ -450,6 +450,7 @@ class SpotifyPlaybackToken(ContractModel):
 
 class SetupPlaybackTestRequest(ContractModel):
     action: Literal["start", "stop"]
+    device_id: Optional[str] = None
 
 
 class PlaybackControlRequest(ContractModel):
