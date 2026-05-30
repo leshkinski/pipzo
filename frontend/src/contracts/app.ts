@@ -372,6 +372,7 @@ export type NowPlayingSummary = {
   isPlaying: boolean;
   progressMs?: number;
   durationMs?: number;
+  capturedAt?: string;
 };
 
 export type StalenessState = {

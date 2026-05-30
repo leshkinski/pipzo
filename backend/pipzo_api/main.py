@@ -40,6 +40,7 @@ from .contract import (
     NetworkHealth,
     NetworkReason,
     NetworkStatus,
+    NowPlayingSummary,
     PlaybackControlRequest,
     PlaybackDeviceReason,
     PlaybackDeviceStatus,
@@ -190,6 +191,7 @@ def create_app(
             network_adapter(settings),
             bluetooth_adapter(settings),
             volume_adapter(settings),
+            spotify_client,
         )
 
     @app.websocket("/api/v1/events/ws")
@@ -202,6 +204,7 @@ def create_app(
                 network_adapter(settings),
                 bluetooth_adapter(settings),
                 volume_adapter(settings),
+                spotify_client,
             )
         except HTTPException as exc:
             await websocket.close(code=1011, reason=str(exc.detail))
@@ -252,6 +255,7 @@ def create_app(
                     network_adapter(settings),
                     bluetooth_adapter(settings),
                     volume_adapter(settings),
+                    spotify_client,
                 ).model_dump(mode="json", by_alias=True),
             )
         return action
@@ -273,6 +277,7 @@ def create_app(
                 network_adapter(settings),
                 bluetooth_adapter(settings),
                 volume_adapter(settings),
+                spotify_client,
             )
             event_hub.publish("app.snapshot", snapshot.model_dump(mode="json", by_alias=True))
         return updated
@@ -648,6 +653,7 @@ def create_app(
                     network_adapter(settings),
                     bluetooth_adapter(settings),
                     volume_adapter(settings),
+                    spotify_client,
                 ).model_dump(mode="json", by_alias=True),
             )
         return result
@@ -860,6 +866,7 @@ def read_snapshot(
     network_adapter: Optional[NetworkManagerAdapter] = None,
     bluetooth_adapter: Optional[BlueZAdapter] = None,
     volume_adapter: Optional[VolumeAdapter] = None,
+    spotify_client: Optional[SpotifyClient] = None,
 ) -> AppSnapshot:
     if network_adapter is not None or bluetooth_adapter is not None or volume_adapter is not None:
         production_adapters = ProductionAdapters(
@@ -907,6 +914,7 @@ def read_snapshot(
         snapshot.health.spotify_auth = spotify_auth_health_from_record(auth_record)
         snapshot.readiness.spotify_authorized = snapshot.health.spotify_auth.status == SpotifyAuthStatus.CONNECTED
         project_setup_readiness(snapshot)
+        project_now_playing(settings, spotify_client, snapshot)
         if snapshot.health.spotify_auth.status == SpotifyAuthStatus.RECONNECT_REQUIRED:
             snapshot.warnings.append(
                 Warning(
@@ -919,6 +927,88 @@ def read_snapshot(
     else:
         project_setup_readiness(snapshot)
     return snapshot
+
+
+def project_now_playing(settings: Settings, spotify_client: Optional[SpotifyClient], snapshot: AppSnapshot) -> None:
+    if settings.app_mode == "mock" or spotify_client is None:
+        return
+    if snapshot.health.spotify_auth.status != SpotifyAuthStatus.CONNECTED:
+        return
+    if snapshot.health.spotify_auth.reason == SpotifyAuthReason.PREMIUM_REQUIRED:
+        return
+    target_device_id = snapshot.health.playback_device.device_id
+    if not target_device_id:
+        return
+
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        payload = spotify_client.fetch_current_playback(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+        )
+    except (HTTPException, SpotifyPlaybackApiError):
+        snapshot.health.playback_device.reason = PlaybackDeviceReason.SPOTIFY_API_ERROR
+        append_warning_once(
+            snapshot,
+            Warning(
+                code="playback_device_unavailable",
+                reason=PlaybackDeviceReason.SPOTIFY_API_ERROR,
+                surface=SurfaceId.NOW_PLAYING,
+                action="open_settings",
+            ),
+        )
+        return
+
+    if not payload:
+        snapshot.now_playing = None
+        return
+
+    device = payload.get("device") if isinstance(payload.get("device"), dict) else {}
+    active_device_id = str(device.get("id") or "")
+    if active_device_id and active_device_id != target_device_id:
+        snapshot.now_playing = None
+        return
+
+    item = payload.get("item") if isinstance(payload.get("item"), dict) else None
+    if item is None or payload.get("currently_playing_type") not in {None, "track"}:
+        snapshot.now_playing = None
+        return
+
+    snapshot.now_playing = now_playing_from_spotify_payload(payload, item)
+
+
+def now_playing_from_spotify_payload(payload: dict, item: dict) -> NowPlayingSummary:
+    album = item.get("album") if isinstance(item.get("album"), dict) else {}
+    artists = item.get("artists") if isinstance(item.get("artists"), list) else []
+    artist_names = [
+        str(artist.get("name"))
+        for artist in artists
+        if isinstance(artist, dict) and artist.get("name")
+    ]
+    images = album.get("images") if isinstance(album.get("images"), list) else []
+    artwork_url = None
+    for image in images:
+        if isinstance(image, dict) and image.get("url"):
+            artwork_url = str(image["url"])
+            break
+    return NowPlayingSummary(
+        title=str(item.get("name") or "Unknown track"),
+        artist=", ".join(artist_names) or "Unknown artist",
+        album=str(album.get("name")) if album.get("name") else None,
+        artwork_url=artwork_url,
+        is_playing=bool(payload.get("is_playing")),
+        progress_ms=_optional_nonnegative_int(payload.get("progress_ms")),
+        duration_ms=_optional_nonnegative_int(item.get("duration_ms")),
+        captured_at=utc_now(),
+    )
+
+
+def _optional_nonnegative_int(value: object) -> Optional[int]:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, parsed)
 
 
 def project_setup_readiness(snapshot: AppSnapshot) -> None:

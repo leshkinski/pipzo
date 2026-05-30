@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { localScenarios } from "./localScenarios";
-import { spotifySdkGate, spotifySdkStatusLabel } from "./spotifyWebPlayback";
+import { createSpotifyWebPlayer, spotifySdkGate, spotifySdkStatusLabel, type SpotifyPlayerInstance } from "./spotifyWebPlayback";
 
 describe("Spotify Web Playback SDK view model", () => {
   it("keeps live SDK disabled for local fallback scenarios", () => {
@@ -61,5 +61,42 @@ describe("Spotify Web Playback SDK view model", () => {
         transferred: false,
       }),
     ).toContain("offline");
+  });
+
+  it("does not transfer playback when the SDK device registers", async () => {
+    const statePatches: object[] = [];
+    const listeners: Record<string, (event: { device_id: string }) => void> = {};
+    const player: SpotifyPlayerInstance = {
+      addListener: (event: string, listener: (event: { device_id: string }) => void) => {
+        listeners[event] = listener;
+        return true;
+      },
+      connect: async () => true,
+      disconnect: () => undefined,
+    } as SpotifyPlayerInstance;
+    const win = {
+      Spotify: {
+        Player: class {
+          constructor() {
+            return player;
+          }
+        },
+      },
+    } as unknown as Window & { Spotify: { Player: new () => SpotifyPlayerInstance } };
+
+    await createSpotifyWebPlayer({
+      win,
+      tokenProvider: async () => ({
+        accessToken: "safe-access-token",
+        tokenType: "Bearer",
+        expiresAt: new Date().toISOString(),
+        scope: "streaming",
+      }),
+      onState: (patch) => statePatches.push(patch),
+    });
+    listeners.ready({ device_id: "pipzo-device" });
+
+    expect(statePatches).toContainEqual({ status: "ready", deviceId: "pipzo-device", error: undefined });
+    expect(statePatches).not.toContainEqual(expect.objectContaining({ transferred: true }));
   });
 });

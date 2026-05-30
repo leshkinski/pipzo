@@ -586,6 +586,7 @@ class NowPlayingSummary(ContractModel):
     is_playing: bool
     progress_ms: Optional[int] = None
     duration_ms: Optional[int] = None
+    captured_at: Optional[datetime] = None
 
 
 class StalenessState(ContractModel):

@@ -84,6 +84,7 @@ class FakeSpotifyClient:
         self.volume_calls: list[dict] = []
         self.catalog_calls: list[dict] = []
         self.start_playback_calls: list[dict] = []
+        self.current_playback_calls: list[dict] = []
 
     def exchange_authorization_code(
         self,
@@ -228,6 +229,12 @@ class FakeSpotifyClient:
         )
         if self.playback_failure is not None:
             raise SpotifyPlaybackApiError(self.playback_failure)
+
+    def fetch_current_playback(self, *, api_base_url: str, access_token: str) -> Optional[dict]:
+        self.current_playback_calls.append({"api_base_url": api_base_url, "access_token": access_token})
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+        return None
 
 
 class FakeVolumeAdapter:

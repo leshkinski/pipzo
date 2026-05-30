@@ -28,6 +28,7 @@ import {
   scanNetwork,
   searchLibrary,
   connectNetwork,
+  transferSpotifyPlayback,
 } from "./api";
 import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 import { localLibraryHome, localLibrarySearch, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
@@ -945,13 +946,33 @@ export function App() {
     const player = spotifyPlayerRef.current;
     if (!player?.activateElement) {
       setSpotifySdkState((current) => ({ ...current, activated: true }));
+    } else {
+      try {
+        await player.activateElement();
+        setSpotifySdkState((current) => ({ ...current, activated: true }));
+      } catch {
+        setSpotifySdkState((current) => ({ ...current, status: "browser_not_ready", error: "spotify_activation_failed" }));
+        return;
+      }
+    }
+
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    if (!deviceId || dataSource !== "backend") {
       return;
     }
     try {
-      await player.activateElement();
-      setSpotifySdkState((current) => ({ ...current, activated: true }));
+      const result = await transferSpotifyPlayback({ deviceId, play: false });
+      setSpotifySdkState((current) => ({
+        ...current,
+        transferred: result.state === "succeeded",
+        status: result.state === "succeeded" ? "ready" : current.status,
+        error: result.reason,
+      }));
+      setStatusText(result.state === "succeeded" ? "Pipzo selected for Spotify playback." : `Playback selection blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+      await refreshSnapshot().catch(() => undefined);
     } catch {
-      setSpotifySdkState((current) => ({ ...current, status: "browser_not_ready", error: "spotify_activation_failed" }));
+      setSpotifySdkState((current) => ({ ...current, error: "spotify_transfer_failed" }));
+      setStatusText("Pipzo playback selection could not be sent.");
     }
   }
 
@@ -988,6 +1009,7 @@ export function App() {
       try {
         const result = await controlPlayback({ action, deviceId });
         setStatusText(result.state === "succeeded" ? `Playback ${action} sent.` : `Playback ${action} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        await refreshSnapshot().catch(() => undefined);
         return;
       } catch {
         setStatusText("Playback command could not be sent.");
@@ -1206,6 +1228,7 @@ export function App() {
               onPlaybackAction={sendPlaybackAction}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
+              nowMs={nowMs}
             />
           )}
           {activeSurface === "settings" && (
@@ -1529,6 +1552,7 @@ function NowPlayingSurface({
   onPlaybackAction,
   sleepTimer,
   volume,
+  nowMs,
 }: {
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
@@ -1537,22 +1561,25 @@ function NowPlayingSurface({
   onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
+  nowMs: number;
 }) {
   const playing = snapshot.nowPlaying;
-  const progress = playing?.durationMs ? Math.min(100, ((playing.progressMs ?? 0) / playing.durationMs) * 100) : 0;
-  const canSendControls = snapshot.capabilities.canControlPlayback && spotifySdk.status === "ready";
+  const displayedProgressMs = currentProgressMs(playing, nowMs);
+  const progress = playing?.durationMs ? Math.min(100, (displayedProgressMs / playing.durationMs) * 100) : 0;
+  const canSendControls = snapshot.capabilities.canControlPlayback && (spotifySdk.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId));
+  const unknownState = !playing && snapshot.health.playbackDevice.reason === "spotify_api_error";
   return (
     <div className="surface-grid">
       <section className="art-panel" aria-label="Artwork placeholder">
-        <div>{playing?.artworkUrl ? "Artwork" : "P"}</div>
+        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" /> : <div>P</div>}
       </section>
       <section className="player-panel">
         <p className="eyebrow">Now Playing</p>
-        <h1>{playing?.title ?? "Nothing playing"}</h1>
-        <p>{playing ? `${playing.artist}${playing.album ? ` / ${playing.album}` : ""}` : "Choose music from Home or Browse when playback is available."}</p>
+        <h1>{playing?.title ?? (unknownState ? "Playback state unavailable" : "Nothing playing")}</h1>
+        <p>{playing ? `${playing.artist}${playing.album ? ` / ${playing.album}` : ""}` : unknownState ? "Pipzo is ready, but Spotify did not return current track details yet." : "Choose music from Home or Browse when playback is available."}</p>
         <div className="progress"><span style={{ width: `${progress}%` }} /></div>
         <div className="time-row">
-          <span>{formatMs(playing?.progressMs)}</span>
+          <span>{formatMs(displayedProgressMs)}</span>
           <span>{formatMs(playing?.durationMs)}</span>
         </div>
         <div className="control-row">
@@ -1570,6 +1597,20 @@ function NowPlayingSurface({
       </section>
     </div>
   );
+}
+
+function currentProgressMs(playing: AppSnapshot["nowPlaying"], nowMs: number): number {
+  if (!playing || playing.progressMs === undefined || playing.progressMs === null) {
+    return 0;
+  }
+  if (!playing.isPlaying || !playing.capturedAt) {
+    return playing.progressMs;
+  }
+  const capturedAtMs = Date.parse(playing.capturedAt);
+  if (!Number.isFinite(capturedAtMs)) {
+    return playing.progressMs;
+  }
+  return Math.min(playing.durationMs ?? Number.MAX_SAFE_INTEGER, playing.progressMs + Math.max(0, nowMs - capturedAtMs));
 }
 
 function SettingsSurface({

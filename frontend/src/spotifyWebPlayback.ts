@@ -1,5 +1,5 @@
-import { fetchSpotifyPlaybackToken, transferSpotifyPlayback } from "./api";
-import type { ActionResult, AppSnapshot } from "./contracts";
+import { fetchSpotifyPlaybackToken } from "./api";
+import type { AppSnapshot } from "./contracts";
 
 export type SpotifySdkStatus =
   | "disabled"
@@ -138,13 +138,11 @@ export async function createSpotifyWebPlayer(
   options: {
     onState: (state: Partial<SpotifySdkState>) => void;
     tokenProvider?: typeof fetchSpotifyPlaybackToken;
-    transferPlayback?: typeof transferSpotifyPlayback;
     win?: SpotifySdkWindow;
   },
 ): Promise<SpotifyPlayerInstance> {
   const win = options.win ?? (window as SpotifySdkWindow);
   const tokenProvider = options.tokenProvider ?? fetchSpotifyPlaybackToken;
-  const transferPlayback = options.transferPlayback ?? transferSpotifyPlayback;
 
   await loadSpotifyWebPlaybackSdk(win);
   if (!win.Spotify?.Player) {
@@ -166,15 +164,6 @@ export async function createSpotifyWebPlayer(
 
   player.addListener("ready", ({ device_id }) => {
     options.onState({ status: "ready", deviceId: device_id, error: undefined });
-    void transferPlayback({ deviceId: device_id, play: false })
-      .then((result: ActionResult) => {
-        options.onState({
-          transferred: result.state === "succeeded",
-          status: result.state === "succeeded" ? "ready" : "error",
-          error: result.reason,
-        });
-      })
-      .catch(() => options.onState({ status: "error", error: "spotify_transfer_failed" }));
   });
   player.addListener("not_ready", ({ device_id }) => {
     options.onState({ status: "device_not_ready", deviceId: device_id, transferred: false });
