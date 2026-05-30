@@ -30,3 +30,16 @@ def test_backend_unit_keeps_state_directory_permissions_explicit():
     assert "StateDirectoryMode=0700" in unit
     assert "LogsDirectory=pipzo" in unit
     assert "LogsDirectoryMode=0750" in unit
+
+
+def test_kiosk_runtime_defaults_to_true_fullscreen_with_osk_fallback():
+    launcher = (REPO_ROOT / "provisioning/scripts/kiosk-launcher.sh").read_text()
+    kiosk_env = (REPO_ROOT / "provisioning/env/pipzo-kiosk.env.example").read_text()
+    docs = (REPO_ROOT / "docs/provisioning.md").read_text()
+
+    assert 'CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"' in launcher
+    assert 'PIPZO_CHROMIUM_MODE=kiosk' in kiosk_env
+    assert '--kiosk "$KIOSK_URL"' in launcher
+    assert "--app=\"$KIOSK_URL\"" in launcher
+    assert "documented fallback" in docs
+    assert "Squeekboard" in docs

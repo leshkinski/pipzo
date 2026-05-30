@@ -3,7 +3,7 @@ set -euo pipefail
 
 KIOSK_URL="${PIPZO_KIOSK_URL:-http://127.0.0.1:8000/}"
 PROFILE_PATH="${PIPZO_CHROMIUM_PROFILE:-$HOME/.local/share/pipzo/chromium-profile}"
-CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-app-maximized}"
+CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"
 
 if [[ "$PROFILE_PATH" != /* ]]; then
   PROFILE_PATH="$HOME/$PROFILE_PATH"
