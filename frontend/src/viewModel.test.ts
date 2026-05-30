@@ -314,7 +314,7 @@ describe("kiosk shell view model", () => {
     expect(rootRule).toContain("--pipzo-viewport-height: 100dvh");
     expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
     expect(appRule).toContain("height: var(--pipzo-viewport-height)");
-    expect(appRule).toContain("overflow: hidden");
+    expect(appRule).toContain("overflow-y: auto");
     expect(appRule).toContain("padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px))");
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
   });
@@ -346,25 +346,30 @@ describe("kiosk shell view model", () => {
     expect(textEntryRule).toContain("-webkit-touch-callout: default");
   });
 
-  it("uses bounded direct-panning regions instead of whole-page scrolling", () => {
+  it("keeps direct finger panning on page and surface scrollers without button-level touch overrides", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
     const shellRules: string[] = css.match(/\.shell\s*\{[^}]+\}/g) ?? [];
     const shellRule = shellRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const surfaceRule = css.match(/\.surface\s*\{[^}]+\}/)?.[0] ?? "";
     const sideStackRules: string[] = css.match(/\.side-stack\s*\{[^}]+\}/g) ?? [];
-    const sideStackRule = sideStackRules.find((rule) => rule.includes("touch-action: pan-y")) ?? "";
+    const sideStackRule = sideStackRules.find((rule) => rule.includes("align-content: start")) ?? "";
     const listButtonRule = css.match(/\.library-list button\s*\{[^}]+\}/)?.[0] ?? "";
-    const scrollbarRule = css.match(/\.app::-webkit-scrollbar,\n\.surface::-webkit-scrollbar,[^}]+\}/)?.[0] ?? "";
-    const scrollbarTrackRule = css.match(/\.app::-webkit-scrollbar-track,\n\.surface::-webkit-scrollbar-track,[^}]+\}/)?.[0] ?? "";
+    const scrollbarRule = css.match(/\.app::-webkit-scrollbar,\s*\.surface::-webkit-scrollbar\s*\{[^}]+\}/)?.[0] ?? "";
+    const scrollbarTrackRule = css.match(/\.app::-webkit-scrollbar-track,\s*\.surface::-webkit-scrollbar-track\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(shellRule).toContain("overflow: hidden");
-    expect(surfaceRule).toContain("height: 100%");
-    expect(surfaceRule).toContain("touch-action: pan-y");
-    expect(sideStackRule).toContain("overflow-y: auto");
-    expect(sideStackRule).toContain("touch-action: pan-y");
-    expect(listButtonRule).toContain("touch-action: pan-y");
-    expect(scrollbarRule).toContain("width: 14px");
-    expect(scrollbarTrackRule).toContain("background: transparent");
+    expect(appRule).toContain("overflow-y: auto");
+    expect(appRule).toContain("-webkit-overflow-scrolling: touch");
+    expect(shellRule).not.toContain("overflow: hidden");
+    expect(surfaceRule).toContain("min-height: min(580px, calc(var(--pipzo-viewport-height) - 132px))");
+    expect(surfaceRule).toContain("max-height: calc(var(--pipzo-viewport-height) - 132px)");
+    expect(surfaceRule).toContain("overflow-y: auto");
+    expect(surfaceRule).not.toContain("touch-action: pan-y");
+    expect(sideStackRule).not.toContain("overflow-y: auto");
+    expect(sideStackRule).not.toContain("touch-action: pan-y");
+    expect(listButtonRule).not.toContain("touch-action: pan-y");
+    expect(scrollbarRule).toContain("width: 24px");
+    expect(scrollbarTrackRule).toContain("background: #e5dfd3");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {
