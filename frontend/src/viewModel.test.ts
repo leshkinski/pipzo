@@ -138,11 +138,14 @@ describe("kiosk shell view model", () => {
     const localOnly = localScenarios.wifi_local_only.snapshot;
 
     expect(wifiSetupViewModel(firstBoot).actions).toEqual(["scan"]);
+    expect(wifiSetupViewModel(firstBoot).ipAddressLabel).toBe("Unknown");
     expect(
       wifiSetupViewModel(firstBoot, [{ ssid: "PipzoNet", signal: 90, security: "wpa2", known: false }]).actions,
     ).toEqual(["scan", "connect"]);
     expect(wifiSetupViewModel(ready).actions).toEqual(["scan", "forget"]);
+    expect(wifiSetupViewModel(ready).ipAddressLabel).toBe("192.168.1.42");
     expect(wifiSetupViewModel(localOnly).actions).toEqual(["retry", "scan", "forget"]);
+    expect(wifiSetupViewModel(localOnly).ipAddressLabel).toBe("192.168.1.42");
   });
 
   it("describes Bluetooth speaker setup actions from speaker health and scan results", () => {

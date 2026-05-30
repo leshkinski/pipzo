@@ -271,6 +271,7 @@ class NetworkHealth(ContractModel):
     status: NetworkStatus
     reason: Optional[NetworkReason] = None
     ssid: Optional[str] = None
+    ip_address: Optional[str] = None
     internet_reachable: Optional[bool] = None
 
 

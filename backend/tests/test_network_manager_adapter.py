@@ -3,6 +3,7 @@ from pipzo_api.adapters.network_manager import (
     NetworkCommandError,
     NmcliNetworkAdapter,
     map_nmcli_failure,
+    parse_nmcli_ipv4_address,
     parse_nmcli_terse_line,
     parse_wifi_scan,
 )
@@ -31,6 +32,19 @@ def test_parse_wifi_scan_deduplicates_by_best_signal_and_marks_known():
     assert networks[0].security == "wpa3"
     assert networks[0].known is True
     assert networks[1].security == "open"
+
+
+def test_parse_nmcli_ipv4_address_returns_first_routable_ipv4():
+    stdout = "\n".join(
+        [
+            "IP4.ADDRESS[1]:169.254.10.20/16",
+            "IP4.ADDRESS[2]:192.168.1.42/24",
+            "IP6.ADDRESS[1]:fe80::1/64",
+        ]
+    )
+
+    assert parse_nmcli_ipv4_address(stdout) == "192.168.1.42"
+    assert parse_nmcli_ipv4_address("IP4.ADDRESS[1]:not-an-address\n") is None
 
 
 def test_nmcli_failure_mapping_keeps_reasons_coarse():
@@ -108,3 +122,29 @@ def test_adapter_scan_command_error_maps_to_contract_reason():
         assert exc.reason == NetworkReason.SCAN_EMPTY
     else:
         raise AssertionError("expected NetworkCommandError")
+
+
+def test_adapter_status_includes_active_wifi_ipv4_address():
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append(list(argv))
+        if argv[-1] == "radio":
+            return CommandResult(0, "enabled\n", "")
+        if argv[-2:] == ["--rescan", "no"]:
+            return CommandResult(0, "yes:PipzoNet:92:WPA2\n", "")
+        if argv[1:5] == ["-t", "-f", "DEVICE,TYPE,STATE", "device"]:
+            return CommandResult(0, "wlan0:wifi:connected\neth0:ethernet:connected\n", "")
+        if argv[1:5] == ["-t", "-f", "IP4.ADDRESS", "device"]:
+            return CommandResult(0, "IP4.ADDRESS[1]:192.168.1.42/24\n", "")
+        return CommandResult(0, "", "")
+
+    adapter = NmcliNetworkAdapter(runner=runner, nmcli_path="/usr/bin/nmcli")
+    adapter._internet_reachable = lambda: True  # type: ignore[method-assign]
+
+    health = adapter.status()
+
+    assert health.status == "online"
+    assert health.ssid == "PipzoNet"
+    assert health.ip_address == "192.168.1.42"
+    assert ["/usr/bin/nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", "wlan0"] in calls

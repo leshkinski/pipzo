@@ -28,7 +28,7 @@ function readySnapshot(): AppSnapshot {
       minimumReady: true,
     },
     health: {
-      network: { status: "online", ssid: "PipzoNet", internetReachable: true },
+      network: { status: "online", ssid: "PipzoNet", ipAddress: "192.168.1.42", internetReachable: true },
       spotifyAuth: { status: "connected", accountDisplayName: "Pipzo" },
       speaker: {
         status: "connected",
@@ -211,6 +211,7 @@ wifiLocalOnly.health.network = {
   status: "local_only",
   reason: "internet_probe_failed",
   ssid: "PipzoNet",
+  ipAddress: "192.168.1.42",
   internetReachable: false,
 };
 wifiLocalOnly.warnings = [{ code: "network_local_only", reason: "internet_probe_failed" }];

@@ -421,6 +421,7 @@ export type WifiAction = "scan" | "connect" | "retry" | "forget";
 export type WifiSetupViewModel = {
   title: string;
   detail: string;
+  ipAddressLabel: string;
   tone: "ready" | "waiting" | "attention";
   actions: WifiAction[];
 };
@@ -431,6 +432,7 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
     return {
       title: network.ssid ? `Connected to ${network.ssid}` : "Wi-Fi connected",
       detail: "Internet is reachable. Continue setup from this device.",
+      ipAddressLabel: network.ipAddress ?? "Unknown",
       tone: "ready",
       actions: ["scan", "forget"],
     };
@@ -439,6 +441,7 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
     return {
       title: network.ssid ? `${network.ssid} has no internet` : "Wi-Fi has no internet",
       detail: "Pipzo can show settings, but Spotify setup and playback need internet access.",
+      ipAddressLabel: network.ipAddress ?? "Unknown",
       tone: "attention",
       actions: ["retry", "scan", "forget"],
     };
@@ -447,6 +450,7 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
     return {
       title: "Checking Wi-Fi",
       detail: "The backend is waiting for NetworkManager before showing recovery choices.",
+      ipAddressLabel: "Unknown",
       tone: "waiting",
       actions: ["scan"],
     };
@@ -455,6 +459,7 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
     return {
       title: "Choose a Wi-Fi network",
       detail: "Select the home network, enter its password when needed, then connect.",
+      ipAddressLabel: "Unknown",
       tone: "attention",
       actions: ["scan", "connect"],
     };
@@ -462,6 +467,7 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
   return {
     title: "Connect Wi-Fi",
     detail: network.reason ? `Current state: ${labelFromId(network.reason)}.` : "Scan for nearby Wi-Fi networks.",
+    ipAddressLabel: "Unknown",
     tone: "attention",
     actions: ["scan"],
   };

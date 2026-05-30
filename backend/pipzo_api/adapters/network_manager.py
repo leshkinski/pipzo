@@ -3,6 +3,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from ipaddress import IPv4Address, ip_interface
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 from pipzo_api.contract import (
@@ -108,6 +109,21 @@ def parse_wifi_scan(stdout: str, known_ssids: Iterable[str]) -> List[WifiNetwork
     return sorted(by_ssid.values(), key=lambda item: item.signal, reverse=True)
 
 
+def parse_nmcli_ipv4_address(stdout: str) -> Optional[str]:
+    for line in stdout.splitlines():
+        fields = parse_nmcli_terse_line(line)
+        candidate = fields[-1].strip() if fields else ""
+        if not candidate:
+            continue
+        try:
+            address = ip_interface(candidate).ip
+        except ValueError:
+            continue
+        if isinstance(address, IPv4Address) and not address.is_loopback and not address.is_link_local:
+            return str(address)
+    return None
+
+
 def map_nmcli_failure(stderr: str, stdout: str = "") -> NetworkReason:
     text = f"{stderr}\n{stdout}".lower()
     if "secrets were required" in text or "no secrets" in text or "password" in text:
@@ -148,13 +164,15 @@ class NmcliNetworkAdapter:
         active_ssid = self._active_ssid()
         if active_ssid is None:
             return NetworkHealth(status=NetworkStatus.OFFLINE, reason=NetworkReason.NO_KNOWN_NETWORK, internet_reachable=False)
+        ip_address = self._active_ipv4_address()
         internet_reachable = self._internet_reachable()
         if internet_reachable:
-            return NetworkHealth(status=NetworkStatus.ONLINE, ssid=active_ssid, internet_reachable=True)
+            return NetworkHealth(status=NetworkStatus.ONLINE, ssid=active_ssid, ip_address=ip_address, internet_reachable=True)
         return NetworkHealth(
             status=NetworkStatus.LOCAL_ONLY,
             reason=NetworkReason.INTERNET_PROBE_FAILED,
             ssid=active_ssid,
+            ip_address=ip_address,
             internet_reachable=False,
         )
 
@@ -244,6 +262,25 @@ class NmcliNetworkAdapter:
             if len(fields) >= 2 and fields[0].lower() == "yes" and fields[1]:
                 return fields[1]
         return None
+
+    def _active_wifi_device(self) -> Optional[str]:
+        result = self._run(["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"], timeout_seconds=10)
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            fields = parse_nmcli_terse_line(line)
+            if len(fields) >= 3 and fields[1] == "wifi" and fields[2].lower() == "connected" and fields[0]:
+                return fields[0]
+        return None
+
+    def _active_ipv4_address(self) -> Optional[str]:
+        device = self._active_wifi_device()
+        if device is None:
+            return None
+        result = self._run(["-t", "-f", "IP4.ADDRESS", "device", "show", device], timeout_seconds=10)
+        if result.returncode != 0:
+            return None
+        return parse_nmcli_ipv4_address(result.stdout)
 
     def _known_ssids(self) -> List[str]:
         return [name for name, _uuid in self._wifi_profiles()]

@@ -620,7 +620,7 @@ export function App() {
       } else {
         setSnapshot((current) => ({
           ...current,
-          health: { ...current.health, network: { status: "online", ssid: selectedWifiSsid, internetReachable: true } },
+          health: { ...current.health, network: { status: "online", ssid: selectedWifiSsid, ipAddress: "192.168.1.42", internetReachable: true } },
           readiness: { ...current.readiness, networkConfigured: true },
           setup: { ...current.setup, blockingStep: current.setup.blockingStep === "wifi" ? "spotify_auth" : current.setup.blockingStep },
         }));
@@ -646,7 +646,12 @@ export function App() {
           ...current,
           health: {
             ...current.health,
-            network: { status: "online", ssid: current.health.network.ssid ?? (selectedWifiSsid || "PipzoNet"), internetReachable: true },
+            network: {
+              status: "online",
+              ssid: current.health.network.ssid ?? (selectedWifiSsid || "PipzoNet"),
+              ipAddress: current.health.network.ipAddress ?? "192.168.1.42",
+              internetReachable: true,
+            },
           },
         }));
         setWifiMessage("Local internet probe succeeded.");
@@ -1645,6 +1650,10 @@ function WifiPanel({
           <div className="spotify-status">
             <span>Network</span>
             <strong>{snapshot.health.network.ssid ?? (controls.selectedSsid || "Not selected")}</strong>
+          </div>
+          <div className="spotify-status">
+            <span>IP address</span>
+            <strong>{view.ipAddressLabel}</strong>
           </div>
         </div>
         <p className="subtle">{controls.message}</p>

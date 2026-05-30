@@ -115,7 +115,7 @@ def _base_snapshot() -> AppSnapshot:
             minimum_ready=True,
         ),
         health=HealthState(
-            network=NetworkHealth(status=NetworkStatus.ONLINE, ssid="PipzoNet", internet_reachable=True),
+            network=NetworkHealth(status=NetworkStatus.ONLINE, ssid="PipzoNet", ip_address="192.168.1.42", internet_reachable=True),
             spotify_auth=SpotifyAuthHealth(status=SpotifyAuthStatus.CONNECTED, account_display_name="Pipzo"),
             speaker=SpeakerHealth(status=SpeakerStatus.CONNECTED, primary=speaker),
             playback_device=PlaybackDeviceHealth(status=PlaybackDeviceStatus.AVAILABLE, device_id="pipzo-web-player"),
@@ -612,7 +612,7 @@ class MockScenarioStore:
                 started_at=now,
                 completed_at=now,
             )
-        self._snapshot.health.network = NetworkHealth(status=NetworkStatus.ONLINE, ssid=ssid, internet_reachable=True)
+        self._snapshot.health.network = NetworkHealth(status=NetworkStatus.ONLINE, ssid=ssid, ip_address="192.168.1.42", internet_reachable=True)
         self._snapshot.readiness.network_configured = True
         if self._snapshot.setup.blocking_step == SetupStepId.WIFI:
             self._snapshot.setup = SetupState(blocking_step=SetupStepId.SPOTIFY_AUTH, steps=_setup_steps(SetupStepId.SPOTIFY_AUTH))
@@ -651,6 +651,7 @@ class MockScenarioStore:
             self._snapshot.health.network = NetworkHealth(
                 status=NetworkStatus.ONLINE,
                 ssid=self._snapshot.health.network.ssid,
+                ip_address=self._snapshot.health.network.ip_address or "192.168.1.42",
                 internet_reachable=True,
             )
             self._snapshot.updated_at = now

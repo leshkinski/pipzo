@@ -143,7 +143,7 @@ export type SpeakerSummary = {
 };
 
 export type HealthState = {
-  network: { status: NetworkStatus; reason?: NetworkReason; ssid?: string; internetReachable?: boolean };
+  network: { status: NetworkStatus; reason?: NetworkReason; ssid?: string; ipAddress?: string; internetReachable?: boolean };
   spotifyAuth: { status: SpotifyAuthStatus; reason?: SpotifyAuthReason; accountDisplayName?: string };
   speaker: { status: SpeakerStatus; reason?: SpeakerReason; primary?: SpeakerSummary };
   playbackDevice: { status: PlaybackDeviceStatus; reason?: PlaybackDeviceReason; deviceId?: string };

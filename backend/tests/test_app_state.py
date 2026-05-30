@@ -38,7 +38,7 @@ class FakeNetworkAdapter:
         return None
 
     def status(self) -> NetworkHealth:
-        return NetworkHealth(status="online", ssid=self.connected_ssid, internet_reachable=True)
+        return NetworkHealth(status="online", ssid=self.connected_ssid, ip_address="192.168.1.42", internet_reachable=True)
 
     def scan(self) -> RecoveryAction:
         return self._action("network-scan", "succeeded")
@@ -617,6 +617,7 @@ def test_network_mock_scan_connect_retry_and_forget_update_state(tmp_path):
     assert connect_response.status_code == 200
     assert connect_response.json()["state"] == "succeeded"
     assert connected_state["health"]["network"]["status"] == "online"
+    assert connected_state["health"]["network"]["ipAddress"] == "192.168.1.42"
     assert connected_state["setup"]["blockingStep"] == "spotify_auth"
     assert forget_response.status_code == 200
     assert forgotten_state["health"]["network"]["status"] == "offline"
@@ -715,6 +716,7 @@ def test_hardware_network_adapter_success_path_projects_readiness(tmp_path):
     assert scan_results_response.json()["networks"][0]["ssid"] == "PipzoNet"
     assert connect_response.json()["state"] == "succeeded"
     assert status_response.json()["ssid"] == "BedroomNet"
+    assert status_response.json()["ipAddress"] == "192.168.1.42"
     assert retry_response.json()["state"] == "succeeded"
     assert "secret" not in str(connect_response.json())
 
