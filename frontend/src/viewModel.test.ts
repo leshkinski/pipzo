@@ -314,6 +314,7 @@ describe("kiosk shell view model", () => {
     expect(rootRule).toContain("--pipzo-viewport-height: 100dvh");
     expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
     expect(appRule).toContain("height: var(--pipzo-viewport-height)");
+    expect(appRule).toContain("overflow: hidden");
     expect(appRule).toContain("padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px))");
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
   });
@@ -330,6 +331,40 @@ describe("kiosk shell view model", () => {
     expect(sideStackRule).toContain("overflow-y: auto");
     expect(sideStackRule).toContain("overscroll-behavior: contain");
     expect(sideStackRule).toContain("padding-bottom: max(12px, var(--pipzo-keyboard-inset))");
+  });
+
+  it("prevents accidental text selection while preserving text entry selection", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const bodyRule = css.match(/body\s*\{[^}]+\}/)?.[0] ?? "";
+    const appNoSelectRule = css.match(/button,\nselect,\nlabel,\n\.app,[^}]+\}/)?.[0] ?? "";
+    const textEntryRule = css.match(/input,\ntextarea\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(bodyRule).toContain("user-select: none");
+    expect(appNoSelectRule).toContain(".library-list button");
+    expect(appNoSelectRule).toContain("-webkit-touch-callout: none");
+    expect(textEntryRule).toContain("user-select: text");
+    expect(textEntryRule).toContain("-webkit-touch-callout: default");
+  });
+
+  it("uses bounded direct-panning regions instead of whole-page scrolling", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const shellRules: string[] = css.match(/\.shell\s*\{[^}]+\}/g) ?? [];
+    const shellRule = shellRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
+    const surfaceRule = css.match(/\.surface\s*\{[^}]+\}/)?.[0] ?? "";
+    const sideStackRules: string[] = css.match(/\.side-stack\s*\{[^}]+\}/g) ?? [];
+    const sideStackRule = sideStackRules.find((rule) => rule.includes("touch-action: pan-y")) ?? "";
+    const listButtonRule = css.match(/\.library-list button\s*\{[^}]+\}/)?.[0] ?? "";
+    const scrollbarRule = css.match(/\.app::-webkit-scrollbar,\n\.surface::-webkit-scrollbar,[^}]+\}/)?.[0] ?? "";
+    const scrollbarTrackRule = css.match(/\.app::-webkit-scrollbar-track,\n\.surface::-webkit-scrollbar-track,[^}]+\}/)?.[0] ?? "";
+
+    expect(shellRule).toContain("overflow: hidden");
+    expect(surfaceRule).toContain("height: 100%");
+    expect(surfaceRule).toContain("touch-action: pan-y");
+    expect(sideStackRule).toContain("overflow-y: auto");
+    expect(sideStackRule).toContain("touch-action: pan-y");
+    expect(listButtonRule).toContain("touch-action: pan-y");
+    expect(scrollbarRule).toContain("width: 14px");
+    expect(scrollbarTrackRule).toContain("background: transparent");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

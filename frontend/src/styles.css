@@ -26,6 +26,9 @@ body {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 button,
@@ -36,21 +39,42 @@ input {
 
 button,
 select,
+label,
+.app,
 .nav,
 .chip,
+.topbar,
+.developer-panel,
+.warning-band,
+.degraded-banner,
+.hero-panel,
+.player-panel,
+.art-panel,
+.setup-completion-panel,
+.spotify-panel,
+.wifi-panel,
+.speaker-panel,
+.volume-panel,
+.sleep-timer,
+.idle-settings,
 .library-section-heading,
+.library-list button,
+.category-tabs,
 .step,
 .health-row,
+.tile-grid,
 .actions,
 .spotify-status {
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 input,
 textarea {
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 button {
@@ -68,14 +92,14 @@ button:disabled {
 }
 
 .app {
+  display: flex;
+  flex-direction: column;
   height: var(--pipzo-viewport-height);
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   padding: 18px;
   padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px));
-  scrollbar-gutter: stable;
-  -webkit-overflow-scrolling: touch;
 }
 
 .app.keyboard-active {
@@ -83,22 +107,29 @@ button:disabled {
 }
 
 .app::-webkit-scrollbar,
-.surface::-webkit-scrollbar {
-  width: 24px;
-  height: 24px;
+.surface::-webkit-scrollbar,
+.side-stack::-webkit-scrollbar,
+.settings-layout::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
 }
 
 .app::-webkit-scrollbar-track,
-.surface::-webkit-scrollbar-track {
-  background: #e5dfd3;
+.surface::-webkit-scrollbar-track,
+.side-stack::-webkit-scrollbar-track,
+.settings-layout::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .app::-webkit-scrollbar-thumb,
-.surface::-webkit-scrollbar-thumb {
+.surface::-webkit-scrollbar-thumb,
+.side-stack::-webkit-scrollbar-thumb,
+.settings-layout::-webkit-scrollbar-thumb {
   min-height: 72px;
-  border: 5px solid #e5dfd3;
+  border: 4px solid transparent;
   border-radius: 999px;
-  background: #2f6f73;
+  background: rgba(47, 111, 115, 0.58);
+  background-clip: content-box;
 }
 
 .topbar,
@@ -275,7 +306,9 @@ button:disabled {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
   gap: 16px;
+  flex: 1;
   margin-top: 16px;
+  overflow: hidden;
   min-height: 0;
 }
 
@@ -298,11 +331,13 @@ button:disabled {
 }
 
 .surface {
-  min-height: min(580px, calc(var(--pipzo-viewport-height) - 132px));
-  max-height: calc(var(--pipzo-viewport-height) - 132px);
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-right: 8px;
   padding-bottom: max(8px, var(--pipzo-keyboard-inset));
   scrollbar-gutter: stable;
@@ -338,10 +373,18 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
   gap: 16px;
+  min-height: 100%;
 }
 
 .settings-layout {
   grid-template-columns: 1fr;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding-right: 8px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .hero-panel,
@@ -601,6 +644,7 @@ button:disabled {
   min-height: 78px;
   padding: 10px 12px;
   text-align: left;
+  touch-action: pan-y;
 }
 
 .library-list small {
@@ -636,6 +680,13 @@ button:disabled {
 
 .side-stack {
   align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .art-panel {
