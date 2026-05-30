@@ -1721,7 +1721,7 @@ function NowPlayingSurface({
   return (
     <div className="surface-grid">
       <section className="art-panel" aria-label="Artwork placeholder">
-        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" /> : <div>P</div>}
+        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>P</div>}
       </section>
       <section className="player-panel">
         <p className="eyebrow">Now Playing</p>

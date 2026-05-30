@@ -36,6 +36,8 @@ class FakeInputElement extends FakeElement {
   }
 }
 
+class FakeImageElement extends FakeElement {}
+
 class FakeRoot extends FakeElement {
   listeners = new Map<string, Listener[]>();
 
@@ -68,6 +70,7 @@ class FakeRoot extends FakeElement {
 describe("explicit drag scroll", () => {
   const originalElement = globalThis.Element;
   const originalHtmlElement = globalThis.HTMLElement;
+  const originalHtmlImageElement = globalThis.HTMLImageElement;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -75,12 +78,15 @@ describe("explicit drag scroll", () => {
     globalThis.Element = FakeElement;
     // @ts-expect-error Tests provide only the HTMLElement behavior the drag utility needs.
     globalThis.HTMLElement = FakeElement;
+    // @ts-expect-error Tests provide only the image instance check the drag utility needs.
+    globalThis.HTMLImageElement = FakeImageElement;
   });
 
   afterEach(() => {
     vi.useRealTimers();
     globalThis.Element = originalElement;
     globalThis.HTMLElement = originalHtmlElement;
+    globalThis.HTMLImageElement = originalHtmlImageElement;
   });
 
   it("waits for the movement threshold before changing scrollTop or suppressing clicks", () => {
@@ -217,5 +223,21 @@ describe("explicit drag scroll", () => {
 
     expect(sideStack.scrollTop).toBe(0);
     expect(surface.scrollTop).toBe(30);
+  });
+
+  it("prevents native browser image dragging without suppressing clicks", () => {
+    const root = new FakeRoot();
+    const image = new FakeImageElement(false);
+    image.parentElement = root;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const dragStart = { target: image, preventDefault: vi.fn() };
+    const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+    root.dispatch("dragstart", dragStart);
+    root.dispatch("click", click);
+
+    expect(dragStart.preventDefault).toHaveBeenCalledTimes(1);
+    expect(click.preventDefault).not.toHaveBeenCalled();
+    expect(click.stopPropagation).not.toHaveBeenCalled();
   });
 });

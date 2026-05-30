@@ -137,6 +137,12 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     drag = null;
   }
 
+  function onDragStart(event: DragEvent) {
+    if (event.target instanceof HTMLImageElement) {
+      event.preventDefault();
+    }
+  }
+
   root.addEventListener("pointerdown", onPointerDown, { passive: true });
   root.addEventListener("pointermove", onPointerMove, { passive: false });
   root.addEventListener("pointerup", onPointerEnd, { passive: true });
@@ -146,6 +152,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
   root.addEventListener("touchend", onTouchEnd, { passive: true });
   root.addEventListener("touchcancel", onTouchEnd, { passive: true });
   root.addEventListener("click", onClick, true);
+  root.addEventListener("dragstart", onDragStart, true);
 
   return () => {
     root.removeEventListener("pointerdown", onPointerDown);
@@ -157,6 +164,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     root.removeEventListener("touchend", onTouchEnd);
     root.removeEventListener("touchcancel", onTouchEnd);
     root.removeEventListener("click", onClick, true);
+    root.removeEventListener("dragstart", onDragStart, true);
   };
 }
 
