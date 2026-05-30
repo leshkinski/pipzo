@@ -441,4 +441,22 @@ def _dedupe_devices(devices: Iterable[SpeakerDevice]) -> List[SpeakerDevice]:
     by_address: dict[str, SpeakerDevice] = {}
     for device in devices:
         by_address[device.address.upper()] = device
-    return sorted(by_address.values(), key=lambda item: item.display_name.lower())
+    by_identity: dict[str, SpeakerDevice] = {}
+    for device in by_address.values():
+        key = _speaker_identity_key(device.display_name)
+        existing = by_identity.get(key)
+        if existing is None or (_is_le_advertising_name(existing.display_name) and not _is_le_advertising_name(device.display_name)):
+            by_identity[key] = device
+    return sorted(by_identity.values(), key=lambda item: item.display_name.lower())
+
+
+def _speaker_identity_key(display_name: str) -> str:
+    normalized = display_name.strip().lower()
+    if _is_le_advertising_name(normalized):
+        return normalized[3:]
+    return normalized
+
+
+def _is_le_advertising_name(display_name: str) -> bool:
+    normalized = display_name.strip().lower()
+    return normalized.startswith("le_") or normalized.startswith("le-")

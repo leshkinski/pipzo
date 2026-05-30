@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi.testclient import TestClient
 
+from pipzo_api.adapters.bluez import BluetoothCommandResult
 from pipzo_api.config import Settings, get_settings
 from pipzo_api.contract import (
     NetworkHealth,
@@ -848,6 +849,55 @@ def test_hardware_bluetooth_adapter_success_path_projects_speaker_readiness(tmp_
     assert status_response.json()["status"] == "connected"
     assert reconnect_response.json()["state"] == "succeeded"
     assert forget_response.json()["state"] == "succeeded"
+
+
+def test_hardware_bluetooth_scan_results_keep_discovery_only_candidates(monkeypatch, tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                        "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(1, "", "Device 20:64:DE:30:D6:F2 not available\n")
+        if input_text == "info C8:0A:B8:D7:4F:2C\n":
+            return BluetoothCommandResult(1, "", "Device C8:0A:B8:D7:4F:2C not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    from pipzo_api.adapters.bluez import BluetoothctlAdapter
+
+    monkeypatch.setattr(
+        "pipzo_api.main.BluetoothctlAdapter",
+        lambda store: BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl"),
+    )
+
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-bluetooth-discovery-cache.sqlite3"))
+
+    with make_client(settings=settings, network_adapter_override=FakeNetworkAdapter()) as client:
+        scan_response = client.post("/api/v1/speaker/scan")
+        scan_results_response = client.get("/api/v1/speaker/scan-results")
+
+    assert scan_response.status_code == 200
+    assert scan_response.json()["state"] == "succeeded"
+    assert scan_results_response.status_code == 200
+    assert [device["address"] for device in scan_results_response.json()["devices"]] == ["20:64:DE:30:D6:F2"]
+    assert scan_results_response.json()["devices"][0]["displayName"] == "SRS-XE300"
+    assert calls.count((["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None)) == 1
 
 
 def test_hardware_bluetooth_pair_logs_action_result_reason(capsys, tmp_path):

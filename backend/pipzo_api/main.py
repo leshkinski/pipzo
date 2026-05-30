@@ -125,8 +125,16 @@ def create_app(
     def network_adapter(settings: Settings) -> NetworkManagerAdapter:
         return network_adapter_override or NmcliNetworkAdapter(internet_probe_url=settings.pipzo_internet_probe_url)
 
+    bluetooth_adapter_by_db_path: dict[str, BlueZAdapter] = {}
+
     def bluetooth_adapter(settings: Settings) -> BlueZAdapter:
-        return bluetooth_adapter_override or BluetoothctlAdapter(BluetoothSpeakerStore(settings.db_path))
+        if bluetooth_adapter_override is not None:
+            return bluetooth_adapter_override
+        adapter = bluetooth_adapter_by_db_path.get(settings.db_path)
+        if adapter is None:
+            adapter = BluetoothctlAdapter(BluetoothSpeakerStore(settings.db_path))
+            bluetooth_adapter_by_db_path[settings.db_path] = adapter
+        return adapter
 
     def volume_adapter(settings: Settings) -> VolumeAdapter:
         return volume_adapter_override or PipeWireVolumeAdapter(audio_user=settings.pipzo_audio_user or None)

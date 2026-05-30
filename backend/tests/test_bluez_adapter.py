@@ -152,6 +152,40 @@ def test_adapter_scan_keeps_devices_seen_only_in_discovery_output(tmp_path):
     assert calls.count((["/usr/bin/bluetoothctl"], 2, "info 20:64:DE:30:D6:F2\n")) == 1
 
 
+def test_adapter_scan_prefers_classic_identity_over_matching_le_advertisement(tmp_path):
+    def runner(argv, timeout_seconds, input_text=None):
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                        "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "", "")
+        if input_text and input_text.startswith("info "):
+            return BluetoothCommandResult(1, "", "Device not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-le-classic.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.scan()
+    results = adapter.scan_results()
+
+    assert action.state == "succeeded"
+    assert [device.address for device in results.devices] == ["20:64:DE:30:D6:F2"]
+    assert results.devices[0].display_name == "SRS-XE300"
+
+
 def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
     calls = []
     device_state = {"paired": False, "trusted": False, "connected": False}
