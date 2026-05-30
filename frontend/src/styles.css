@@ -96,6 +96,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 18px;
   padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px));
   scrollbar-gutter: stable;
@@ -327,6 +328,7 @@ button:disabled {
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-right: 8px;
   padding-bottom: max(8px, var(--pipzo-keyboard-inset));
   scrollbar-gutter: stable;
@@ -556,6 +558,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-bottom: max(12px, var(--pipzo-keyboard-inset));
   -webkit-overflow-scrolling: touch;
 }

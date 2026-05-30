@@ -349,6 +349,7 @@ describe("kiosk shell view model", () => {
   it("keeps direct finger panning on page and surface scrollers without button-level touch overrides", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
+    const keyboardSideStackRule = css.match(/\.app\.keyboard-surface-browse \.side-stack\s*\{[^}]+\}/)?.[0] ?? "";
     const shellRules: string[] = css.match(/\.shell\s*\{[^}]+\}/g) ?? [];
     const shellRule = shellRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const surfaceRule = css.match(/\.surface\s*\{[^}]+\}/)?.[0] ?? "";
@@ -359,12 +360,14 @@ describe("kiosk shell view model", () => {
     const scrollbarTrackRule = css.match(/\.app::-webkit-scrollbar-track,\s*\.surface::-webkit-scrollbar-track\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(appRule).toContain("overflow-y: auto");
+    expect(appRule).toContain("touch-action: pan-y");
     expect(appRule).toContain("-webkit-overflow-scrolling: touch");
     expect(shellRule).not.toContain("overflow: hidden");
     expect(surfaceRule).toContain("min-height: min(580px, calc(var(--pipzo-viewport-height) - 132px))");
     expect(surfaceRule).toContain("max-height: calc(var(--pipzo-viewport-height) - 132px)");
     expect(surfaceRule).toContain("overflow-y: auto");
-    expect(surfaceRule).not.toContain("touch-action: pan-y");
+    expect(surfaceRule).toContain("touch-action: pan-y");
+    expect(keyboardSideStackRule).toContain("touch-action: pan-y");
     expect(sideStackRule).not.toContain("overflow-y: auto");
     expect(sideStackRule).not.toContain("touch-action: pan-y");
     expect(listButtonRule).not.toContain("touch-action: pan-y");
