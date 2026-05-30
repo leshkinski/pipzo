@@ -42,7 +42,9 @@ The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/
 
 If the polkit rules directory is missing on a nonstandard image, hardware Wi-Fi actions will report unavailable or permission failures until equivalent NetworkManager permissions are added manually. If `bluetoothctl` is missing, Bluetooth is disabled, the backend user lacks BlueZ access, or the speaker rejects pairing/connection, hardware Bluetooth actions report unavailable or failed contract states rather than simulated success.
 
-Unified volume control uses Spotify Web API volume updates plus the local desktop audio sink when available. On Raspberry Pi OS Desktop Bookworm, Pipzo expects the existing PipeWire/WirePlumber stack and prefers `wpctl`; it falls back to `pactl` if `wpctl` is unavailable. If neither command exists, the default sink is missing, or the service user cannot access the user audio session, hardware volume actions report partial or unavailable states instead of simulated success. Do not install the legacy `pulseaudio` server alongside PipeWire for Pipzo; use the OS Desktop audio stack or validate a nonstandard audio stack separately.
+Unified volume control uses Spotify Web API volume updates plus the local desktop audio sink when available. On Raspberry Pi OS Desktop Bookworm, Pipzo expects the existing PipeWire/WirePlumber stack and prefers `wpctl`; it falls back to `pactl` if `wpctl` is unavailable. `install-app.sh --kiosk-user USER` seeds `PIPZO_AUDIO_USER=USER` in new `/etc/pipzo/pipzo.env` files so the backend invokes audio tools with `XDG_RUNTIME_DIR=/run/user/<uid>` and the matching user D-Bus address. Existing installs should add or update `PIPZO_AUDIO_USER` manually, then restart `pipzo-backend.service`.
+
+If neither command exists, the default sink is missing, `/run/user/<uid>` is not active, or the backend service user cannot access the kiosk user's PipeWire session, hardware volume actions report partial or unavailable states with `os_sink_missing`, `audio_session_unavailable`, or `permission_denied` rather than simulated success. Do not install the legacy `pulseaudio` server alongside PipeWire for Pipzo; use the OS Desktop audio stack or validate a nonstandard audio stack separately. If `PIPZO_AUDIO_USER` is set correctly and `permission_denied` persists, do not grant broad sudo or shell access to the backend service as a workaround; run the backend under the desktop user in a deliberately reviewed service configuration or add a narrow, auditable PipeWire access mechanism.
 
 Wi-Fi internet reachability uses `PIPZO_INTERNET_PROBE_URL`, defaulting to `https://www.google.com/generate_204`. Change this in `/etc/pipzo/pipzo.env` if the deployment network blocks that endpoint. Network settings shows the active Wi-Fi IPv4 address when available so the Pi can be identified for SSH/debug during hardware validation.
 
@@ -69,6 +71,9 @@ Backend status and logs:
 ```bash
 systemctl status pipzo-backend.service
 journalctl -u pipzo-backend.service -f
+systemctl show pipzo-backend.service -p User -p Group -p Environment
+PID="$(systemctl show -p MainPID --value pipzo-backend.service)"
+sudo sh -c "tr '\0' '\n' </proc/$PID/environ" | grep -E '^(PIPZO_AUDIO_USER|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)=' || true
 ```
 
 Kiosk status and logs:
@@ -76,6 +81,21 @@ Kiosk status and logs:
 ```bash
 systemctl --user status pipzo-kiosk.service
 journalctl --user -u pipzo-kiosk.service -f
+```
+
+Audio session diagnostics:
+
+```bash
+which wpctl || true
+which pactl || true
+wpctl status
+systemctl --user status pipewire wireplumber
+id
+echo "$XDG_RUNTIME_DIR"
+curl -s http://127.0.0.1:8000/api/v1/app/state | python3 -m json.tool | sed -n '/"volume"/,/"display"/p'
+curl -s -X PATCH http://127.0.0.1:8000/api/v1/volume \
+  -H 'Content-Type: application/json' \
+  -d '{"value":35,"muted":false}' | python3 -m json.tool
 ```
 
 Both services are supervised by systemd. The backend restarts on failure after five seconds. The kiosk launcher restarts Chromium after three seconds so a browser crash returns to the local app URL.

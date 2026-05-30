@@ -22,7 +22,8 @@ from pipzo_api.spotify_auth import (
     should_refresh_spotify_access_token,
 )
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
-from pipzo_api.contract import VolumeHealth
+from pipzo_api.contract import VolumeHealth, VolumeReason
+from pipzo_api.adapters.volume import VolumeUnavailable
 
 
 def make_settings(tmp_path, **overrides) -> Settings:
@@ -230,8 +231,9 @@ class FakeSpotifyClient:
 
 
 class FakeVolumeAdapter:
-    def __init__(self, health: Optional[VolumeHealth] = None) -> None:
+    def __init__(self, health: Optional[VolumeHealth] = None, unavailable_reason: Optional[VolumeReason] = None) -> None:
         self.health = health or VolumeHealth(status="os_only", value=40, muted=False)
+        self.unavailable_reason = unavailable_reason
         self.set_calls: list[tuple[int, bool]] = []
 
     def probe(self) -> None:
@@ -242,6 +244,8 @@ class FakeVolumeAdapter:
 
     def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
         self.set_calls.append((value, muted))
+        if self.unavailable_reason is not None:
+            raise VolumeUnavailable(self.unavailable_reason)
         self.health = VolumeHealth(status="os_only", value=value, muted=muted)
         return self.health
 
@@ -1016,6 +1020,24 @@ def test_hardware_volume_patch_reports_partial_os_only_when_spotify_volume_fails
         "reason": "spotify_volume_unsupported",
         "value": 31,
         "muted": True,
+    }
+
+
+def test_hardware_volume_patch_reports_spotify_only_when_os_audio_session_unavailable(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings)
+    spotify_client = FakeSpotifyClient()
+    volume_adapter = FakeVolumeAdapter(unavailable_reason=VolumeReason.AUDIO_SESSION_UNAVAILABLE)
+
+    with make_client(settings, spotify_client=spotify_client, volume_adapter_override=volume_adapter) as client:
+        response = client.patch("/api/v1/volume", json={"value": 45, "muted": False})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "spotify_only",
+        "reason": "audio_session_unavailable",
+        "value": 45,
+        "muted": False,
     }
 
 

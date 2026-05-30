@@ -1,8 +1,10 @@
+import os
+import pwd
 import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 from pipzo_api.contract import VolumeHealth, VolumeReason, VolumeStatus
 
@@ -26,14 +28,15 @@ class CommandResult:
     stderr: str
 
 
-CommandRunner = Callable[[Sequence[str]], CommandResult]
+CommandRunner = Callable[[Sequence[str], Mapping[str, str]], CommandResult]
 
 
 class PipeWireVolumeAdapter:
     """Controls the default desktop audio sink through WirePlumber or PipeWire Pulse."""
 
-    def __init__(self, runner: Optional[CommandRunner] = None) -> None:
+    def __init__(self, runner: Optional[CommandRunner] = None, audio_user: Optional[str] = None) -> None:
         self._runner = runner or self._run
+        self._audio_user = audio_user.strip() if audio_user else None
 
     def probe(self) -> None:
         self._backend()
@@ -88,7 +91,7 @@ class PipeWireVolumeAdapter:
         return VolumeHealth(status=VolumeStatus.OS_ONLY, value=value, muted=muted)
 
     def _checked(self, command: Sequence[str]) -> CommandResult:
-        result = self._runner(command)
+        result = self._runner(command, self._command_env())
         if result.returncode == 0:
             return result
         reason = classify_volume_error(result.stderr or result.stdout)
@@ -96,8 +99,25 @@ class PipeWireVolumeAdapter:
             raise VolumeUnavailable(reason)
         raise VolumeCommandError(reason)
 
-    def _run(self, command: Sequence[str]) -> CommandResult:
-        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=5)
+    def _command_env(self) -> Mapping[str, str]:
+        if not self._audio_user:
+            return {}
+        try:
+            uid = pwd.getpwnam(self._audio_user).pw_uid
+        except KeyError:
+            raise VolumeUnavailable(VolumeReason.AUDIO_SESSION_UNAVAILABLE)
+        runtime_dir = f"/run/user/{uid}"
+        if not os.path.isdir(runtime_dir):
+            raise VolumeUnavailable(VolumeReason.AUDIO_SESSION_UNAVAILABLE)
+        return {
+            "XDG_RUNTIME_DIR": runtime_dir,
+            "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime_dir}/bus",
+        }
+
+    def _run(self, command: Sequence[str], command_env: Mapping[str, str]) -> CommandResult:
+        env = os.environ.copy()
+        env.update(command_env)
+        completed = subprocess.run(command, capture_output=True, check=False, text=True, timeout=5, env=env)
         return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 
@@ -130,6 +150,17 @@ def classify_volume_error(output: str) -> VolumeReason:
     normalized = output.lower()
     if "permission" in normalized or "access denied" in normalized or "not authorized" in normalized:
         return VolumeReason.PERMISSION_DENIED
+    if (
+        "xdg_runtime_dir" in normalized
+        or "xdg-runtime-dir" in normalized
+        or "no xdg runtime" in normalized
+        or "host is down" in normalized
+        or "could not connect to pipewire" in normalized
+        or "failed to connect to pipewire" in normalized
+        or "connection failure" in normalized
+        or "connection terminated" in normalized
+    ):
+        return VolumeReason.AUDIO_SESSION_UNAVAILABLE
     if (
         "no such entity" in normalized
         or "not found" in normalized

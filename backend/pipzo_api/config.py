@@ -47,6 +47,7 @@ class Settings(BaseSettings):
         default="https://www.google.com/generate_204",
         validation_alias="PIPZO_INTERNET_PROBE_URL",
     )
+    pipzo_audio_user: str = Field(default="", validation_alias="PIPZO_AUDIO_USER")
     spotify_auth_session_ttl_seconds: int = Field(
         default=600,
         ge=1,
@@ -83,6 +84,7 @@ class Settings(BaseSettings):
         "pipzo_public_base_url",
         "pipzo_frontend_dist",
         "pipzo_internet_probe_url",
+        "pipzo_audio_user",
         "spotify_token_storage_protection",
         "pipzo_token_key_path",
         mode="before",

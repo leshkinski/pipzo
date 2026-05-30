@@ -1,5 +1,7 @@
+import os
+import pwd
 import shutil
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import pytest
 
@@ -39,7 +41,7 @@ def test_wpctl_set_volume_returns_os_status(monkeypatch):
     def fake_which(name: str) -> Optional[str]:
         return f"/usr/bin/{name}" if name == "wpctl" else None
 
-    def runner(command: Sequence[str]) -> CommandResult:
+    def runner(command: Sequence[str], command_env: Mapping[str, str]) -> CommandResult:
         commands.append(list(command))
         if list(command) == ["wpctl", "get-volume", "@DEFAULT_SINK@"]:
             return CommandResult(0, "Volume: 0.55\n", "")
@@ -61,7 +63,7 @@ def test_wpctl_set_volume_returns_os_status(monkeypatch):
 
 def test_volume_adapter_reports_missing_audio_tool(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    adapter = PipeWireVolumeAdapter(lambda command: CommandResult(0, "", ""))
+    adapter = PipeWireVolumeAdapter(lambda command, command_env: CommandResult(0, "", ""))
 
     with pytest.raises(VolumeUnavailable) as exc:
         adapter.status()
@@ -71,9 +73,49 @@ def test_volume_adapter_reports_missing_audio_tool(monkeypatch):
 
 def test_volume_adapter_maps_command_permission_failure(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/wpctl" if name == "wpctl" else None)
-    adapter = PipeWireVolumeAdapter(lambda command: CommandResult(1, "", "permission denied"))
+    adapter = PipeWireVolumeAdapter(lambda command, command_env: CommandResult(1, "", "permission denied"))
 
     with pytest.raises(VolumeCommandError) as exc:
         adapter.status()
 
     assert exc.value.reason == VolumeReason.PERMISSION_DENIED
+
+
+def test_classify_audio_session_failures_to_actionable_reason():
+    assert classify_volume_error("error: XDG_RUNTIME_DIR is invalid or not set") == VolumeReason.AUDIO_SESSION_UNAVAILABLE
+    assert classify_volume_error("failed to connect to PipeWire: Host is down") == VolumeReason.AUDIO_SESSION_UNAVAILABLE
+
+
+def test_volume_adapter_uses_configured_audio_user_runtime(monkeypatch):
+    captured_env: dict[str, str] = {}
+
+    def runner(command: Sequence[str], command_env: Mapping[str, str]) -> CommandResult:
+        captured_env.update(command_env)
+        return CommandResult(0, "Volume: 0.44\n", "")
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/wpctl" if name == "wpctl" else None)
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: type("Pw", (), {"pw_uid": 1000})())
+    monkeypatch.setattr(os.path, "isdir", lambda path: path == "/run/user/1000")
+
+    adapter = PipeWireVolumeAdapter(runner, audio_user="pi")
+
+    health = adapter.status()
+
+    assert health.value == 44
+    assert captured_env == {
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    }
+
+
+def test_volume_adapter_reports_inactive_configured_audio_user_runtime(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/wpctl" if name == "wpctl" else None)
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: type("Pw", (), {"pw_uid": 1000})())
+    monkeypatch.setattr(os.path, "isdir", lambda path: False)
+
+    adapter = PipeWireVolumeAdapter(lambda command, command_env: CommandResult(0, "", ""), audio_user="pi")
+
+    with pytest.raises(VolumeUnavailable) as exc:
+        adapter.status()
+
+    assert exc.value.reason == VolumeReason.AUDIO_SESSION_UNAVAILABLE

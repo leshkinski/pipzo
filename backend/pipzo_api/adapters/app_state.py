@@ -44,6 +44,7 @@ from pipzo_api.contract import (
 from pipzo_api.mock_scenarios import MockScenarioStore
 
 from .production import ProductionAdapters, ProductionAdapterNotImplemented
+from .volume import VolumeCommandError, VolumeUnavailable
 
 
 class AppStateAdapter(Protocol):
@@ -80,6 +81,10 @@ class ProductionAppStateAdapter:
             volume = self._adapters.volume.status()
         except ProductionAdapterNotImplemented:
             volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.OS_SINK_MISSING)
+        except VolumeUnavailable as exc:
+            volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=exc.reason)
+        except VolumeCommandError as exc:
+            volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=exc.reason)
         except Exception:
             volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.UNKNOWN)
 

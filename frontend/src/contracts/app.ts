@@ -66,6 +66,7 @@ export type VolumeReason =
   | "boot_probe_pending"
   | "spotify_volume_unsupported"
   | "os_sink_missing"
+  | "audio_session_unavailable"
   | "bluetooth_sink_missing"
   | "readback_mismatch"
   | "reconnect_resync_needed"

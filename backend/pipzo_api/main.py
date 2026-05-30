@@ -126,7 +126,7 @@ def create_app(
         return bluetooth_adapter_override or BluetoothctlAdapter(BluetoothSpeakerStore(settings.db_path))
 
     def volume_adapter(settings: Settings) -> VolumeAdapter:
-        return volume_adapter_override or PipeWireVolumeAdapter()
+        return volume_adapter_override or PipeWireVolumeAdapter(audio_user=settings.pipzo_audio_user or None)
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)

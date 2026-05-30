@@ -87,6 +87,7 @@ install -d -m 0755 "$VENV_DIR"
 if [[ ! -f "$ENV_DIR/pipzo.env" ]]; then
   sed \
     -e "s|PIPZO_FRONTEND_DIST=/opt/pipzo/app/frontend/dist|PIPZO_FRONTEND_DIST=$APP_DIR/frontend/dist|" \
+    -e "s|PIPZO_AUDIO_USER=|PIPZO_AUDIO_USER=$KIOSK_USER|" \
     "$APP_DIR/provisioning/env/pipzo.env.example" > /tmp/pipzo.env
   install -m 0640 -o root -g "$SERVICE_USER" /tmp/pipzo.env "$ENV_DIR/pipzo.env"
   rm -f /tmp/pipzo.env

@@ -150,6 +150,7 @@ class VolumeReason(str, Enum):
     BOOT_PROBE_PENDING = "boot_probe_pending"
     SPOTIFY_VOLUME_UNSUPPORTED = "spotify_volume_unsupported"
     OS_SINK_MISSING = "os_sink_missing"
+    AUDIO_SESSION_UNAVAILABLE = "audio_session_unavailable"
     BLUETOOTH_SINK_MISSING = "bluetooth_sink_missing"
     READBACK_MISMATCH = "readback_mismatch"
     RECONNECT_RESYNC_NEEDED = "reconnect_resync_needed"

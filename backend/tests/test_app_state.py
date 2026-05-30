@@ -16,11 +16,13 @@ from pipzo_api.contract import (
     SpeakerScanResults,
     SpeakerSummary,
     VolumeHealth,
+    VolumeReason,
     WifiNetwork,
     WifiScanResults,
     utc_now,
 )
 from pipzo_api.database import initialize_database
+from pipzo_api.adapters.volume import VolumeUnavailable
 from pipzo_api.main import create_app
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
 
@@ -145,14 +147,17 @@ class FakeBluetoothAdapter:
 
 
 class FakeVolumeAdapter:
-    def __init__(self, status: Optional[VolumeHealth] = None) -> None:
+    def __init__(self, status: Optional[VolumeHealth] = None, unavailable_reason: Optional[VolumeReason] = None) -> None:
         self.health = status or VolumeHealth(status="os_only", value=38, muted=False)
+        self.unavailable_reason = unavailable_reason
         self.set_calls: list[tuple[int, bool]] = []
 
     def probe(self) -> None:
         return None
 
     def status(self) -> VolumeHealth:
+        if self.unavailable_reason is not None:
+            raise VolumeUnavailable(self.unavailable_reason)
         return self.health
 
     def set_volume(self, value: int, muted: bool = False) -> VolumeHealth:
@@ -637,6 +642,28 @@ def test_hardware_app_state_projects_volume_adapter_status(tmp_path):
         "muted": False,
     }
     assert response.json()["capabilities"]["canControlVolume"] is True
+
+
+def test_hardware_app_state_preserves_volume_adapter_unavailable_reason(tmp_path):
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-volume-unavailable.sqlite3"))
+    volume = FakeVolumeAdapter(unavailable_reason=VolumeReason.AUDIO_SESSION_UNAVAILABLE)
+
+    with make_client(
+        settings,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=volume,
+    ) as client:
+        response = client.get("/api/v1/app/state")
+
+    assert response.status_code == 200
+    assert response.json()["health"]["volume"] == {
+        "status": "unavailable",
+        "reason": "audio_session_unavailable",
+        "value": None,
+        "muted": None,
+    }
+    assert response.json()["capabilities"]["canControlVolume"] is False
 
 
 def test_playback_test_and_recovery_actions_are_mockable(tmp_path):
