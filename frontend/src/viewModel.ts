@@ -119,6 +119,9 @@ export function isSetupGated(snapshot: AppSnapshot): boolean {
 }
 
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
+  if (surface === "setup") {
+    return isSetupGated(snapshot);
+  }
   if (surface === "settings") {
     return snapshot.capabilities.canOpenSettings;
   }
@@ -143,6 +146,9 @@ export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boole
 export function preferredSurface(snapshot: AppSnapshot): SurfaceId {
   if (isSetupGated(snapshot)) {
     return "setup";
+  }
+  if (snapshot.surfaces.current === "setup") {
+    return "home";
   }
   if (snapshot.appPhase === "degraded") {
     return canOpenSurface(snapshot, snapshot.surfaces.current) ? snapshot.surfaces.current : "settings";

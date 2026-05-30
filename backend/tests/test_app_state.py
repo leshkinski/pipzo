@@ -926,6 +926,44 @@ def test_hardware_playback_test_requires_sdk_device_then_persists_passed_state(t
     }
 
 
+def test_hardware_restart_after_completed_setup_defaults_to_home(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-completed-setup-restart.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    from pipzo_api.setup_store import SetupStateStore
+
+    SetupStateStore(settings.db_path).mark_playback_test_passed("pipzo-sdk-device")
+
+    with make_client(
+        settings,
+        spotify_client_override=FakeSpotifyPlaybackClient(),
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        first_state = client.get("/api/v1/app/state").json()
+
+    with make_client(
+        settings,
+        spotify_client_override=FakeSpotifyPlaybackClient(),
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as restarted_client:
+        restarted_state = restarted_client.get("/api/v1/app/state").json()
+
+    for state in (first_state, restarted_state):
+        assert state["appPhase"] == "ready"
+        assert state["setup"]["blockingStep"] == "none"
+        assert state["readiness"]["minimumReady"] is True
+        assert state["surfaces"]["current"] == "home"
+        assert state["surfaces"]["route"] == "/"
+
+
 def test_hardware_state_projects_current_pipzo_playback_metadata(tmp_path):
     settings = Settings(
         app_mode="hardware",

@@ -40,6 +40,17 @@ describe("kiosk shell view model", () => {
     expect(canOpenSurface(snapshot, "settings")).toBe(true);
   });
 
+  it("defaults completed setup away from stale setup surfaces on fresh kiosk start", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      surfaces: { ...localScenarios.ready_healthy.snapshot.surfaces, current: "setup" as const, route: "/setup/complete" },
+    };
+
+    expect(isSetupGated(snapshot)).toBe(false);
+    expect(canOpenSurface(snapshot, "setup")).toBe(false);
+    expect(preferredSurface(snapshot)).toBe("home");
+  });
+
   it("keeps settings reachable during degraded recovery", () => {
     const snapshot = localScenarios.degraded_recovery.snapshot;
 
