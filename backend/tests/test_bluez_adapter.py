@@ -56,6 +56,48 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("org.bluez.Error.NotPermitted") == SpeakerReason.ADAPTER_UNAVAILABLE
     assert map_bluetoothctl_failure("connect error: Host is down") == SpeakerReason.DEVICE_OUT_OF_RANGE
     assert map_bluetoothctl_failure("connect error: Input/output error") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.Failed") == SpeakerReason.PAIR_REJECTED
+    assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed") == SpeakerReason.CONNECT_FAILED
+
+
+def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device AA:BB:CC:DD:EE:FF",
+                        "\tName: Bedroom Speaker",
+                        "\tAlias: Bedroom Speaker",
+                        "\tPaired: no",
+                        "\tConnected: no",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.scan()
+
+    assert action.state == "succeeded"
+    assert (["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None) in calls
+    assert (["/usr/bin/bluetoothctl"], 5, "scan off\n") in calls
 
 
 def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
@@ -68,6 +110,8 @@ def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(
             return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
         if input_text == "agent NoInputNoOutput\ndefault-agent\n":
             return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
         if input_text == "pair AA:BB:CC:DD:EE:FF\n":
             device_state["paired"] = True
             return BluetoothCommandResult(0, "Pairing successful\n", "")
@@ -110,9 +154,12 @@ def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(
     assert (["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n") in calls
     assert (["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n") in calls
     assert (["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 5, "scan off\n") in calls
+    stop_scan_call_index = calls.index((["/usr/bin/bluetoothctl"], 5, "scan off\n"))
     pair_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n"))
     trust_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n"))
     connect_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n"))
+    assert stop_scan_call_index < pair_call_index
     assert pair_call_index < trust_call_index < connect_call_index
 
 
