@@ -37,6 +37,37 @@ export type NowPlayingEmptyState = {
   detail: string;
 };
 
+export const nowPlayingRefreshIntervalMs = 10_000;
+export const nowPlayingCommandRefreshDelaysMs = [900, 2_500] as const;
+
+export function shouldRefreshNowPlaying(snapshot: AppSnapshot, dataSource: "backend" | "local"): boolean {
+  if (dataSource !== "backend") {
+    return false;
+  }
+  if (snapshot.health.spotifyAuth.status !== "connected") {
+    return false;
+  }
+  if (snapshot.health.network.status !== "online") {
+    return false;
+  }
+  return snapshot.health.playbackDevice.status === "available" || Boolean(snapshot.nowPlaying);
+}
+
+export function nextNowPlayingBoundaryRefreshDelayMs(snapshot: AppSnapshot, nowMs: number): number | null {
+  const playing = snapshot.nowPlaying;
+  if (!playing?.isPlaying || !playing.durationMs || playing.progressMs === undefined || playing.progressMs === null) {
+    return null;
+  }
+  const capturedAtMs = playing.capturedAt ? Date.parse(playing.capturedAt) : Number.NaN;
+  const elapsedSinceCaptureMs = Number.isFinite(capturedAtMs) ? Math.max(0, nowMs - capturedAtMs) : 0;
+  const remainingMs = playing.durationMs - playing.progressMs - elapsedSinceCaptureMs;
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    return 1_000;
+  }
+  const delayMs = Math.max(1_000, remainingMs + 1_500);
+  return delayMs < nowPlayingRefreshIntervalMs ? delayMs : null;
+}
+
 export function nowPlayingEmptyState(snapshot: AppSnapshot): NowPlayingEmptyState {
   if (snapshot.nowPlaying) {
     return {

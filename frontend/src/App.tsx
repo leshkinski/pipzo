@@ -48,9 +48,13 @@ import {
   isSetupGated,
   labelFromId,
   libraryAvailability,
+  nextNowPlayingBoundaryRefreshDelayMs,
   nowPlayingEmptyState,
+  nowPlayingCommandRefreshDelaysMs,
+  nowPlayingRefreshIntervalMs,
   preferredSurface,
   primarySurfaces,
+  shouldRefreshNowPlaying,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
   sleepTimerPresets,
@@ -186,6 +190,8 @@ export function App() {
     transferred: false,
   });
   const spotifyPlayerRef = useRef<SpotifyPlayerInstance | null>(null);
+  const snapshotRefreshInFlightRef = useRef<Promise<AppSnapshot> | null>(null);
+  const scheduledSnapshotRefreshIdsRef = useRef<number[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +269,12 @@ export function App() {
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearScheduledSnapshotRefreshes();
+    };
   }, []);
 
   useEffect(() => {
@@ -351,6 +363,30 @@ export function App() {
         setSleepTimerBusy(false);
       });
   }, [dataSource, nowMs, sleepTimer, snapshot]);
+
+  useEffect(() => {
+    if (!shouldRefreshNowPlaying(snapshot, dataSource)) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = () => {
+      if (!cancelled) {
+        void refreshSnapshot().catch(() => undefined);
+      }
+    };
+    const intervalId = window.setInterval(refresh, nowPlayingRefreshIntervalMs);
+    const boundaryDelayMs = nextNowPlayingBoundaryRefreshDelayMs(snapshot, Date.now());
+    const boundaryTimeoutId = boundaryDelayMs === null ? null : window.setTimeout(refresh, boundaryDelayMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      if (boundaryTimeoutId !== null) {
+        window.clearTimeout(boundaryTimeoutId);
+      }
+    };
+  }, [dataSource, snapshot]);
 
   const gated = isSetupGated(snapshot);
   const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
@@ -490,9 +526,40 @@ export function App() {
   }
 
   async function refreshSnapshot() {
-    const state = await fetchAppState();
-    setSnapshot(state);
-    return state;
+    if (snapshotRefreshInFlightRef.current) {
+      return snapshotRefreshInFlightRef.current;
+    }
+    const request = fetchAppState()
+      .then((state) => {
+        setSnapshot(state);
+        return state;
+      })
+      .finally(() => {
+        snapshotRefreshInFlightRef.current = null;
+      });
+    snapshotRefreshInFlightRef.current = request;
+    return request;
+  }
+
+  function scheduleSnapshotRefreshes(delaysMs: readonly number[] = nowPlayingCommandRefreshDelaysMs) {
+    if (dataSource !== "backend") {
+      return;
+    }
+    clearScheduledSnapshotRefreshes();
+    for (const delayMs of delaysMs) {
+      const timeoutId = window.setTimeout(() => {
+        scheduledSnapshotRefreshIdsRef.current = scheduledSnapshotRefreshIdsRef.current.filter((id) => id !== timeoutId);
+        void refreshSnapshot().catch(() => undefined);
+      }, delayMs);
+      scheduledSnapshotRefreshIdsRef.current.push(timeoutId);
+    }
+  }
+
+  function clearScheduledSnapshotRefreshes() {
+    for (const timeoutId of scheduledSnapshotRefreshIdsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+    scheduledSnapshotRefreshIdsRef.current = [];
   }
 
   async function refreshLibraryHome() {
@@ -577,10 +644,13 @@ export function App() {
       if (dataSource === "backend") {
         const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
-        if (result.state === "succeeded" && snapshot.setup.blockingStep === "playback_test") {
+        if (result.state === "succeeded") {
           await refreshSnapshot().catch(() => undefined);
-          setPlaybackTestMessage("Playback worked, so setup can finish.");
-          setStatusText("Playback worked. Setup is finishing.");
+          scheduleSnapshotRefreshes();
+          if (snapshot.setup.blockingStep === "playback_test") {
+            setPlaybackTestMessage("Playback worked, so setup can finish.");
+            setStatusText("Playback worked. Setup is finishing.");
+          }
         }
       } else {
         setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
@@ -971,6 +1041,9 @@ export function App() {
       }));
       setStatusText(result.state === "succeeded" ? "Pipzo selected for Spotify playback." : `Playback selection blocked: ${labelFromId(result.reason ?? "unknown")}.`);
       await refreshSnapshot().catch(() => undefined);
+      if (result.state === "succeeded") {
+        scheduleSnapshotRefreshes();
+      }
     } catch {
       setSpotifySdkState((current) => ({ ...current, error: "spotify_transfer_failed" }));
       setStatusText("Pipzo playback selection could not be sent.");
@@ -992,6 +1065,9 @@ export function App() {
         setPlaybackTestMessage(result.state === "succeeded" ? "Playback device selected and test passed." : `Playback test blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         setStatusText(result.state === "succeeded" ? "Playback test passed." : "Playback test is still blocked.");
         await refreshSnapshot();
+        if (result.state === "succeeded") {
+          scheduleSnapshotRefreshes();
+        }
       } else {
         setPlaybackTestMessage("Local playback test confirmed.");
         setStatusText("Local playback test confirmed.");
@@ -1011,6 +1087,9 @@ export function App() {
         const result = await controlPlayback({ action, deviceId });
         setStatusText(result.state === "succeeded" ? `Playback ${action} sent.` : `Playback ${action} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         await refreshSnapshot().catch(() => undefined);
+        if (result.state === "succeeded") {
+          scheduleSnapshotRefreshes();
+        }
         return;
       } catch {
         setStatusText("Playback command could not be sent.");

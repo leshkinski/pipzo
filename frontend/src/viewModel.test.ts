@@ -13,8 +13,12 @@ import {
   idlePresentation,
   isSetupGated,
   libraryAvailability,
+  nextNowPlayingBoundaryRefreshDelayMs,
+  nowPlayingCommandRefreshDelaysMs,
   nowPlayingEmptyState,
+  nowPlayingRefreshIntervalMs,
   preferredSurface,
+  shouldRefreshNowPlaying,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
   sleepTimerViewModel,
@@ -316,5 +320,36 @@ describe("kiosk shell view model", () => {
       title: "Playback is on another Spotify device",
       detail: "device_mismatch:stored=old:active=new",
     });
+  });
+
+  it("bounds Now Playing backend refreshes to ready playback state", () => {
+    const ready = localScenarios.ready_healthy.snapshot;
+    const firstBoot = localScenarios.first_boot_empty.snapshot;
+    const offline = localScenarios.offline_settings_mode.snapshot;
+
+    expect(nowPlayingRefreshIntervalMs).toBe(10_000);
+    expect(nowPlayingCommandRefreshDelaysMs).toEqual([900, 2_500]);
+    expect(shouldRefreshNowPlaying(ready, "backend")).toBe(true);
+    expect(shouldRefreshNowPlaying({ ...ready, nowPlaying: null }, "backend")).toBe(true);
+    expect(shouldRefreshNowPlaying(ready, "local")).toBe(false);
+    expect(shouldRefreshNowPlaying(firstBoot, "backend")).toBe(false);
+    expect(shouldRefreshNowPlaying(offline, "backend")).toBe(false);
+  });
+
+  it("schedules a bounded Now Playing refresh near the expected track boundary", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      nowPlaying: {
+        ...localScenarios.ready_healthy.snapshot.nowPlaying!,
+        isPlaying: true,
+        progressMs: 118_000,
+        durationMs: 120_000,
+        capturedAt: "2026-05-30T12:00:00.000Z",
+      },
+    };
+
+    expect(nextNowPlayingBoundaryRefreshDelayMs(snapshot, Date.parse("2026-05-30T12:00:00.500Z"))).toBe(3_000);
+    expect(nextNowPlayingBoundaryRefreshDelayMs(snapshot, Date.parse("2026-05-30T12:00:03.000Z"))).toBe(1_000);
+    expect(nextNowPlayingBoundaryRefreshDelayMs(localScenarios.first_boot_empty.snapshot, Date.now())).toBeNull();
   });
 });
