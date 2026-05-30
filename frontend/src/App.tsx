@@ -575,6 +575,11 @@ export function App() {
       if (dataSource === "backend") {
         const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        if (result.state === "succeeded" && snapshot.setup.blockingStep === "playback_test") {
+          await refreshSnapshot().catch(() => undefined);
+          setPlaybackTestMessage("Playback worked, so setup can finish.");
+          setStatusText("Playback worked. Setup is finishing.");
+        }
       } else {
         setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
       }
@@ -959,12 +964,6 @@ export function App() {
       setPlaybackTestBusy(false);
       return;
     }
-    if (!spotifySdkState.transferred) {
-      setPlaybackTestMessage("Select the Pipzo browser device before confirming playback.");
-      setStatusText("Playback test is waiting for transfer to Pipzo.");
-      setPlaybackTestBusy(false);
-      return;
-    }
     try {
       if (dataSource === "backend") {
         const result = await runSetupPlaybackTest({ action: "start", deviceId });
@@ -1332,6 +1331,7 @@ function SetupSurface({
   playbackTest: SetupPlaybackControls;
 }) {
   const playbackActive = snapshot.setup.blockingStep === "playback_test" || snapshot.readiness.primarySpeakerSaved;
+  const completionActive = snapshot.setup.blockingStep === "playback_test";
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -1343,6 +1343,12 @@ function SetupSurface({
         <p>Wi-Fi, Spotify, and one connected Bluetooth speaker are required before setup can complete.</p>
       </section>
       <div className="setup-side">
+        {completionActive && (
+          <SetupPlaybackCompletionPanel
+            spotifySdk={spotifySdk}
+            playbackTest={playbackTest}
+          />
+        )}
         <section className="checklist">
           {snapshot.setup.steps.map((step) => (
             <div className={`step step-${step.status}`} key={step.id}>
@@ -1367,6 +1373,29 @@ function SetupSurface({
         )}
       </div>
     </div>
+  );
+}
+
+function SetupPlaybackCompletionPanel({
+  spotifySdk,
+  playbackTest,
+}: {
+  spotifySdk: SpotifySdkState;
+  playbackTest: SetupPlaybackControls;
+}) {
+  const hasDevice = Boolean(spotifySdk.deviceId);
+  return (
+    <section className="setup-completion-panel" aria-label="Finish setup">
+      <div>
+        <p className="eyebrow">Final step</p>
+        <h2>Did music play through Pipzo?</h2>
+        <p>Tap once after you hear music from the connected speaker or headphones. Pipzo will finish setup from the real playback device.</p>
+        <p className="subtle">{hasDevice ? playbackTest.message : "Start the player once so Pipzo can see this browser as the playback device."}</p>
+      </div>
+      <button disabled={playbackTest.busy || !hasDevice} type="button" onClick={playbackTest.onConfirm}>
+        Playback works
+      </button>
+    </section>
   );
 }
 

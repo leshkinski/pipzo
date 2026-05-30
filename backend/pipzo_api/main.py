@@ -627,7 +627,29 @@ def create_app(
             )
         else:
             result = start_library_playback(settings, spotify_client, body)
+            if result.state == RecoveryActionState.SUCCEEDED:
+                maybe_mark_playback_test_passed_from_library_start(
+                    settings,
+                    body,
+                    mock_store,
+                    settings_store(),
+                    network_adapter(settings),
+                    bluetooth_adapter(settings),
+                    volume_adapter(settings),
+                )
         event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
+        if settings.app_mode != "mock":
+            event_hub.publish(
+                "app.snapshot",
+                read_snapshot(
+                    settings,
+                    mock_store,
+                    settings_store(),
+                    network_adapter(settings),
+                    bluetooth_adapter(settings),
+                    volume_adapter(settings),
+                ).model_dump(mode="json", by_alias=True),
+            )
         return result
 
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
@@ -1173,6 +1195,24 @@ def run_hardware_playback_test(
         started_at=started_at,
         completed_at=utc_now(),
     )
+
+
+def maybe_mark_playback_test_passed_from_library_start(
+    settings: Settings,
+    body: LibraryPlayRequest,
+    mock_store: MockScenarioStore,
+    app_settings_store: AppSettingsStore,
+    network_adapter: NetworkManagerAdapter,
+    bluetooth_adapter: BlueZAdapter,
+    volume_adapter: VolumeAdapter,
+) -> None:
+    device_id = (body.device_id or "").strip()
+    if not device_id:
+        return
+    snapshot = read_snapshot(settings, mock_store, app_settings_store, network_adapter, bluetooth_adapter, volume_adapter)
+    if playback_test_blocking_reason(snapshot) is not None:
+        return
+    SetupStateStore(settings.db_path).mark_playback_test_passed(device_id)
 
 
 def playback_test_blocking_reason(snapshot: AppSnapshot) -> Optional[PlaybackDeviceReason]:

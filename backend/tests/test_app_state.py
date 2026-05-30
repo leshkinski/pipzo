@@ -309,6 +309,7 @@ def persist_connected_spotify(settings: Settings) -> None:
 class FakeSpotifyPlaybackClient:
     def __init__(self) -> None:
         self.transfer_calls: list[dict] = []
+        self.start_playback_calls: list[dict] = []
 
     def transfer_playback(self, *, api_base_url: str, access_token: str, device_id: str, play: bool) -> None:
         self.transfer_calls.append(
@@ -317,6 +318,25 @@ class FakeSpotifyPlaybackClient:
                 "access_token": access_token,
                 "device_id": device_id,
                 "play": play,
+            }
+        )
+
+    def start_playback(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        playback_kind: str,
+        uri: str,
+        device_id: Optional[str],
+    ) -> None:
+        self.start_playback_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "playback_kind": playback_kind,
+                "uri": uri,
+                "device_id": device_id,
             }
         )
 
@@ -866,3 +886,68 @@ def test_hardware_playback_test_requires_sdk_device_then_persists_passed_state(t
         "reason": None,
         "deviceId": "pipzo-sdk-device",
     }
+
+
+def test_hardware_library_play_success_marks_playback_test_passed_with_real_device(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-library-play-setup.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    spotify_client = FakeSpotifyPlaybackClient()
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        play_response = client.post(
+            "/api/v1/library/play",
+            json={"uri": "spotify:track:real-track", "playbackKind": "track", "deviceId": "pipzo-sdk-device"},
+        )
+        state_response = client.get("/api/v1/app/state")
+
+    assert play_response.status_code == 200
+    assert play_response.json()["state"] == "succeeded"
+    assert play_response.json()["mock"] is False
+    assert spotify_client.start_playback_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "stored-access-token",
+            "playback_kind": "track",
+            "uri": "spotify:track:real-track",
+            "device_id": "pipzo-sdk-device",
+        }
+    ]
+    state = state_response.json()
+    assert state["readiness"]["playbackTestPassed"] is True
+    assert state["readiness"]["minimumReady"] is True
+    assert state["appPhase"] == "ready"
+    assert state["health"]["playbackDevice"] == {
+        "status": "available",
+        "reason": None,
+        "deviceId": "pipzo-sdk-device",
+    }
+    assert "stored-refresh-token" not in str(play_response.json())
+
+
+def test_mock_library_play_does_not_mark_playback_test_passed(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "mock-library-play-setup.sqlite3"))) as client:
+        client.post("/api/v1/mock/scenarios/first_boot_empty/activate")
+        play_response = client.post(
+            "/api/v1/library/play",
+            json={"uri": "spotify:track:mock-track", "playbackKind": "track", "deviceId": "mock-device"},
+        )
+        state_response = client.get("/api/v1/app/state")
+
+    assert play_response.status_code == 200
+    assert play_response.json()["state"] == "succeeded"
+    assert play_response.json()["mock"] is True
+    state = state_response.json()
+    assert state["readiness"]["playbackTestPassed"] is False
+    assert state["readiness"]["minimumReady"] is False
+    assert state["appPhase"] == "setup"

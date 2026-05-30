@@ -299,6 +299,7 @@ button:disabled {
 .checklist,
 .health-list,
 .actions,
+.setup-completion-panel,
 .spotify-panel,
 .wifi-panel,
 .speaker-panel,
@@ -352,6 +353,39 @@ button:disabled {
 .health-list,
 .actions {
   padding: 12px;
+}
+
+.setup-completion-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.42fr);
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+  border-color: #2f6f73;
+  background: #edf7f1;
+}
+
+.setup-completion-panel h2 {
+  margin: 6px 0 8px;
+  font-size: 32px;
+  line-height: 1.08;
+}
+
+.setup-completion-panel p {
+  margin: 8px 0;
+  color: #526058;
+  line-height: 1.35;
+}
+
+.setup-completion-panel button {
+  min-height: 112px;
+  padding: 0 18px;
+  border-color: #1f5559;
+  background: #2f6f73;
+  color: #fffdf7;
+  font-size: 22px;
+  font-weight: 900;
+  text-align: left;
 }
 
 .step,
@@ -942,6 +976,7 @@ button:disabled {
   .shell,
   .surface-grid,
   .degraded-banner,
+  .setup-completion-panel,
   .spotify-panel,
   .wifi-panel,
   .speaker-panel,
