@@ -81,7 +81,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
   }
 
   function onPointerDown(event: PointerEvent) {
-    if (event.pointerType === "mouse" || Date.now() - lastTouchStartAt < 700) {
+    if (event.pointerType !== "mouse" && Date.now() - lastTouchStartAt < 700) {
       return;
     }
     beginDrag(event.target, event.clientY, "pointer", event.pointerId);

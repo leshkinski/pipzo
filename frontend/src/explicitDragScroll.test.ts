@@ -127,6 +127,63 @@ describe("explicit drag scroll", () => {
     expect(click.stopPropagation).toHaveBeenCalledTimes(1);
   });
 
+  it("converts mouse-style pointer drag distance into scrollTop on marked regions", () => {
+    const root = new FakeRoot();
+    const scrollTarget = new FakeElement();
+    scrollTarget.scrollTop = 30;
+    const child = new FakeElement(false);
+    scrollTarget.parentElement = root;
+    child.parentElement = scrollTarget;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const preventDefault = vi.fn();
+
+    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 8, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientY: 85, pointerId: 8, preventDefault });
+    root.dispatch("pointermove", { clientY: 75, pointerId: 8, preventDefault });
+
+    expect(scrollTarget.scrollTop).toBe(55);
+    expect(preventDefault).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not suppress mouse pointer clicks until movement crosses the drag threshold", () => {
+    const root = new FakeRoot();
+    const scrollTarget = new FakeElement();
+    const child = new FakeElement(false);
+    scrollTarget.parentElement = root;
+    child.parentElement = scrollTarget;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const preventDefault = vi.fn();
+
+    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 9, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientY: 94, pointerId: 9, preventDefault });
+    root.dispatch("pointerup", { pointerId: 9 });
+    const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    root.dispatch("click", click);
+
+    expect(scrollTarget.scrollTop).toBe(0);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(click.preventDefault).not.toHaveBeenCalled();
+    expect(click.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it("suppresses mouse pointer clicks only after an actual drag", () => {
+    const root = new FakeRoot();
+    const scrollTarget = new FakeElement();
+    const child = new FakeElement(false);
+    scrollTarget.parentElement = root;
+    child.parentElement = scrollTarget;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+
+    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 10, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientY: 80, pointerId: 10, preventDefault: vi.fn() });
+    root.dispatch("pointerup", { pointerId: 10 });
+    const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    root.dispatch("click", click);
+
+    expect(click.preventDefault).toHaveBeenCalledTimes(1);
+    expect(click.stopPropagation).toHaveBeenCalledTimes(1);
+  });
+
   it("does not start drag scrolling from text inputs", () => {
     const root = new FakeRoot();
     const scrollTarget = new FakeElement();
