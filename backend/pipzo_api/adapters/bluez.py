@@ -130,6 +130,8 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
     text = f"{stderr}\n{stdout}".lower()
     if "permission denied" in text or "not permitted" in text or "notpermitted" in text or "operation not permitted" in text:
         return SpeakerReason.ADAPTER_UNAVAILABLE
+    if "failed to register agent" in text or "no agent is registered" in text:
+        return SpeakerReason.ADAPTER_UNAVAILABLE
     if "no default controller" in text or "no controller" in text or ("controller" in text and "not available" in text):
         return SpeakerReason.ADAPTER_UNAVAILABLE
     if "not ready" in text or "notready" in text:
@@ -245,7 +247,7 @@ class BluetoothctlAdapter:
             return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
         agent_result = self._run_script(["agent NoInputNoOutput", "default-agent"], timeout_seconds=self._command_timeout_seconds)
-        if agent_result.returncode != 0 or _has_failed_output(agent_result.stdout, agent_result.stderr):
+        if not _agent_setup_usable(agent_result):
             return self._action(
                 "speaker-pair",
                 RecoveryActionState.FAILED,
@@ -444,6 +446,15 @@ def _has_failed_output(stdout: str, stderr: str) -> bool:
     if _already_paired_output(stdout, stderr):
         return False
     return "failed" in text or "not available" in text or "not authorized" in text or "not ready" in text
+
+
+def _agent_setup_usable(result: BluetoothCommandResult) -> bool:
+    if result.returncode != 0:
+        return False
+    text = f"{result.stdout}\n{result.stderr}".lower()
+    if "agent registered" in text or "default agent request successful" in text:
+        return True
+    return not _has_failed_output(result.stdout, result.stderr)
 
 
 def _already_paired_output(stdout: str, stderr: str) -> bool:

@@ -78,6 +78,7 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed") == SpeakerReason.CONNECT_FAILED
     assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.ConnectionAttemptFailed") == SpeakerReason.CONNECT_FAILED
     assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.AuthenticationTimeout") == SpeakerReason.PAIR_TIMEOUT
+    assert map_bluetoothctl_failure("Failed to register agent object\nNo agent is registered") == SpeakerReason.ADAPTER_UNAVAILABLE
 
 
 def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
@@ -398,6 +399,101 @@ def test_adapter_pair_attempts_audio_icon_device_without_prepair_audio_uuid_and_
         and "ConnectionAttemptFailed" in extra["details"]["stdout"]
         for message, extra in logs
     )
+
+
+def test_adapter_pair_continues_when_agent_registration_stdout_eventually_succeeds(tmp_path):
+    calls = []
+    device_state = {"paired": False, "trusted": False, "connected": False}
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Waiting to connect to bluetoothd...",
+                        "[bluetooth]# agent NoInputNoOutput",
+                        "Failed to register agent object",
+                        "[bluetooth]# default-agent",
+                        "No agent is registered",
+                        "[bluetooth]#",
+                        "Agent registered",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "pair 20:64:DE:30:D6:F2\n":
+            device_state["paired"] = True
+            return BluetoothCommandResult(0, "Pairing successful\n", "")
+        if input_text == "trust 20:64:DE:30:D6:F2\n":
+            device_state["trusted"] = True
+            return BluetoothCommandResult(0, "Changing 20:64:DE:30:D6:F2 trust succeeded\n", "")
+        if input_text == "connect 20:64:DE:30:D6:F2\n":
+            device_state["connected"] = True
+            return BluetoothCommandResult(0, "Connection successful\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            if not device_state["paired"]:
+                return BluetoothCommandResult(1, "", "Device 20:64:DE:30:D6:F2 not available\n")
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 20:64:DE:30:D6:F2",
+                        "\tName: SRS-XE300",
+                        "\tAlias: SRS-XE300",
+                        f"\tPaired: {'yes' if device_state['paired'] else 'no'}",
+                        f"\tTrusted: {'yes' if device_state['trusted'] else 'no'}",
+                        f"\tConnected: {'yes' if device_state['connected'] else 'no'}",
+                        "\tIcon: audio-card",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-agent-eventual-success.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("20:64:DE:30:D6:F2", "SRS-XE300")
+
+    assert action.state == "succeeded"
+    assert store.get_primary() is not None
+    assert store.get_primary().address == "20:64:DE:30:D6:F2"
+    assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "trust 20:64:DE:30:D6:F2\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "connect 20:64:DE:30:D6:F2\n") in calls
+
+
+def test_adapter_pair_stops_when_agent_registration_has_no_success_signal(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Failed to register agent object\nNo agent is registered\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(1, "", "Device 20:64:DE:30:D6:F2 not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-agent-failed.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("20:64:DE:30:D6:F2", "SRS-XE300")
+
+    assert action.state == "failed"
+    assert action.reason == SpeakerReason.ADAPTER_UNAVAILABLE
+    assert store.get_primary() is None
+    assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") not in calls
 
 
 def test_adapter_forget_clears_saved_primary_when_bluez_already_removed_device(tmp_path):
