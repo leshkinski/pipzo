@@ -129,7 +129,7 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         return SpeakerReason.ADAPTER_UNAVAILABLE
     if "no default controller" in text or "no controller" in text or ("controller" in text and "not available" in text):
         return SpeakerReason.ADAPTER_UNAVAILABLE
-    if "not ready" in text:
+    if "not ready" in text or "notready" in text:
         return SpeakerReason.BLUETOOTH_DISABLED
     if "not powered" in text or "powered off" in text or "bluetooth is disabled" in text:
         return SpeakerReason.BLUETOOTH_DISABLED
@@ -141,8 +141,6 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         return SpeakerReason.PAIR_TIMEOUT
     if "authentication" in text or "rejected" in text or "not authorized" in text or "cancel" in text:
         return SpeakerReason.PAIR_REJECTED
-    if "failed to pair" in text:
-        return SpeakerReason.PAIR_REJECTED
     if "timeout" in text or "timed out" in text:
         return SpeakerReason.PAIR_TIMEOUT
     if (
@@ -153,10 +151,12 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         or "software caused connection abort" in text
     ):
         return SpeakerReason.CONNECT_FAILED
+    if "host is down" in text or "not available" in text or "notavailable" in text or "not found" in text or "does not exist" in text:
+        return SpeakerReason.DEVICE_OUT_OF_RANGE
+    if "failed to pair" in text:
+        return SpeakerReason.PAIR_REJECTED
     if "org.bluez.error.failed" in text:
         return SpeakerReason.CONNECT_FAILED
-    if "host is down" in text or "not available" in text or "not found" in text or "does not exist" in text:
-        return SpeakerReason.DEVICE_OUT_OF_RANGE
     return SpeakerReason.UNKNOWN
 
 
@@ -217,7 +217,7 @@ class BluetoothctlAdapter:
                 return self._action("speaker-scan", RecoveryActionState.FAILED, started_at, map_bluetoothctl_failure(result.stderr, result.stdout))
         finally:
             self._stop_discovery()
-        self._last_scan = self._scan_devices()
+        self._last_scan = self._scan_devices(result.stdout)
         state = RecoveryActionState.SUCCEEDED if self._last_scan else RecoveryActionState.FAILED
         reason = None if self._last_scan else SpeakerReason.SCAN_EMPTY
         return self._action("speaker-scan", state, started_at, reason)
@@ -318,12 +318,13 @@ class BluetoothctlAdapter:
             self._store.delete_primary()
         return self._action("speaker-forget", RecoveryActionState.SUCCEEDED, started_at)
 
-    def _scan_devices(self) -> List[SpeakerDevice]:
+    def _scan_devices(self, discovery_stdout: str = "") -> List[SpeakerDevice]:
         result = self._run_script(["devices"], timeout_seconds=10)
         if result.returncode != 0:
             raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
         devices: List[SpeakerDevice] = []
-        for device in parse_device_lines(result.stdout):
+        scan_candidates = [*parse_device_lines(discovery_stdout), *parse_device_lines(result.stdout)]
+        for device in _dedupe_devices(scan_candidates):
             try:
                 inspection = self._device_inspection(
                     device.address,

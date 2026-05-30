@@ -67,6 +67,8 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed") == SpeakerReason.CONNECT_FAILED
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed br-connection-profile-unavailable") == SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
     assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.AlreadyExists") == SpeakerReason.CONNECT_FAILED
+    assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.NotAvailable") == SpeakerReason.DEVICE_OUT_OF_RANGE
+    assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.NotReady") == SpeakerReason.BLUETOOTH_DISABLED
     assert map_bluetoothctl_failure("Failed to start discovery: org.bluez.Error.InProgress") == SpeakerReason.PAIR_TIMEOUT
     assert map_bluetoothctl_failure("org.bluez.Error.NotPermitted") == SpeakerReason.ADAPTER_UNAVAILABLE
     assert map_bluetoothctl_failure("connect error: Host is down") == SpeakerReason.DEVICE_OUT_OF_RANGE
@@ -115,6 +117,39 @@ def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
     assert (["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None) in calls
     assert (["/usr/bin/bluetoothctl"], 1, "scan off\n") in calls
     assert calls.count((["/usr/bin/bluetoothctl"], 2, "info AA:BB:CC:DD:EE:FF\n")) == 1
+
+
+def test_adapter_scan_keeps_devices_seen_only_in_discovery_output(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                1,
+                "",
+                "Device 20:64:DE:30:D6:F2 not available\n",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-discovery-output.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.scan()
+    results = adapter.scan_results()
+
+    assert action.state == "succeeded"
+    assert results.devices[0].address == "20:64:DE:30:D6:F2"
+    assert results.devices[0].display_name == "SRS-XE300"
+    assert calls.count((["/usr/bin/bluetoothctl"], 2, "info 20:64:DE:30:D6:F2\n")) == 1
 
 
 def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
