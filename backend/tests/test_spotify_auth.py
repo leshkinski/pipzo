@@ -426,6 +426,26 @@ def test_callback_records_safe_status_and_drops_verifier(tmp_path):
     assert stored.refresh_token == "backend-refresh-token"
 
 
+def test_successful_callback_page_is_kiosk_safe_and_sanitized(tmp_path):
+    settings = make_settings(tmp_path)
+    service = SpotifyAuthSessionService()
+    spotify_client = FakeSpotifyClient()
+
+    with make_client(settings, service, spotify_client) as client:
+        session = create_session(client)
+        state = service._sessions[session["sessionId"]].state
+        response = client.get(f"/api/v1/spotify/auth/callback?state={state}&code=sensitive-auth-code")
+
+    assert response.status_code == 200
+    assert 'http-equiv="refresh"' in response.text
+    assert "window.location.replace('/')" in response.text
+    assert 'href="/">Return to Pipzo</a>' in response.text
+    assert "Spotify setup is complete" in response.text
+    assert "sensitive-auth-code" not in response.text
+    assert "backend-access-token" not in response.text
+    assert "backend-refresh-token" not in response.text
+
+
 def test_stored_spotify_token_columns_are_encrypted_not_plaintext(tmp_path):
     settings = make_settings(tmp_path)
     persist_auth_record(settings, access_token="plain-access-token", refresh_token="plain-refresh-token")

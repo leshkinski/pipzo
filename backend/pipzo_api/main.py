@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 from time import perf_counter
 from typing import AsyncIterator, Optional
@@ -500,8 +501,10 @@ def create_app(
                     reason=SpotifyAuthReason.UNKNOWN,
                 ).model_dump(mode="json", by_alias=True),
             )
-            return HTMLResponse(
-                "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup could not be completed. Return to Pipzo and start again.</p>",
+            return spotify_callback_html(
+                title="Spotify setup could not be completed",
+                detail="Return to Pipzo and start again.",
+                auto_return=False,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -515,8 +518,10 @@ def create_app(
                 account_display_name=profile.display_name,
             ).model_dump(mode="json", by_alias=True),
         )
-        return HTMLResponse(
-            "<!doctype html><title>Pipzo Spotify setup</title><p>Spotify setup is complete. Return to Pipzo to continue.</p>",
+        return spotify_callback_html(
+            title="Spotify setup is complete",
+            detail="Returning to Pipzo now.",
+            auto_return=True,
             status_code=status.HTTP_200_OK,
         )
 
@@ -642,6 +647,71 @@ def create_app(
 
     mount_frontend_assets(app, resolve_settings().pipzo_frontend_dist)
     return app
+
+
+def spotify_callback_html(*, title: str, detail: str, auto_return: bool, status_code: int) -> HTMLResponse:
+    safe_title = escape(title)
+    safe_detail = escape(detail)
+    refresh_meta = '<meta http-equiv="refresh" content="2;url=/">' if auto_return else ""
+    redirect_script = "<script>window.setTimeout(function(){window.location.replace('/');}, 1200);</script>" if auto_return else ""
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {refresh_meta}
+  <title>Pipzo Spotify setup</title>
+  <style>
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f4f1ea;
+      color: #17211c;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    main {{
+      width: min(680px, calc(100% - 32px));
+      display: grid;
+      gap: 18px;
+      text-align: center;
+    }}
+    h1 {{
+      margin: 0;
+      font-size: clamp(38px, 7vw, 64px);
+      line-height: 1;
+    }}
+    p {{
+      margin: 0;
+      color: #526058;
+      font-size: 22px;
+      line-height: 1.35;
+    }}
+    a {{
+      display: grid;
+      place-items: center;
+      min-height: 82px;
+      border: 1px solid #2f6f73;
+      border-radius: 8px;
+      background: #d9eeee;
+      color: #17211c;
+      font-size: 24px;
+      font-weight: 800;
+      text-decoration: none;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{safe_title}</h1>
+    <p>{safe_detail}</p>
+    <a href="/">Return to Pipzo</a>
+  </main>
+  {redirect_script}
+</body>
+</html>"""
+    return HTMLResponse(html, status_code=status_code)
 
 
 def mount_frontend_assets(app: FastAPI, frontend_dist: str) -> None:

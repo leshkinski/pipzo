@@ -346,6 +346,7 @@ export function App() {
   const visibleWarnings = snapshot.warnings;
   const degradedMode = degradedModeViewModel(snapshot);
   const spotifyPlaybackGate = useMemo(() => spotifySdkGate(snapshot, dataSource, backendMode ?? undefined), [snapshot, dataSource, backendMode]);
+  const showDeveloperPanel = dataSource !== "backend" || backendMode === "mock";
   const currentScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
     [scenarios, selectedScenario],
@@ -1085,15 +1086,17 @@ export function App() {
         </div>
       </header>
 
-      <DeveloperPanel
-        scenarios={scenarios}
-        selectedScenario={selectedScenario}
-        currentScenario={currentScenario}
-        dataSource={dataSource}
-        display={snapshot.health.display}
-        onChange={switchScenario}
-        onDisplayChange={updateDisplay}
-      />
+      {showDeveloperPanel && (
+        <DeveloperPanel
+          scenarios={scenarios}
+          selectedScenario={selectedScenario}
+          currentScenario={currentScenario}
+          dataSource={dataSource}
+          display={snapshot.health.display}
+          onChange={switchScenario}
+          onDisplayChange={updateDisplay}
+        />
+      )}
 
       {visibleWarnings.length > 0 && (
         <section className="warning-band" aria-label="Warnings">

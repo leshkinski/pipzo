@@ -11,10 +11,19 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
 }
 
 button,
@@ -38,8 +47,32 @@ button:disabled {
 }
 
 .app {
+  height: 100vh;
   min-height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app::-webkit-scrollbar,
+.surface::-webkit-scrollbar {
+  width: 24px;
+  height: 24px;
+}
+
+.app::-webkit-scrollbar-track,
+.surface::-webkit-scrollbar-track {
+  background: #e5dfd3;
+}
+
+.app::-webkit-scrollbar-thumb,
+.surface::-webkit-scrollbar-thumb {
+  min-height: 72px;
+  border: 5px solid #e5dfd3;
+  border-radius: 999px;
+  background: #2f6f73;
 }
 
 .topbar,
@@ -217,6 +250,7 @@ button:disabled {
   grid-template-columns: 180px minmax(0, 1fr);
   gap: 16px;
   margin-top: 16px;
+  min-height: 0;
 }
 
 .nav {
@@ -238,7 +272,14 @@ button:disabled {
 }
 
 .surface {
-  min-height: 580px;
+  min-height: min(580px, calc(100vh - 132px));
+  max-height: calc(100vh - 132px);
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .surface-grid,
