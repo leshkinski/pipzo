@@ -38,7 +38,7 @@ Set `SPOTIFY_CLIENT_ID` in `/etc/pipzo/pipzo.env`. Do not add Spotify client sec
 
 The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
 
-`setup-packages.sh` installs NetworkManager, polkit, and BlueZ. On Raspberry Pi OS it also installs `pi-bluetooth` when that package is available. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` so the backend service user can run the bounded Wi-Fi setup operations through `nmcli` without an interactive desktop authorization prompt. It also adds the backend service user to the `bluetooth` group when the group exists, so BlueZ/bluetoothctl speaker operations have the normal Raspberry Pi OS Bluetooth access path.
+`setup-packages.sh` installs NetworkManager, polkit, BlueZ, and Raspberry Pi OS labwc on-screen keyboard packages when apt exposes them. On Raspberry Pi OS it also installs `pi-bluetooth` when that package is available. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` so the backend service user can run the bounded Wi-Fi setup operations through `nmcli` without an interactive desktop authorization prompt. It also adds the backend service user to the `bluetooth` group when the group exists, so BlueZ/bluetoothctl speaker operations have the normal Raspberry Pi OS Bluetooth access path.
 
 If the polkit rules directory is missing on a nonstandard image, hardware Wi-Fi actions will report unavailable or permission failures until equivalent NetworkManager permissions are added manually. If `bluetoothctl` is missing, Bluetooth is disabled, the backend user lacks BlueZ access, or the speaker rejects pairing/connection, hardware Bluetooth actions report unavailable or failed contract states rather than simulated success.
 
@@ -60,7 +60,7 @@ systemctl --user restart pipzo-kiosk.service
 
 Existing `/etc/pipzo/*.env` files are not overwritten. Review `provisioning/env/*.example` after updates and manually carry over new settings when needed.
 
-The kiosk keyring fix is delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install it even when an existing `/etc/pipzo/kiosk.env` is preserved.
+The kiosk keyring and Chromium launch-mode fixes are delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install them even when an existing `/etc/pipzo/kiosk.env` is preserved. Existing `/etc/pipzo/kiosk.env` files can opt back into true Chromium fullscreen by setting `PIPZO_CHROMIUM_MODE=kiosk`, but that mode can hide the on-screen keyboard under labwc.
 
 ## Service Operations
 
@@ -84,9 +84,10 @@ Both services are supervised by systemd. The backend restarts on failure after f
 
 `/usr/local/bin/pipzo-kiosk` launches Chromium at `PIPZO_KIOSK_URL`, defaulting to `http://127.0.0.1:8000/`.
 
-The launcher uses a dedicated Chromium profile directory and passes conservative kiosk flags:
+The launcher uses a dedicated Chromium profile directory and defaults to `PIPZO_CHROMIUM_MODE=app-maximized`. In this mode it launches Chromium with `--app="$PIPZO_KIOSK_URL"` and `--start-maximized` instead of true `--kiosk`. This preserves the app-only browser chrome while avoiding the labwc fullscreen layer behavior that can keep Squeekboard behind Chromium.
 
-- `--kiosk`
+The launcher passes conservative Chromium flags:
+
 - `--no-first-run`
 - `--no-default-browser-check`
 - `--disable-infobars`
@@ -98,6 +99,53 @@ The launcher uses a dedicated Chromium profile directory and passes conservative
 - `--check-for-update-interval=31536000`
 
 `--password-store=basic` keeps the dedicated Pipzo Chromium profile from asking the desktop Secret Service/keyring to unlock before the kiosk is usable. This is intended only for the local kiosk profile; Spotify OAuth tokens remain backend-owned and encrypted in Pipzo storage, and Chromium still handles the local Spotify PKCE web flow and Spotify Web Playback SDK runtime.
+
+If `PIPZO_CHROMIUM_MODE=kiosk` is set, Chromium launches with true `--kiosk`. This is useful as a fallback if app-maximized behavior regresses, but Raspberry Pi OS labwc can treat fullscreen Chromium as above the normal Squeekboard layer, making touch text input unavailable.
+
+## On-Screen Keyboard
+
+Raspberry Pi OS Desktop with labwc uses Squeekboard for touch text input. `setup-packages.sh` installs `squeekboard` and `wfplug-squeek` when those packages exist in apt. After package installation, reboot the Pi so the panel plugin and input-method pieces are loaded.
+
+If the keyboard still does not appear when tapping Pipzo text fields, confirm Raspberry Pi Configuration has the on-screen keyboard enabled or always enabled. The manual panel keyboard toggle is expected to work in normal desktop windows. Under true fullscreen Chromium kiosk mode, labwc may hide Squeekboard behind Chromium; keep `PIPZO_CHROMIUM_MODE=app-maximized` unless a future Raspberry Pi OS update changes that behavior.
+
+Pi-side checks:
+
+```bash
+dpkg -l squeekboard wfplug-squeek
+pgrep -a squeekboard || true
+systemctl --user status pipzo-kiosk.service
+journalctl --user -u pipzo-kiosk.service -n 80 --no-pager
+grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env || true
+```
+
+If `/etc/pipzo/kiosk.env` predates this setting, either leave it unset to use the launcher default or add:
+
+```bash
+PIPZO_CHROMIUM_MODE=app-maximized
+```
+
+Then restart:
+
+```bash
+systemctl --user restart pipzo-kiosk.service
+```
+
+## Network Diagnostics
+
+If Pipzo shows a mock or stale-looking IP while the Pi's real address is known from the router or SSH, first confirm the backend is in hardware mode and that NetworkManager can report the active Wi-Fi IPv4 address:
+
+```bash
+grep '^PIPZO_MODE=' /etc/pipzo/pipzo.env
+systemctl status pipzo-backend.service --no-pager
+journalctl -u pipzo-backend.service -n 120 --no-pager
+nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status
+nmcli -t -f IP4.ADDRESS,GENERAL.DEVICE,GENERAL.CONNECTION device show wlan0
+curl -s http://127.0.0.1:8000/api/v1/health
+curl -s http://127.0.0.1:8000/api/v1/network/status
+curl -s http://127.0.0.1:8000/api/v1/app/state
+```
+
+`PIPZO_MODE=mock` means the backend will intentionally serve mock network data. In `hardware` mode, missing `nmcli`, a down Wi-Fi device, or NetworkManager permission failures should be visible in the backend logs and API status rather than replaced with fake success.
 
 After installing or updating the launcher on Raspberry Pi OS Desktop, reboot the Pi and confirm the desktop may appear briefly, then Chromium enters the Pipzo kiosk without an interactive desktop keyring password prompt.
 

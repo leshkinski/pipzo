@@ -17,7 +17,7 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 "${SUDO_CMD[@]}" apt-get update
-"${SUDO_CMD[@]}" apt-get install -y \
+BASE_PACKAGES=(
   bluez \
   ca-certificates \
   curl \
@@ -31,6 +31,22 @@ fi
   nodejs \
   npm \
   xdg-utils
+)
+
+OSK_PACKAGES=()
+if apt-cache show squeekboard >/dev/null 2>&1; then
+  OSK_PACKAGES+=(squeekboard)
+else
+  echo "squeekboard package was not found by apt; Raspberry Pi OS labwc on-screen keyboard may need manual setup." >&2
+fi
+
+if apt-cache show wfplug-squeek >/dev/null 2>&1; then
+  OSK_PACKAGES+=(wfplug-squeek)
+else
+  echo "wfplug-squeek package was not found by apt; install it manually if the Raspberry Pi OS panel keyboard toggle is missing." >&2
+fi
+
+"${SUDO_CMD[@]}" apt-get install -y "${BASE_PACKAGES[@]}" "${OSK_PACKAGES[@]}"
 
 if apt-cache show pi-bluetooth >/dev/null 2>&1; then
   "${SUDO_CMD[@]}" apt-get install -y pi-bluetooth
