@@ -1,6 +1,7 @@
 from pipzo_api.adapters.bluez import (
     BluetoothCommandResult,
     BluetoothctlAdapter,
+    info_looks_like_audio_device,
     map_bluetoothctl_failure,
     parse_device_lines,
     parse_info,
@@ -46,6 +47,20 @@ def test_parse_info_maps_safe_device_fields():
     assert info.connected is True
 
 
+def test_info_looks_like_audio_device_accepts_bluez_audio_icon_before_a2dp_uuid():
+    assert info_looks_like_audio_device(
+        "\n".join(
+            [
+                "Device 20:64:DE:30:D6:F2",
+                "\tName: SRS-XE300",
+                "\tAlias: SRS-XE300",
+                "\tIcon: audio-card",
+                "\tUUID: Vendor specific           (fa349b5f-8050-0030-0010-00001bbb231d)",
+            ]
+        )
+    )
+
+
 def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("No default controller available") == SpeakerReason.ADAPTER_UNAVAILABLE
     assert map_bluetoothctl_failure("Authentication Failed") == SpeakerReason.PAIR_REJECTED
@@ -83,7 +98,8 @@ def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
                         "\tAlias: Bedroom Speaker",
                         "\tPaired: no",
                         "\tConnected: no",
-                        "\tUUID: Audio Sink",
+                        "\tIcon: audio-card",
+                        "\tUUID: Vendor specific",
                     ]
                 ),
                 "",
@@ -97,7 +113,8 @@ def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
 
     assert action.state == "succeeded"
     assert (["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None) in calls
-    assert (["/usr/bin/bluetoothctl"], 5, "scan off\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 1, "scan off\n") in calls
+    assert calls.count((["/usr/bin/bluetoothctl"], 2, "info AA:BB:CC:DD:EE:FF\n")) == 1
 
 
 def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
@@ -154,8 +171,8 @@ def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(
     assert (["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n") in calls
     assert (["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n") in calls
     assert (["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n") in calls
-    assert (["/usr/bin/bluetoothctl"], 5, "scan off\n") in calls
-    stop_scan_call_index = calls.index((["/usr/bin/bluetoothctl"], 5, "scan off\n"))
+    assert (["/usr/bin/bluetoothctl"], 1, "scan off\n") in calls
+    stop_scan_call_index = calls.index((["/usr/bin/bluetoothctl"], 1, "scan off\n"))
     pair_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "pair AA:BB:CC:DD:EE:FF\n"))
     trust_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "trust AA:BB:CC:DD:EE:FF\n"))
     connect_call_index = calls.index((["/usr/bin/bluetoothctl"], 30, "connect AA:BB:CC:DD:EE:FF\n"))

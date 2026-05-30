@@ -41,6 +41,7 @@ class BluetoothCommandResult:
 class DeviceInspection:
     device: SpeakerDevice
     has_audio_profile: bool
+    looks_like_audio_device: bool
 
 
 BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], BluetoothCommandResult]
@@ -48,6 +49,8 @@ BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], Bluetooth
 MAC_RE = re.compile(r"(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})", re.IGNORECASE)
 MAC_EXACT_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", re.IGNORECASE)
 AUDIO_UUID_MARKERS = ("audio sink", "advanced audio distribution", "a/v remote control", "headset", "handsfree")
+AUDIO_ICON_MARKERS = ("audio-card", "audio-headphones", "audio-headset", "audio-speakers", "audio-speaker")
+AUDIO_CLASS_MARKERS = ("audio/video", "rendering")
 
 
 def subprocess_runner(argv: Sequence[str], timeout_seconds: int, input_text: Optional[str] = None) -> BluetoothCommandResult:
@@ -108,6 +111,18 @@ def info_has_audio_profile(stdout: str) -> bool:
     return any(line.strip().startswith("UUID:") and any(marker in line.lower() for marker in AUDIO_UUID_MARKERS) for line in stdout.splitlines())
 
 
+def info_looks_like_audio_device(stdout: str) -> bool:
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip().lower()
+        if line.startswith("uuid:") and any(marker in line for marker in AUDIO_UUID_MARKERS):
+            return True
+        if line.startswith("icon:") and any(marker in line for marker in AUDIO_ICON_MARKERS):
+            return True
+        if line.startswith("class:") and any(marker in line for marker in AUDIO_CLASS_MARKERS):
+            return True
+    return False
+
+
 def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
     text = f"{stderr}\n{stdout}".lower()
     if "permission denied" in text or "not permitted" in text or "notpermitted" in text or "operation not permitted" in text:
@@ -153,12 +168,16 @@ class BluetoothctlAdapter:
         bluetoothctl_path: Optional[str] = None,
         command_timeout_seconds: int = 30,
         scan_timeout_seconds: int = 6,
+        scan_device_info_timeout_seconds: int = 2,
+        discovery_cleanup_timeout_seconds: int = 1,
     ) -> None:
         self._store = store
         self._runner = runner
         self._bluetoothctl_path = bluetoothctl_path
         self._command_timeout_seconds = command_timeout_seconds
         self._scan_timeout_seconds = scan_timeout_seconds
+        self._scan_device_info_timeout_seconds = scan_device_info_timeout_seconds
+        self._discovery_cleanup_timeout_seconds = discovery_cleanup_timeout_seconds
         self._last_scan: List[SpeakerDevice] = []
 
     def probe(self) -> None:
@@ -306,22 +325,36 @@ class BluetoothctlAdapter:
         devices: List[SpeakerDevice] = []
         for device in parse_device_lines(result.stdout):
             try:
-                info = self._device_info(device.address, device.display_name)
+                inspection = self._device_inspection(
+                    device.address,
+                    device.display_name,
+                    timeout_seconds=self._scan_device_info_timeout_seconds,
+                )
             except BlueZCommandError:
-                info = device
-            if info_has_audio_profile(self._run_script([f"info {device.address}"], timeout_seconds=10).stdout) or info.paired or info.connected:
-                devices.append(info)
+                devices.append(device)
+                continue
+            if inspection.looks_like_audio_device or inspection.device.paired or inspection.device.connected:
+                devices.append(inspection.device)
         return _dedupe_devices(devices)
 
     def _device_info(self, address: str, fallback_name: Optional[str] = None) -> SpeakerDevice:
         return self._device_inspection(address, fallback_name).device
 
-    def _device_inspection(self, address: str, fallback_name: Optional[str] = None) -> DeviceInspection:
+    def _device_inspection(
+        self,
+        address: str,
+        fallback_name: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
+    ) -> DeviceInspection:
         address = _normalize_address(address)
-        result = self._run_script([f"info {address}"], timeout_seconds=10)
+        result = self._run_script([f"info {address}"], timeout_seconds=timeout_seconds or 10)
         if result.returncode != 0 or "Device " in result.stderr and "not available" in result.stderr:
             raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
-        return DeviceInspection(device=parse_info(result.stdout, address, fallback_name), has_audio_profile=info_has_audio_profile(result.stdout))
+        return DeviceInspection(
+            device=parse_info(result.stdout, address, fallback_name),
+            has_audio_profile=info_has_audio_profile(result.stdout),
+            looks_like_audio_device=info_looks_like_audio_device(result.stdout),
+        )
 
     def _inspect_device(self, address: str, fallback_name: Optional[str] = None, allow_missing: bool = False) -> Optional[DeviceInspection]:
         try:
@@ -344,7 +377,7 @@ class BluetoothctlAdapter:
         return self._runner([self._bluetoothctl()], timeout_seconds, input_text)
 
     def _stop_discovery(self) -> None:
-        result = self._run_script(["scan off"], timeout_seconds=5)
+        result = self._run_script(["scan off"], timeout_seconds=self._discovery_cleanup_timeout_seconds)
         if result.returncode != 0:
             return
 

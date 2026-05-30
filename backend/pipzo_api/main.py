@@ -416,6 +416,7 @@ def create_app(
                 raise_bluetooth_adapter_unavailable("Bluetooth speaker scan", exc)
             except BlueZCommandError as exc:
                 action = speaker_failed_action("speaker-scan", exc.reason)
+        log_recovery_action("speaker.scan", action)
         event_hub.publish("speaker.scan_completed", action.model_dump(mode="json", by_alias=True))
         return action
 
@@ -442,6 +443,7 @@ def create_app(
                 raise_bluetooth_adapter_unavailable("Bluetooth speaker pair", exc)
             except BlueZCommandError as exc:
                 action = speaker_failed_action("speaker-pair", exc.reason)
+        log_recovery_action("speaker.pair", action)
         event_hub.publish("speaker.pair_completed", action.model_dump(mode="json", by_alias=True))
         return action
 
@@ -457,6 +459,7 @@ def create_app(
                 raise_bluetooth_adapter_unavailable("Bluetooth speaker reconnect", exc)
             except BlueZCommandError as exc:
                 action = speaker_failed_action("speaker-reconnect", exc.reason)
+        log_recovery_action("speaker.reconnect", action)
         event_hub.publish("speaker.reconnect_completed", action.model_dump(mode="json", by_alias=True))
         return action
 
@@ -472,6 +475,7 @@ def create_app(
                 raise_bluetooth_adapter_unavailable("Bluetooth speaker forget", exc)
             except BlueZCommandError as exc:
                 action = speaker_failed_action("speaker-forget", exc.reason)
+        log_recovery_action("speaker.forget", action)
         event_hub.publish("speaker.forget_completed", action.model_dump(mode="json", by_alias=True))
         return action
 
@@ -841,6 +845,18 @@ def speaker_failed_action(action_id: str, reason: SpeakerReason) -> RecoveryActi
         requires_confirmation=False,
         started_at=now,
         completed_at=now,
+    )
+
+
+def log_recovery_action(event: str, action: RecoveryAction) -> None:
+    get_logger().info(
+        "recovery action completed",
+        extra={
+            "event": event,
+            "details": {
+                "action": action.model_dump(mode="json", by_alias=True),
+            },
+        },
     )
 
 

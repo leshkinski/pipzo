@@ -13,6 +13,7 @@ from pipzo_api.contract import (
     RecoveryActionState,
     SpeakerDevice,
     SpeakerHealth,
+    SpeakerReason,
     SpeakerScanResults,
     SpeakerSummary,
     VolumeHealth,
@@ -847,6 +848,37 @@ def test_hardware_bluetooth_adapter_success_path_projects_speaker_readiness(tmp_
     assert status_response.json()["status"] == "connected"
     assert reconnect_response.json()["state"] == "succeeded"
     assert forget_response.json()["state"] == "succeeded"
+
+
+def test_hardware_bluetooth_pair_logs_action_result_reason(capsys, tmp_path):
+    class FailedPairBluetoothAdapter(FakeBluetoothAdapter):
+        def pair(self, address: str, display_name: Optional[str] = None) -> RecoveryAction:
+            return RecoveryAction(
+                id="speaker-pair",
+                kind=RecoveryActionKind.RECONNECT_SPEAKER,
+                state=RecoveryActionState.FAILED,
+                reason=SpeakerReason.CONNECT_FAILED,
+                requires_confirmation=False,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "hardware-bluetooth-pair-log.sqlite3"))
+    app = create_app(
+        settings_override=settings,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FailedPairBluetoothAdapter(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/speaker/pair", json={"address": "11:22:33:44:55:66", "displayName": "New Speaker"})
+
+    logs = capsys.readouterr().out
+    assert response.status_code == 200
+    assert response.json()["state"] == "failed"
+    assert response.json()["reason"] == "connect_failed"
+    assert '"event": "speaker.pair"' in logs
+    assert '"reason": "connect_failed"' in logs
 
 
 def test_hardware_state_projects_playback_transfer_required_after_prerequisites(tmp_path):
