@@ -70,6 +70,11 @@ import {
 
 type DataSource = "backend" | "local";
 
+type KeyboardState = {
+  active: boolean;
+  surface: SurfaceId | null;
+};
+
 type SpotifyAuthControls = {
   session: SpotifyAuthSession | null;
   busy: boolean;
@@ -184,6 +189,7 @@ export function App() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
+  const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
     status: "disabled",
     activated: false,
@@ -269,6 +275,48 @@ export function App() {
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+
+    function updateVisualViewportVars() {
+      const visualViewport = window.visualViewport;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const keyboardInset = Math.max(0, window.innerHeight - viewportHeight - (visualViewport?.offsetTop ?? 0));
+      root.style.setProperty("--pipzo-viewport-height", `${Math.round(viewportHeight)}px`);
+      root.style.setProperty("--pipzo-keyboard-inset", `${Math.round(keyboardInset)}px`);
+    }
+
+    function activeElementSurface(element: Element | null): SurfaceId | null {
+      const surface = element?.closest<HTMLElement>("[data-surface]");
+      return (surface?.dataset.surface as SurfaceId | undefined) ?? null;
+    }
+
+    function updateKeyboardFocus() {
+      const element = document.activeElement;
+      const editable = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+      setKeyboardState({ active: editable, surface: editable ? activeElementSurface(element) : null });
+    }
+
+    updateVisualViewportVars();
+    updateKeyboardFocus();
+
+    window.visualViewport?.addEventListener("resize", updateVisualViewportVars);
+    window.visualViewport?.addEventListener("scroll", updateVisualViewportVars);
+    window.addEventListener("resize", updateVisualViewportVars);
+    document.addEventListener("focusin", updateKeyboardFocus);
+    document.addEventListener("focusout", updateKeyboardFocus);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateVisualViewportVars);
+      window.visualViewport?.removeEventListener("scroll", updateVisualViewportVars);
+      window.removeEventListener("resize", updateVisualViewportVars);
+      document.removeEventListener("focusin", updateKeyboardFocus);
+      document.removeEventListener("focusout", updateKeyboardFocus);
+      root.style.removeProperty("--pipzo-viewport-height");
+      root.style.removeProperty("--pipzo-keyboard-inset");
+    };
   }, []);
 
   useEffect(() => {
@@ -1215,8 +1263,16 @@ export function App() {
     onPlay: startLibraryItem,
   };
 
+  const appClassName = [
+    "app",
+    `phase-${snapshot.appPhase}`,
+    idleActive ? "idle-active" : "",
+    keyboardState.active ? "keyboard-active" : "",
+    keyboardState.surface ? `keyboard-surface-${keyboardState.surface}` : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`app phase-${snapshot.appPhase}${idleActive ? " idle-active" : ""}`}>
+    <div className={appClassName}>
       {idleActive ? (
         <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} active />
       ) : (
@@ -1284,7 +1340,7 @@ export function App() {
           })}
         </nav>
 
-        <section className="surface" aria-live="polite">
+        <section className="surface" aria-live="polite" data-surface={activeSurface}>
           {activeSurface === "setup" && (
             <SetupSurface
               snapshot={snapshot}
@@ -1541,19 +1597,29 @@ function BrowseSurface({ snapshot, library }: { snapshot: AppSnapshot; library: 
         <p className="eyebrow">Browse</p>
         <h1>{snapshot.capabilities.canBrowse ? "Browse saved music" : "Browse is waiting for recovery"}</h1>
         <p>{availability.detail}</p>
-        <div className="library-search">
+        <form
+          className="library-search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (availability.canSearch && !library.busy) {
+              library.onSearch();
+            }
+          }}
+        >
           <input
+            autoComplete="off"
             disabled={!availability.canSearch || library.busy}
             inputMode="search"
             placeholder="Search saved music"
+            enterKeyHint="search"
             type="search"
             value={library.query}
             onChange={(event) => library.onQuery(event.target.value)}
           />
-          <button disabled={!availability.canSearch || library.busy} type="button" onClick={library.onSearch}>
+          <button disabled={!availability.canSearch || library.busy} type="submit">
             Search
           </button>
-        </div>
+        </form>
         <p className="subtle">{library.message}</p>
       </section>
       <div className="side-stack">

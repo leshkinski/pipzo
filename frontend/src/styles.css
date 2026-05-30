@@ -1,4 +1,6 @@
 :root {
+  --pipzo-viewport-height: 100dvh;
+  --pipzo-keyboard-inset: 0px;
   color: #17211c;
   background: #f4f1ea;
   font-family:
@@ -14,13 +16,13 @@
 html,
 body,
 #root {
-  height: 100%;
+  height: var(--pipzo-viewport-height);
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: var(--pipzo-viewport-height);
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
@@ -30,6 +32,25 @@ button,
 select,
 input {
   font: inherit;
+}
+
+button,
+select,
+.nav,
+.chip,
+.library-section-heading,
+.step,
+.health-row,
+.actions,
+.spotify-status {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button {
@@ -47,13 +68,18 @@ button:disabled {
 }
 
 .app {
-  height: 100vh;
-  min-height: 100vh;
+  height: var(--pipzo-viewport-height);
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 18px;
+  padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px));
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
+}
+
+.app.keyboard-active {
+  overflow: hidden;
 }
 
 .app::-webkit-scrollbar,
@@ -272,14 +298,39 @@ button:disabled {
 }
 
 .surface {
-  min-height: min(580px, calc(100vh - 132px));
-  max-height: calc(100vh - 132px);
+  min-height: min(580px, calc(var(--pipzo-viewport-height) - 132px));
+  max-height: calc(var(--pipzo-viewport-height) - 132px);
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 8px;
+  padding-bottom: max(8px, var(--pipzo-keyboard-inset));
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
+}
+
+.app.keyboard-active .topbar,
+.app.keyboard-active .developer-panel,
+.app.keyboard-active .warning-band,
+.app.keyboard-active .degraded-banner {
+  display: none;
+}
+
+.app.keyboard-active .shell {
+  grid-template-columns: 1fr;
+  height: calc(var(--pipzo-viewport-height) - 36px);
+  margin-top: 0;
+}
+
+.app.keyboard-active .nav {
+  display: none;
+}
+
+.app.keyboard-active .surface {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+  padding-right: 0;
 }
 
 .surface-grid,
@@ -443,6 +494,56 @@ button:disabled {
   border-radius: 8px;
   padding: 0 14px;
   background: #fffdf7;
+}
+
+.app.keyboard-surface-browse .surface-grid {
+  grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 1.1fr);
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.app.keyboard-surface-browse .hero-panel {
+  min-height: 0;
+  padding: 14px;
+}
+
+.app.keyboard-surface-browse .hero-panel h1 {
+  margin: 4px 0 8px;
+  font-size: 30px;
+}
+
+.app.keyboard-surface-browse .hero-panel p {
+  margin: 8px 0;
+  font-size: 16px;
+}
+
+.app.keyboard-surface-browse .library-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-top: 10px;
+  max-width: none;
+  padding-bottom: 8px;
+  background: #fffdf7;
+}
+
+.app.keyboard-surface-browse .side-stack {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: max(12px, var(--pipzo-keyboard-inset));
+  -webkit-overflow-scrolling: touch;
+}
+
+.app.keyboard-surface-browse .category-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.app.keyboard-surface-browse .library-section {
+  min-height: 0;
 }
 
 .category-tabs {

@@ -305,6 +305,33 @@ describe("kiosk shell view model", () => {
     expect(artPanelRule).toContain("min-height: 0");
   });
 
+  it("uses the visual viewport for the kiosk shell while an OSK is open", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const rootRule = css.match(/:root\s*\{[^}]+\}/)?.[0] ?? "";
+    const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
+    const keyboardShellRule = css.match(/\.app\.keyboard-active \.shell\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(rootRule).toContain("--pipzo-viewport-height: 100dvh");
+    expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
+    expect(appRule).toContain("height: var(--pipzo-viewport-height)");
+    expect(appRule).toContain("padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px))");
+    expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
+  });
+
+  it("keeps Browse search and results in bounded touch-pannable regions during OSK input", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const browseGridRule = css.match(/\.app\.keyboard-surface-browse \.surface-grid\s*\{[^}]+\}/)?.[0] ?? "";
+    const searchRule = css.match(/\.app\.keyboard-surface-browse \.library-search\s*\{[^}]+\}/)?.[0] ?? "";
+    const sideStackRule = css.match(/\.app\.keyboard-surface-browse \.side-stack\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(browseGridRule).toContain("height: 100%");
+    expect(browseGridRule).toContain("min-height: 0");
+    expect(searchRule).toContain("position: sticky");
+    expect(sideStackRule).toContain("overflow-y: auto");
+    expect(sideStackRule).toContain("overscroll-behavior: contain");
+    expect(sideStackRule).toContain("padding-bottom: max(12px, var(--pipzo-keyboard-inset))");
+  });
+
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {
     const snapshot = {
       ...localScenarios.ready_healthy.snapshot,
