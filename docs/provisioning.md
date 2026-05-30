@@ -60,6 +60,8 @@ systemctl --user restart pipzo-kiosk.service
 
 Existing `/etc/pipzo/*.env` files are not overwritten. Review `provisioning/env/*.example` after updates and manually carry over new settings when needed.
 
+The kiosk keyring fix is delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install it even when an existing `/etc/pipzo/kiosk.env` is preserved.
+
 ## Service Operations
 
 Backend status and logs:
@@ -91,10 +93,15 @@ The launcher uses a dedicated Chromium profile directory and passes conservative
 - `--disable-session-crashed-bubble`
 - `--disable-features=TranslateUI`
 - `--autoplay-policy=no-user-gesture-required`
+- `--password-store=basic`
 - `--overscroll-history-navigation=0`
 - `--check-for-update-interval=31536000`
 
-Final Touch Display 2 timing, Chromium behavior, Spotify Web Playback SDK readiness, and on-screen keyboard behavior still require real Pi validation.
+`--password-store=basic` keeps the dedicated Pipzo Chromium profile from asking the desktop Secret Service/keyring to unlock before the kiosk is usable. This is intended only for the local kiosk profile; Spotify OAuth tokens remain backend-owned and encrypted in Pipzo storage, and Chromium still handles the local Spotify PKCE web flow and Spotify Web Playback SDK runtime.
+
+After installing or updating the launcher on Raspberry Pi OS Desktop, reboot the Pi and confirm the desktop may appear briefly, then Chromium enters the Pipzo kiosk without an interactive desktop keyring password prompt.
+
+Final Touch Display 2 timing, Chromium behavior, Spotify Web Playback SDK readiness, OAuth completion, and on-screen keyboard behavior still require real Pi validation.
 
 ## Rollback And Reset
 

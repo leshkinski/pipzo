@@ -34,6 +34,7 @@ exec "$CHROMIUM_BIN" \
   --disable-session-crashed-bubble \
   --disable-features=TranslateUI \
   --autoplay-policy=no-user-gesture-required \
+  --password-store=basic \
   --overscroll-history-navigation=0 \
   --check-for-update-interval=31536000 \
   --user-data-dir="$PROFILE_PATH"
