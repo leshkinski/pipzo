@@ -6,7 +6,7 @@ from pipzo_api.adapters.bluez import (
     parse_info,
 )
 from pipzo_api.bluetooth_store import BluetoothSpeakerStore
-from pipzo_api.contract import SpeakerReason
+from pipzo_api.contract import SpeakerReason, SpeakerSummary
 
 
 def test_parse_device_lines_extracts_addresses_and_names():
@@ -53,6 +53,9 @@ def test_bluetoothctl_failure_mapping_keeps_reasons_coarse():
     assert map_bluetoothctl_failure("Failed to connect: org.bluez.Error.Failed br-connection-profile-unavailable") == SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
     assert map_bluetoothctl_failure("Failed to pair: org.bluez.Error.AlreadyExists") == SpeakerReason.CONNECT_FAILED
     assert map_bluetoothctl_failure("Failed to start discovery: org.bluez.Error.InProgress") == SpeakerReason.PAIR_TIMEOUT
+    assert map_bluetoothctl_failure("org.bluez.Error.NotPermitted") == SpeakerReason.ADAPTER_UNAVAILABLE
+    assert map_bluetoothctl_failure("connect error: Host is down") == SpeakerReason.DEVICE_OUT_OF_RANGE
+    assert map_bluetoothctl_failure("connect error: Input/output error") == SpeakerReason.CONNECT_FAILED
 
 
 def test_adapter_pair_runs_pair_trust_connect_sequentially_and_persists_primary(tmp_path):
@@ -148,6 +151,85 @@ def test_adapter_pair_adopts_already_connected_audio_device(tmp_path):
     assert store.get_primary() is not None
     assert store.get_primary().address == "AA:BB:CC:DD:EE:FF"
     assert not any(call[2] == "pair AA:BB:CC:DD:EE:FF\n" for call in calls)
+
+
+def test_adapter_pair_connects_already_paired_replacement_device(tmp_path):
+    calls = []
+    device_state = {"paired": True, "trusted": False, "connected": False}
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "trust 11:22:33:44:55:66\n":
+            device_state["trusted"] = True
+            return BluetoothCommandResult(0, "Changing 11:22:33:44:55:66 trust succeeded\n", "")
+        if input_text == "connect 11:22:33:44:55:66\n":
+            device_state["connected"] = True
+            return BluetoothCommandResult(0, "Connection successful\n", "")
+        if input_text == "info 11:22:33:44:55:66\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 11:22:33:44:55:66",
+                        "\tName: Replacement Speaker",
+                        "\tAlias: Replacement Speaker",
+                        f"\tPaired: {'yes' if device_state['paired'] else 'no'}",
+                        f"\tTrusted: {'yes' if device_state['trusted'] else 'no'}",
+                        f"\tConnected: {'yes' if device_state['connected'] else 'no'}",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-replacement.sqlite3")
+    store.save_primary(
+        speaker=SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Old Headphones",
+            connected=False,
+        )
+    )
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("11:22:33:44:55:66")
+
+    assert action.state == "succeeded"
+    assert store.get_primary() is not None
+    assert store.get_primary().address == "11:22:33:44:55:66"
+    assert not any(call[2] == "pair 11:22:33:44:55:66\n" for call in calls)
+    assert (["/usr/bin/bluetoothctl"], 30, "trust 11:22:33:44:55:66\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "connect 11:22:33:44:55:66\n") in calls
+
+
+def test_adapter_forget_clears_saved_primary_when_bluez_already_removed_device(tmp_path):
+    def runner(argv, timeout_seconds, input_text=None):
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "remove AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(1, "", "Device AA:BB:CC:DD:EE:FF not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-stale-forget.sqlite3")
+    store.save_primary(
+        speaker=SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Old Headphones",
+            connected=False,
+        )
+    )
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.forget("AA:BB:CC:DD:EE:FF")
+
+    assert action.state == "succeeded"
+    assert action.reason is None
+    assert store.get_primary() is None
 
 
 def test_adapter_reports_pair_failure_without_saving_primary(tmp_path):

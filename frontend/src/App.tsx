@@ -812,7 +812,9 @@ export function App() {
         await scanSpeakers();
         const results = await fetchSpeakerScanResults();
         setSpeakerDevices(results.devices);
-        setSelectedSpeakerAddress((current) => current || results.devices[0]?.address || "");
+        setSelectedSpeakerAddress((current) =>
+          results.devices.some((device) => device.address === current) ? current : results.devices[0]?.address || "",
+        );
         setSpeakerMessage(results.devices.length > 0 ? "Choose one speaker and pair it." : "No Bluetooth speakers found. Put the speaker in pairing mode and scan again.");
       } else {
         const fallback = [
@@ -820,7 +822,7 @@ export function App() {
           { address: "11:22:33:44:55:66", displayName: "Kitchen Speaker", paired: false, connected: false, signal: 62 },
         ];
         setSpeakerDevices(fallback);
-        setSelectedSpeakerAddress((current) => current || fallback[0].address);
+        setSelectedSpeakerAddress((current) => (fallback.some((device) => device.address === current) ? current : fallback[0].address));
         setSpeakerMessage("Local Bluetooth mock speakers loaded.");
       }
     } catch {
@@ -916,8 +918,14 @@ export function App() {
       if (dataSource === "backend") {
         const action = await forgetSpeaker({ address, confirm: true });
         await refreshSnapshot().catch(() => undefined);
+        if (action.state === "succeeded") {
+          setSpeakerDevices((devices) => devices.filter((device) => device.address !== address));
+          setSelectedSpeakerAddress((current) => (current === address ? "" : current));
+        }
         setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker forgotten." : `Forget failed: ${labelFromId(action.reason ?? "unknown")}.`);
       } else {
+        setSpeakerDevices((devices) => devices.filter((device) => device.address !== address));
+        setSelectedSpeakerAddress((current) => (current === address ? "" : current));
         setSnapshot((current) => ({
           ...current,
           health: { ...current.health, speaker: { status: "none_saved", reason: "user_forgot" }, playbackDevice: { status: "unavailable", reason: "speaker_unavailable" } },

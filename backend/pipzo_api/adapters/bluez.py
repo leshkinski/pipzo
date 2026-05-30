@@ -110,6 +110,8 @@ def info_has_audio_profile(stdout: str) -> bool:
 
 def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
     text = f"{stderr}\n{stdout}".lower()
+    if "permission denied" in text or "not permitted" in text or "notpermitted" in text or "operation not permitted" in text:
+        return SpeakerReason.ADAPTER_UNAVAILABLE
     if "no default controller" in text or "no controller" in text or ("controller" in text and "not available" in text):
         return SpeakerReason.ADAPTER_UNAVAILABLE
     if "not ready" in text:
@@ -126,9 +128,15 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         return SpeakerReason.PAIR_REJECTED
     if "timeout" in text or "timed out" in text:
         return SpeakerReason.PAIR_TIMEOUT
-    if "br-connection" in text or "failed to connect" in text or "connection failed" in text:
+    if (
+        "br-connection" in text
+        or "failed to connect" in text
+        or "connection failed" in text
+        or "input/output error" in text
+        or "software caused connection abort" in text
+    ):
         return SpeakerReason.CONNECT_FAILED
-    if "not available" in text or "not found" in text or "does not exist" in text:
+    if "host is down" in text or "not available" in text or "not found" in text or "does not exist" in text:
         return SpeakerReason.DEVICE_OUT_OF_RANGE
     return SpeakerReason.UNKNOWN
 
@@ -270,10 +278,12 @@ class BluetoothctlAdapter:
         started_at = utc_now()
         self._ensure_powered()
         address = _normalize_address(address)
+        primary = self._store.get_primary()
         result = self._run_script([f"remove {address}"], timeout_seconds=self._command_timeout_seconds)
         if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
-            return self._action("speaker-forget", RecoveryActionState.FAILED, started_at, map_bluetoothctl_failure(result.stderr, result.stdout))
-        primary = self._store.get_primary()
+            reason = map_bluetoothctl_failure(result.stderr, result.stdout)
+            if reason != SpeakerReason.DEVICE_OUT_OF_RANGE:
+                return self._action("speaker-forget", RecoveryActionState.FAILED, started_at, reason)
         if primary is not None and primary.address.upper() == address:
             self._store.delete_primary()
         return self._action("speaker-forget", RecoveryActionState.SUCCEEDED, started_at)
