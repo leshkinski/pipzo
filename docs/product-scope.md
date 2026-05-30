@@ -4,25 +4,23 @@
 
 Pipzo is a stand-alone music appliance, not a general Spotify display or tablet replacement.
 
-The user should be able to walk up to the device, use the touchscreen, browse her Spotify music, and start playback through a Bluetooth speaker without using another screen.
+The user should be able to walk up to the device, use the touchscreen, browse her Spotify music from Home, and start playback through a Bluetooth speaker without using another screen.
 
 ## V1 Must Have
 
 - Spotify login using OAuth Authorization Code with PKCE.
 - Local Pi/Chromium Spotify OAuth setup using the loopback callback registered in the Spotify developer dashboard.
 - Single Spotify Premium user account.
-- Full-screen kiosk interface.
+- True fullscreen kiosk interface for daily use.
 - Auto-start on boot.
 - Touch-first UI.
-- Browse user Spotify content:
+- Browse user Spotify content from Home:
   - Playlists.
   - Albums.
   - Artists.
   - Recently played.
   - Liked songs.
-  - Recommendations on Home.
 - Continue Listening home screen.
-- Library-first constrained search.
 - Now Playing screen.
 - Album art display.
 - Play/pause.
@@ -39,6 +37,8 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 
 ## Deferred
 
+- Daily-use text search.
+- Speech search investigation for a future hardware version.
 - Built-in speaker.
 - Physical controls.
 - Offline Spotify playback.

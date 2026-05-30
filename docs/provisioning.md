@@ -185,7 +185,7 @@ systemctl --user restart pipzo-kiosk.service
 Interpretation:
 
 - If `pointerdown` or `touchstart` increments but `pointermove` and `touchmove` stay at zero during a drag, Chromium/labwc is not exposing drag movement to the page.
-- If `touchmove` appears only after `--touch-events=enabled`, keep that flag as a candidate workaround for one validation cycle and retest the real app for taps, Browse/Search with Squeekboard, playback, and direct panning.
+- If `touchmove` appears only after `--touch-events=enabled`, keep that flag as a candidate workaround for one validation cycle and retest the real app for taps, setup text fields with Squeekboard, playback, and direct panning.
 - If move events appear but `scroll top` never changes in the probe, the browser is receiving events but native scrolling is blocked by browser/CSS behavior.
 - If the probe scrolls normally but the real app does not, route back to frontend implementation with the probe result attached.
 
@@ -252,7 +252,7 @@ sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc
 systemctl --user restart pipzo-kiosk.service
 ```
 
-Tap Browse/Search and Spotify OAuth text fields. Record whether Chromium is true fullscreen, whether the panel is hidden, and whether Squeekboard appears above the page.
+Tap setup or Spotify OAuth text fields. Record whether Chromium is true fullscreen, whether the panel is hidden, and whether Squeekboard appears above the page.
 
 ```bash
 sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env

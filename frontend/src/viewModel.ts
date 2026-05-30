@@ -1,6 +1,6 @@
 import type { AppSnapshot, IdleMode, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
-export const primarySurfaces: SurfaceId[] = ["home", "browse", "now_playing", "settings", "idle"];
+export const primarySurfaces: SurfaceId[] = ["home", "now_playing", "settings"];
 export const sleepTimerPresets = [15, 30, 45, 60] as const;
 
 export type SleepTimerPresetMinutes = (typeof sleepTimerPresets)[number];
@@ -85,14 +85,14 @@ export function nowPlayingEmptyState(snapshot: AppSnapshot): NowPlayingEmptyStat
     const code = snapshot.diagnostics.rawAdapterCode ?? "unknown";
     if (code.startsWith("device_mismatch:")) {
       return {
-        title: "Playback is on another Spotify device",
-        detail: code,
+        title: "Remote Spotify playback",
+        detail: "Control the active Spotify device here, or select Pipzo when you want this screen to take over.",
       };
     }
     if (code === "empty_response") {
       return {
-        title: "No current track from Spotify",
-        detail: "Pipzo is ready, but Spotify returned no active playback payload.",
+        title: "Nothing playing",
+        detail: "Choose music from Home when playback is available.",
       };
     }
     if (code.startsWith("unsupported_payload:")) {
@@ -104,7 +104,7 @@ export function nowPlayingEmptyState(snapshot: AppSnapshot): NowPlayingEmptyStat
   }
   return {
     title: "Nothing playing",
-    detail: "Choose music from Home or Browse when playback is available.",
+    detail: "Choose music from Home when playback is available.",
   };
 }
 
@@ -216,7 +216,7 @@ export function libraryAvailability(snapshot: AppSnapshot): LibraryAvailability 
       canStartPlayback,
       stale: snapshot.staleness.isStale,
       title: "Library is in recovery mode",
-      detail: `${reason} Saved content may be visible in mock or cached views, but live browse and search stay disabled until recovery completes.`,
+      detail: `${reason} Saved content may be visible in mock or cached views, but live library access stays disabled until recovery completes.`,
     };
   }
 
@@ -225,7 +225,7 @@ export function libraryAvailability(snapshot: AppSnapshot): LibraryAvailability 
     canSearch,
     canStartPlayback,
     stale: false,
-    title: "Browse saved music",
+    title: "Saved music",
     detail: "Playlists, albums, artists, liked songs, and recent listening stay constrained to the connected account.",
   };
 }

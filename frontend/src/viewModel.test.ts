@@ -18,6 +18,7 @@ import {
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
   preferredSurface,
+  primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
@@ -74,7 +75,7 @@ describe("kiosk shell view model", () => {
     expect(degraded.unavailable).toEqual(["live library browsing", "music playback"]);
   });
 
-  it("models library browse/search availability from app capabilities", () => {
+  it("models library availability from app capabilities while search remains deferred", () => {
     const ready = localScenarios.ready_healthy.snapshot;
     const offline = localScenarios.offline_settings_mode.snapshot;
     const item = {
@@ -91,7 +92,7 @@ describe("kiosk shell view model", () => {
       canBrowse: true,
       canSearch: true,
       canStartPlayback: true,
-      title: "Browse saved music",
+      title: "Saved music",
     });
     expect(canPlayLibraryItem(ready, item)).toBe(true);
     expect(libraryAvailability(offline)).toMatchObject({
@@ -103,6 +104,10 @@ describe("kiosk shell view model", () => {
     });
     expect(canPlayLibraryItem(offline, item)).toBe(false);
     expect(canPlayLibraryItem(ready, { ...item, playbackKind: "unavailable", playable: false })).toBe(false);
+  });
+
+  it("keeps Browse and Idle out of primary kiosk navigation", () => {
+    expect(primarySurfaces).toEqual(["home", "now_playing", "settings"]);
   });
 
   it("models the single app volume control from volume health", () => {
@@ -319,18 +324,13 @@ describe("kiosk shell view model", () => {
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
   });
 
-  it("keeps Browse search and results in bounded touch-pannable regions during OSK input", () => {
+  it("keeps V1 daily library browsing free of text search controls", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-    const browseGridRule = css.match(/\.app\.keyboard-surface-browse \.surface-grid\s*\{[^}]+\}/)?.[0] ?? "";
-    const searchRule = css.match(/\.app\.keyboard-surface-browse \.library-search\s*\{[^}]+\}/)?.[0] ?? "";
-    const sideStackRule = css.match(/\.app\.keyboard-surface-browse \.side-stack\s*\{[^}]+\}/)?.[0] ?? "";
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-    expect(browseGridRule).toContain("height: 100%");
-    expect(browseGridRule).toContain("min-height: 0");
-    expect(searchRule).toContain("position: sticky");
-    expect(sideStackRule).toContain("overflow-y: auto");
-    expect(sideStackRule).toContain("overscroll-behavior: contain");
-    expect(sideStackRule).toContain("padding-bottom: max(12px, var(--pipzo-keyboard-inset))");
+    expect(css).not.toContain(".library-search");
+    expect(appSource).not.toContain("Search saved music");
+    expect(appSource).not.toContain("type=\"search\"");
   });
 
   it("prevents accidental text selection while preserving text entry selection", () => {
@@ -349,7 +349,6 @@ describe("kiosk shell view model", () => {
   it("keeps direct finger panning on page and surface scrollers without button-level touch overrides", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
-    const keyboardSideStackRule = css.match(/\.app\.keyboard-surface-browse \.side-stack\s*\{[^}]+\}/)?.[0] ?? "";
     const shellRules: string[] = css.match(/\.shell\s*\{[^}]+\}/g) ?? [];
     const shellRule = shellRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const surfaceRule = css.match(/\.surface\s*\{[^}]+\}/)?.[0] ?? "";
@@ -367,7 +366,6 @@ describe("kiosk shell view model", () => {
     expect(surfaceRule).toContain("max-height: calc(var(--pipzo-viewport-height) - 132px)");
     expect(surfaceRule).toContain("overflow-y: auto");
     expect(surfaceRule).toContain("touch-action: pan-y");
-    expect(keyboardSideStackRule).toContain("touch-action: pan-y");
     expect(sideStackRule).not.toContain("overflow-y: auto");
     expect(sideStackRule).not.toContain("touch-action: pan-y");
     expect(listButtonRule).not.toContain("touch-action: pan-y");
@@ -387,8 +385,8 @@ describe("kiosk shell view model", () => {
     };
 
     expect(nowPlayingEmptyState(snapshot)).toEqual({
-      title: "Playback is on another Spotify device",
-      detail: "device_mismatch:stored=old:active=new",
+      title: "Remote Spotify playback",
+      detail: "Control the active Spotify device here, or select Pipzo when you want this screen to take over.",
     });
   });
 

@@ -1070,9 +1070,55 @@ def test_hardware_state_exposes_current_playback_device_mismatch_diagnostic(tmp_
 
     body = response.json()
     assert response.status_code == 200
-    assert body["nowPlaying"] is None
+    assert body["nowPlaying"]["title"] == "Phone Song"
+    assert body["nowPlaying"]["isPlaying"] is True
     assert body["diagnostics"]["lastCommand"] == "spotify.current_playback"
     assert body["diagnostics"]["rawAdapterCode"] == "device_mismatch:stored=stored-sdk-device:active=other-device"
+
+
+def test_hardware_state_keeps_last_known_track_paused_on_empty_current_playback(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-now-playing-last-known.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    from pipzo_api.setup_store import SetupStateStore
+
+    SetupStateStore(settings.db_path).mark_playback_test_passed("pipzo-sdk-device")
+    spotify_client = FakeSpotifyPlaybackClient(
+        current_playback={
+            "device": {"id": "pipzo-sdk-device", "name": "Pipzo"},
+            "is_playing": True,
+            "progress_ms": 30000,
+            "currently_playing_type": "track",
+            "item": {
+                "name": "Remembered Song",
+                "duration_ms": 180000,
+                "artists": [{"name": "Remembered Artist"}],
+                "album": {"name": "Remembered Album", "images": []},
+            },
+        }
+    )
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=FakeNetworkAdapter(),
+        bluetooth_adapter_override=FakeBluetoothAdapter(),
+        volume_adapter_override=FakeVolumeAdapter(),
+    ) as client:
+        first = client.get("/api/v1/app/state")
+        spotify_client.current_playback = None
+        second = client.get("/api/v1/app/state")
+
+    assert first.status_code == 200
+    body = second.json()
+    assert body["nowPlaying"]["title"] == "Remembered Song"
+    assert body["nowPlaying"]["artist"] == "Remembered Artist"
+    assert body["nowPlaying"]["isPlaying"] is False
+    assert body["diagnostics"]["rawAdapterCode"] == "empty_response"
 
 
 def test_hardware_library_play_success_marks_playback_test_passed_with_real_device(tmp_path):

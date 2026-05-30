@@ -106,6 +106,8 @@ from .spotify_catalog import (
 )
 from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
 
+_LAST_KNOWN_NOW_PLAYING_BY_DB: dict[str, NowPlayingSummary] = {}
+
 
 def create_app(
     settings_override: Optional[Settings] = None,
@@ -963,14 +965,19 @@ def project_now_playing(settings: Settings, spotify_client: Optional[SpotifyClie
         return
 
     if not payload:
-        snapshot.now_playing = None
+        snapshot.now_playing = paused_last_known_now_playing(settings)
         mark_current_playback_diagnostic(snapshot, "empty_response")
         return
 
     device = payload.get("device") if isinstance(payload.get("device"), dict) else {}
     active_device_id = str(device.get("id") or "")
     if active_device_id and active_device_id != target_device_id:
-        snapshot.now_playing = None
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else None
+        if item is not None and payload.get("currently_playing_type") in {None, "track"}:
+            snapshot.now_playing = now_playing_from_spotify_payload(payload, item)
+            remember_now_playing(settings, snapshot.now_playing)
+        else:
+            snapshot.now_playing = paused_last_known_now_playing(settings)
         mark_current_playback_diagnostic(
             snapshot,
             f"device_mismatch:stored={target_device_id}:active={active_device_id}",
@@ -985,7 +992,19 @@ def project_now_playing(settings: Settings, spotify_client: Optional[SpotifyClie
         return
 
     snapshot.now_playing = now_playing_from_spotify_payload(payload, item)
+    remember_now_playing(settings, snapshot.now_playing)
     mark_current_playback_diagnostic(snapshot, f"ok:device={active_device_id or 'unknown'}")
+
+
+def remember_now_playing(settings: Settings, now_playing: NowPlayingSummary) -> None:
+    _LAST_KNOWN_NOW_PLAYING_BY_DB[settings.db_path] = now_playing
+
+
+def paused_last_known_now_playing(settings: Settings) -> Optional[NowPlayingSummary]:
+    last = _LAST_KNOWN_NOW_PLAYING_BY_DB.get(settings.db_path)
+    if last is None:
+        return None
+    return last.model_copy(update={"is_playing": False, "captured_at": utc_now()})
 
 
 def mark_current_playback_diagnostic(snapshot: AppSnapshot, code: str) -> None:

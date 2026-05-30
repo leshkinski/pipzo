@@ -26,12 +26,11 @@ import {
   runSetupPlaybackTest,
   scanSpeakers,
   scanNetwork,
-  searchLibrary,
   connectNetwork,
   transferSpotifyPlayback,
 } from "./api";
 import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
-import { localLibraryHome, localLibrarySearch, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
+import { localLibraryHome, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
   spotifySdkGate,
@@ -70,6 +69,7 @@ import {
 } from "./viewModel";
 
 type DataSource = "backend" | "local";
+type AppSurfaceId = SurfaceId | "sleep_timer";
 
 type KeyboardState = {
   active: boolean;
@@ -137,28 +137,26 @@ type SetupPlaybackControls = {
 type LibraryControls = {
   home: LibraryHomeResponse;
   activeCategory: LibraryCategoryId;
-  query: string;
   busy: boolean;
   message: string;
   onRefresh: () => void;
   onCategory: (category: LibraryCategoryId) => void;
-  onQuery: (query: string) => void;
-  onSearch: () => void;
   onPlay: (item: LibraryItem) => void;
 };
 
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
-  browse: "Browse",
   now_playing: "Now Playing",
   settings: "Settings",
+  browse: "Browse",
   idle: "Idle",
 };
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => localScenarioSnapshot("first_boot_empty"));
-  const [selectedSurface, setSelectedSurface] = useState<SurfaceId>("setup");
+  const [selectedSurface, setSelectedSurface] = useState<AppSurfaceId>("setup");
+  const [timerReturnSurface, setTimerReturnSurface] = useState<AppSurfaceId>("now_playing");
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>(() => localScenarioSummaries());
   const [selectedScenario, setSelectedScenario] = useState("first_boot_empty");
   const [dataSource, setDataSource] = useState<DataSource>("local");
@@ -187,7 +185,6 @@ export function App() {
   const [playbackTestMessage, setPlaybackTestMessage] = useState("Activate and select the browser player before confirming playback.");
   const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("playlists");
-  const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
   const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
@@ -251,7 +248,7 @@ export function App() {
 
   useEffect(() => {
     const preferred = preferredSurface(snapshot);
-    setSelectedSurface((current) => (canOpenSurface(snapshot, current) ? current : preferred));
+    setSelectedSurface((current) => (current === "sleep_timer" || canOpenSurface(snapshot, current) ? current : preferred));
   }, [snapshot]);
 
   useEffect(() => {
@@ -652,29 +649,6 @@ export function App() {
       setLibraryMessage(`${labelFromId(category)} ready.`);
     } catch {
       setLibraryMessage(`${labelFromId(category)} is unavailable right now.`);
-    } finally {
-      setLibraryBusy(false);
-    }
-  }
-
-  async function submitLibrarySearch() {
-    setLibraryBusy(true);
-    const query = libraryQuery.trim();
-    if (!query) {
-      await refreshLibraryHome();
-      return;
-    }
-    setLibraryMessage(`Searching saved music for "${query}".`);
-    try {
-      const result = dataSource === "backend" ? await searchLibrary(query) : localLibrarySearch(query);
-      setLibraryHome({
-        sections: result.sections,
-        generatedAt: result.generatedAt,
-        constrained: true,
-      });
-      setLibraryMessage(result.sections.length > 0 ? "Search results are constrained to saved/account content." : "No saved/account matches found.");
-    } catch {
-      setLibraryMessage("Search is unavailable until Spotify and network recovery complete.");
     } finally {
       setLibraryBusy(false);
     }
@@ -1133,7 +1107,8 @@ export function App() {
   }
 
   async function sendPlaybackAction(action: "play" | "pause" | "next" | "previous") {
-    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
+    const deviceId = remotePlayback ? undefined : spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
     if (dataSource === "backend") {
       try {
         const result = await controlPlayback({ action, deviceId });
@@ -1257,13 +1232,10 @@ export function App() {
   const libraryControls = {
     home: libraryHome,
     activeCategory: libraryCategory,
-    query: libraryQuery,
     busy: libraryBusy,
     message: libraryMessage,
     onRefresh: refreshLibraryHome,
     onCategory: selectLibraryCategory,
-    onQuery: setLibraryQuery,
-    onSearch: submitLibrarySearch,
     onPlay: startLibraryItem,
   };
 
@@ -1357,18 +1329,27 @@ export function App() {
               playbackTest={setupPlaybackControls}
             />
           )}
-          {activeSurface === "home" && <HomeSurface snapshot={snapshot} sleepTimer={sleepTimerControls} library={libraryControls} />}
-          {activeSurface === "browse" && <BrowseSurface snapshot={snapshot} library={libraryControls} />}
+          {activeSurface === "home" && <HomeSurface snapshot={snapshot} library={libraryControls} onStartIdle={() => setIdleActive(true)} />}
           {activeSurface === "now_playing" && (
             <NowPlayingSurface
               snapshot={snapshot}
               spotifySdk={spotifySdkState}
-              playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
               onPlaybackAction={sendPlaybackAction}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
               nowMs={nowMs}
+              onOpenSleepTimer={() => {
+                setTimerReturnSurface("now_playing");
+                setSelectedSurface("sleep_timer");
+              }}
+            />
+          )}
+          {activeSurface === "sleep_timer" && (
+            <SleepTimerSurface
+              snapshot={snapshot}
+              controls={sleepTimerControls}
+              onBack={() => setSelectedSurface(timerReturnSurface)}
             />
           )}
           {activeSurface === "settings" && (
@@ -1385,7 +1366,6 @@ export function App() {
               volume={volumeControls}
             />
           )}
-          {activeSurface === "idle" && <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} />}
         </section>
       </main>
         </>
@@ -1562,68 +1542,24 @@ function SetupPlaybackCompletionPanel({
   );
 }
 
-function HomeSurface({ snapshot, sleepTimer, library }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls; library: LibraryControls }) {
-  const availability = libraryAvailability(snapshot);
-  const homeSections = library.home.sections.filter((section) => section.items.length > 0).slice(0, 3);
-  return (
-    <div className="surface-grid">
-      <section className="hero-panel">
-        <p className="eyebrow">Home</p>
-        <h1>{availability.title}</h1>
-        <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
-        <button disabled={library.busy || !availability.canBrowse} type="button" onClick={library.onRefresh}>
-          Refresh library
-        </button>
-      </section>
-      <div className="side-stack" data-drag-scroll>
-        <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} compact />
-        {homeSections.map((section) => (
-          <LibrarySectionPanel
-            key={section.id}
-            section={section}
-            snapshot={snapshot}
-            onPlay={library.onPlay}
-            compact
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function BrowseSurface({ snapshot, library }: { snapshot: AppSnapshot; library: LibraryControls }) {
+function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot; library: LibraryControls; onStartIdle: () => void }) {
   const availability = libraryAvailability(snapshot);
   const categories: LibraryCategoryId[] = ["playlists", "albums", "artists", "liked_songs", "recently_played"];
   const activeSection = library.home.sections.find((section) => section.id === library.activeCategory) ?? library.home.sections[0];
   return (
     <div className="surface-grid">
       <section className="hero-panel">
-        <p className="eyebrow">Browse</p>
-        <h1>{snapshot.capabilities.canBrowse ? "Browse saved music" : "Browse is waiting for recovery"}</h1>
-        <p>{availability.detail}</p>
-        <form
-          className="library-search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (availability.canSearch && !library.busy) {
-              library.onSearch();
-            }
-          }}
-        >
-          <input
-            autoComplete="off"
-            disabled={!availability.canSearch || library.busy}
-            inputMode="search"
-            placeholder="Search saved music"
-            enterKeyHint="search"
-            type="search"
-            value={library.query}
-            onChange={(event) => library.onQuery(event.target.value)}
-          />
-          <button disabled={!availability.canSearch || library.busy} type="submit">
-            Search
+        <p className="eyebrow">Home</p>
+        <h1>Saved music</h1>
+        <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
+        <div className="home-actions">
+          <button disabled={library.busy || !availability.canBrowse} type="button" onClick={library.onRefresh}>
+            Refresh library
           </button>
-        </form>
+          <button disabled={!idlePresentation(snapshot).enabled} type="button" onClick={onStartIdle}>
+            Screensaver
+          </button>
+        </div>
         <p className="subtle">{library.message}</p>
       </section>
       <div className="side-stack" data-drag-scroll>
@@ -1697,27 +1633,28 @@ function LibrarySectionPanel({
 function NowPlayingSurface({
   snapshot,
   spotifySdk,
-  playbackGateDetail,
   onActivateSpotify,
   onPlaybackAction,
   sleepTimer,
   volume,
   nowMs,
+  onOpenSleepTimer,
 }: {
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
-  playbackGateDetail: string;
   onActivateSpotify: () => void;
   onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
   nowMs: number;
+  onOpenSleepTimer: () => void;
 }) {
   const playing = snapshot.nowPlaying;
   const displayedProgressMs = currentProgressMs(playing, nowMs);
   const progress = playing?.durationMs ? Math.min(100, (displayedProgressMs / playing.durationMs) * 100) : 0;
   const canSendControls = snapshot.capabilities.canControlPlayback && (spotifySdk.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId));
   const emptyState = nowPlayingEmptyState(snapshot);
+  const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
   return (
     <div className="surface-grid">
       <section className="art-panel" aria-label="Artwork placeholder">
@@ -1725,7 +1662,7 @@ function NowPlayingSurface({
       </section>
       <section className="player-panel">
         <p className="eyebrow">Now Playing</p>
-        <h1>{emptyState.title}</h1>
+        <h1 className="track-title">{emptyState.title}</h1>
         <p>{emptyState.detail}</p>
         <div className="progress"><span style={{ width: `${progress}%` }} /></div>
         <div className="time-row">
@@ -1736,14 +1673,24 @@ function NowPlayingSurface({
           <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")}>Previous</button>
           <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing?.isPlaying ? "pause" : "play")}>{playing?.isPlaying ? "Pause" : "Play"}</button>
           <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")}>Next</button>
+          <button className="icon-button" type="button" onClick={onOpenSleepTimer} aria-label="Sleep timer">
+            <TimerIcon />
+          </button>
         </div>
         <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
-        <SpotifyPlaybackPanel
-          playbackGateDetail={playbackGateDetail}
-          spotifySdk={spotifySdk}
-          onActivateSpotify={onActivateSpotify}
-        />
-        <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
+        {remotePlayback && (
+          <button
+            className="takeover-button"
+            disabled={spotifySdk.status === "disabled" || spotifySdk.status === "auth_required"}
+            type="button"
+            onClick={onActivateSpotify}
+          >
+            Select Pipzo
+          </button>
+        )}
+        {sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs).active && (
+          <p className="subtle">{sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs).label}</p>
+        )}
       </section>
     </div>
   );
@@ -1833,6 +1780,32 @@ function VolumeControlPanel({
 }) {
   const view = volumeControlViewModel(snapshot);
   const value = view.value;
+  if (compact) {
+    return (
+      <section className={`volume-panel volume-${view.tone} compact icon-volume${view.muted ? " muted" : ""}`} aria-label="Volume">
+        <div className="volume-controls">
+          <button
+            className="icon-button"
+            disabled={view.disabled || controls.busy}
+            type="button"
+            onClick={() => controls.onChange(value, !view.muted)}
+            aria-label={view.muted ? "Unmute" : "Mute"}
+          >
+            <SpeakerIcon muted={view.muted} />
+          </button>
+          <input
+            aria-label="Volume level"
+            disabled={view.disabled || controls.busy}
+            min="0"
+            max="100"
+            type="range"
+            value={value}
+            onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
+          />
+        </div>
+      </section>
+    );
+  }
   return (
     <section className={`volume-panel volume-${view.tone}${compact ? " compact" : ""}`} aria-label="Volume">
       <div>
@@ -2147,11 +2120,13 @@ function SpotifyPlaybackPanel({
   playbackGateDetail,
   onActivateSpotify,
   playbackTest,
+  takeoverLabel = "Activate player",
 }: {
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   playbackTest?: SetupPlaybackControls;
+  takeoverLabel?: string;
 }) {
   return (
     <section className={`spotify-panel playback-${spotifySdk.status}`} aria-label="Spotify browser playback">
@@ -2171,7 +2146,7 @@ function SpotifyPlaybackPanel({
       </div>
       <div className="spotify-actions">
         <button disabled={spotifySdk.status === "disabled" || spotifySdk.status === "auth_required"} type="button" onClick={onActivateSpotify}>
-          Activate player
+          {takeoverLabel}
         </button>
         {playbackTest && (
           <button disabled={playbackTest.busy || spotifySdk.status !== "ready" || !spotifySdk.transferred} type="button" onClick={playbackTest.onConfirm}>
@@ -2222,6 +2197,30 @@ function SleepTimerPanel({
   );
 }
 
+function SleepTimerSurface({
+  snapshot,
+  controls,
+  onBack,
+}: {
+  snapshot: AppSnapshot;
+  controls: SleepTimerControls;
+  onBack: () => void;
+}) {
+  return (
+    <div className="settings-layout timer-layout">
+      <section className="hero-panel">
+        <p className="eyebrow">Sleep timer</p>
+        <h1>Timer</h1>
+        <p>Choose when playback should stop.</p>
+        <button type="button" onClick={onBack}>
+          Back
+        </button>
+      </section>
+      <SleepTimerPanel snapshot={snapshot} controls={controls} />
+    </div>
+  );
+}
+
 function IdleSurface({ snapshot, sleepTimer, active = false }: { snapshot: AppSnapshot; sleepTimer: SleepTimerControls; active?: boolean }) {
   const [clockNow, setClockNow] = useState(() => new Date());
   const presentation = idlePresentation(snapshot);
@@ -2244,6 +2243,37 @@ function IdleSurface({ snapshot, sleepTimer, active = false }: { snapshot: AppSn
       <p className="idle-now-playing">{playing ? `${playing.title} / ${playing.artist}` : "Clock-first idle mode"}</p>
       {(timerView.active || timerView.expired) && <p className="idle-timer">{timerView.label}</p>}
     </div>
+  );
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      {muted ? (
+        <>
+          <path d="m17 9 4 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="m21 9-4 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M16 9.5a4 4 0 0 1 0 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M18.5 7a7 7 0 0 1 0 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function TimerIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="13" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M9 2h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 6V3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 13V9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 13h3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 

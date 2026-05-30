@@ -75,7 +75,7 @@ Pipzo currently requests these scopes:
 
 Avoid adding write scopes unless a feature requires them. Queue editing, library modification, and playlist editing are out of V1.
 
-The V1 Artists browse category is derived from saved albums, liked songs, and recently played tracks. Pipzo does not request `user-follow-read` in V1, so adding a true followed-artists surface later would require a scope change and user reconnect.
+The V1 Artists library category is derived from saved albums, liked songs, and recently played tracks. Pipzo does not request `user-follow-read` in V1, so adding a true followed-artists surface later would require a scope change and user reconnect.
 
 ## Premium Requirement
 
@@ -104,7 +104,7 @@ The `play:false` transfer selects Pipzo without claiming that audio output has b
 
 Playback controls use `POST /api/v1/playback/control` with an optional `deviceId`. In hardware mode, the backend maps play, pause/stop, next, and previous to Spotify Web API player endpoints using the backend-owned access-token boundary. In mock mode, existing simulated playback behavior remains available for desktop development.
 
-Library browsing and constrained search use the same backend token boundary:
+Library browsing uses the same backend token boundary. The constrained search endpoint remains available as deferred backend capability, but V1 does not expose text search in the daily fullscreen kiosk UI:
 
 ```text
 GET /api/v1/library/home
