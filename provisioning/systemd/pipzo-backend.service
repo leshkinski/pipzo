@@ -14,7 +14,9 @@ ExecStart=/opt/pipzo/venv/bin/uvicorn pipzo_api.main:app --app-dir /opt/pipzo/ap
 Restart=on-failure
 RestartSec=5
 StateDirectory=pipzo
+StateDirectoryMode=0700
 LogsDirectory=pipzo
+LogsDirectoryMode=0750
 UMask=0077
 NoNewPrivileges=true
 

@@ -8,7 +8,7 @@ They are safe to review on non-Pi development machines. The install scripts inte
 
 - App checkout: `/opt/pipzo/app`
 - Python virtualenv: `/opt/pipzo/venv`
-- Backend service user: `pipzo`
+- Backend service user: the kiosk desktop user by default, or `--service-user USER`
 - Kiosk desktop user: the invoking sudo user by default, or `--kiosk-user USER`
 - Backend environment file: `/etc/pipzo/pipzo.env`
 - Kiosk environment file: `/etc/pipzo/kiosk.env`
@@ -36,15 +36,15 @@ systemctl --user restart pipzo-kiosk.service
 
 Set `SPOTIFY_CLIENT_ID` in `/etc/pipzo/pipzo.env`. Do not add Spotify client secrets; Pipzo uses Authorization Code with PKCE.
 
-The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
+The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. With the normal `--kiosk-user USER` V1 path, the backend service deliberately runs as the kiosk desktop user so `wpctl` can access that user's active PipeWire/WirePlumber session without broad socket chmods or sudo workarounds. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
 
-`setup-packages.sh` installs NetworkManager, polkit, BlueZ, and Raspberry Pi OS labwc on-screen keyboard packages when apt exposes them. On Raspberry Pi OS it also installs `pi-bluetooth` when that package is available. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` so the backend service user can run the bounded Wi-Fi setup operations through `nmcli` without an interactive desktop authorization prompt. It also adds the backend service user to the `bluetooth` group when the group exists, so BlueZ/bluetoothctl speaker operations have the normal Raspberry Pi OS Bluetooth access path.
+`setup-packages.sh` installs NetworkManager, polkit, BlueZ, and Raspberry Pi OS labwc on-screen keyboard packages when apt exposes them. On Raspberry Pi OS it also installs `pi-bluetooth` when that package is available. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` for the configured backend service user, so Wi-Fi setup operations through `nmcli` keep the same bounded non-interactive authorization path after migrating from the legacy `pipzo` service user to the kiosk user. It also adds the backend service user to the `bluetooth` group when the group exists, so BlueZ/bluetoothctl speaker operations keep the normal Raspberry Pi OS Bluetooth access path.
 
 If the polkit rules directory is missing on a nonstandard image, hardware Wi-Fi actions will report unavailable or permission failures until equivalent NetworkManager permissions are added manually. If `bluetoothctl` is missing, Bluetooth is disabled, the backend user lacks BlueZ access, or the speaker rejects pairing/connection, hardware Bluetooth actions report unavailable or failed contract states rather than simulated success.
 
-Unified volume control uses Spotify Web API volume updates plus the local desktop audio sink when available. On Raspberry Pi OS Desktop Bookworm, Pipzo expects the existing PipeWire/WirePlumber stack and prefers `wpctl`; it falls back to `pactl` if `wpctl` is unavailable. `install-app.sh --kiosk-user USER` seeds `PIPZO_AUDIO_USER=USER` in new `/etc/pipzo/pipzo.env` files so the backend invokes audio tools with `XDG_RUNTIME_DIR=/run/user/<uid>` and the matching user D-Bus address. Existing installs should add or update `PIPZO_AUDIO_USER` manually, then restart `pipzo-backend.service`.
+Unified volume control uses Spotify Web API volume updates plus the local desktop audio sink when available. On Raspberry Pi OS Desktop Bookworm, Pipzo expects the existing PipeWire/WirePlumber stack and prefers `wpctl`; it falls back to `pactl` if `wpctl` is unavailable. `install-app.sh --kiosk-user USER` seeds `PIPZO_AUDIO_USER=USER` in new `/etc/pipzo/pipzo.env` files so the backend invokes audio tools with `XDG_RUNTIME_DIR=/run/user/<uid>` and the matching user D-Bus address. The service user migration is the important V1 access fix; `PIPZO_AUDIO_USER` remains as an explicit diagnostic/runtime target and should match the kiosk user on normal installs.
 
-If neither command exists, the default sink is missing, `/run/user/<uid>` is not active, or the backend service user cannot access the kiosk user's PipeWire session, hardware volume actions report partial or unavailable states with `os_sink_missing`, `audio_session_unavailable`, or `permission_denied` rather than simulated success. Do not install the legacy `pulseaudio` server alongside PipeWire for Pipzo; use the OS Desktop audio stack or validate a nonstandard audio stack separately. If `PIPZO_AUDIO_USER` is set correctly and `permission_denied` persists, do not grant broad sudo or shell access to the backend service as a workaround; run the backend under the desktop user in a deliberately reviewed service configuration or add a narrow, auditable PipeWire access mechanism.
+If neither command exists, the default sink is missing, `/run/user/<uid>` is not active, or the backend service user cannot access the kiosk user's PipeWire session, hardware volume actions report partial or unavailable states with `os_sink_missing`, `audio_session_unavailable`, or `permission_denied` rather than simulated success. Do not install the legacy `pulseaudio` server alongside PipeWire for Pipzo; use the OS Desktop audio stack or validate a nonstandard audio stack separately. Do not grant broad sudo or chmod access to PipeWire sockets as a workaround.
 
 Wi-Fi internet reachability uses `PIPZO_INTERNET_PROBE_URL`, defaulting to `https://www.google.com/generate_204`. Change this in `/etc/pipzo/pipzo.env` if the deployment network blocks that endpoint. Network settings shows the active Wi-Fi IPv4 address when available so the Pi can be identified for SSH/debug during hardware validation.
 
@@ -61,6 +61,15 @@ systemctl --user restart pipzo-kiosk.service
 ```
 
 Existing `/etc/pipzo/*.env` files are not overwritten. Review `provisioning/env/*.example` after updates and manually carry over new settings when needed.
+
+The current V1 update path changes the default backend runtime identity from the legacy isolated `pipzo` user to the kiosk desktop user. Rerunning the installer with `--kiosk-user "$USER"` updates `pipzo-backend.service`, moves `/var/lib/pipzo` ownership to the new runtime user, and keeps `/etc/pipzo/pipzo.env` readable only by root and that user's primary group. This preserves the existing SQLite database and Spotify token key while allowing `wpctl` to access the active desktop audio session. If `/etc/pipzo/pipzo.env` predates `PIPZO_AUDIO_USER`, add it once:
+
+```bash
+sudo sh -c 'grep -q "^PIPZO_AUDIO_USER=" /etc/pipzo/pipzo.env || printf "\nPIPZO_AUDIO_USER=%s\n" "$SUDO_USER" >> /etc/pipzo/pipzo.env'
+sudo sed -i "s/^PIPZO_AUDIO_USER=.*/PIPZO_AUDIO_USER=$USER/" /etc/pipzo/pipzo.env
+```
+
+Use `--service-user pipzo` only as an explicit legacy/debug override. That mode can still report `permission_denied` for OS volume because the isolated user does not own the kiosk PipeWire session.
 
 The kiosk keyring and Chromium launch-mode fixes are delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install them even when an existing `/etc/pipzo/kiosk.env` is preserved. Existing `/etc/pipzo/kiosk.env` files can opt back into true Chromium fullscreen by setting `PIPZO_CHROMIUM_MODE=kiosk`, but that mode can hide the on-screen keyboard under labwc.
 

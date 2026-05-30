@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="/opt/pipzo/app"
 VENV_DIR="/opt/pipzo/venv"
-SERVICE_USER="pipzo"
+SERVICE_USER=""
 KIOSK_USER="${SUDO_USER:-${USER}}"
 ENV_DIR="/etc/pipzo"
 STATE_DIR="/var/lib/pipzo"
@@ -16,7 +16,7 @@ Usage: provisioning/scripts/install-app.sh [options]
 Options:
   --app-dir PATH        Installed app checkout path. Default: /opt/pipzo/app
   --venv-dir PATH       Python virtualenv path. Default: /opt/pipzo/venv
-  --service-user USER   Backend system user. Default: pipzo
+  --service-user USER   Backend service user. Default: kiosk user
   --kiosk-user USER     Desktop user that runs Chromium. Default: invoking sudo user
   --no-enable           Install artifacts without enabling/restarting services
   -h, --help            Show this help
@@ -50,6 +50,15 @@ if ! command -v systemctl >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! id "$KIOSK_USER" >/dev/null 2>&1; then
+  echo "Kiosk user '$KIOSK_USER' does not exist." >&2
+  exit 1
+fi
+
+if [[ -z "$SERVICE_USER" ]]; then
+  SERVICE_USER="$KIOSK_USER"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COPIED_APP="no"
@@ -57,14 +66,10 @@ COPIED_APP="no"
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$STATE_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
+SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
 
 if getent group bluetooth >/dev/null 2>&1; then
   usermod -a -G bluetooth "$SERVICE_USER"
-fi
-
-if ! id "$KIOSK_USER" >/dev/null 2>&1; then
-  echo "Kiosk user '$KIOSK_USER' does not exist." >&2
-  exit 1
 fi
 
 install -d -m 0755 "$(dirname "$APP_DIR")"
@@ -89,8 +94,11 @@ if [[ ! -f "$ENV_DIR/pipzo.env" ]]; then
     -e "s|PIPZO_FRONTEND_DIST=/opt/pipzo/app/frontend/dist|PIPZO_FRONTEND_DIST=$APP_DIR/frontend/dist|" \
     -e "s|PIPZO_AUDIO_USER=|PIPZO_AUDIO_USER=$KIOSK_USER|" \
     "$APP_DIR/provisioning/env/pipzo.env.example" > /tmp/pipzo.env
-  install -m 0640 -o root -g "$SERVICE_USER" /tmp/pipzo.env "$ENV_DIR/pipzo.env"
+  install -m 0640 -o root -g "$SERVICE_GROUP" /tmp/pipzo.env "$ENV_DIR/pipzo.env"
   rm -f /tmp/pipzo.env
+else
+  chown root:"$SERVICE_GROUP" "$ENV_DIR/pipzo.env"
+  chmod 0640 "$ENV_DIR/pipzo.env"
 fi
 
 if [[ ! -f "$ENV_DIR/kiosk.env" ]]; then
@@ -112,7 +120,7 @@ if [[ "$COPIED_APP" == "yes" || "$APP_DIR" == /opt/pipzo/* ]]; then
   chown -R root:root "$APP_DIR"
 fi
 chown -R root:root "$VENV_DIR"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"
 
 install -m 0755 "$APP_DIR/provisioning/scripts/kiosk-launcher.sh" /usr/local/bin/pipzo-kiosk
 if [[ -d /etc/polkit-1/rules.d ]]; then
@@ -125,7 +133,7 @@ else
 fi
 sed \
   -e "s|User=pipzo|User=$SERVICE_USER|" \
-  -e "s|Group=pipzo|Group=$SERVICE_USER|" \
+  -e "s|Group=pipzo|Group=$SERVICE_GROUP|" \
   -e "s|/opt/pipzo/app|$APP_DIR|g" \
   -e "s|/opt/pipzo/venv|$VENV_DIR|g" \
   "$APP_DIR/provisioning/systemd/pipzo-backend.service" > /tmp/pipzo-backend.service

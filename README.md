@@ -62,6 +62,7 @@ Configuration is environment-driven:
 - `PIPZO_PUBLIC_BASE_URL=http://127.0.0.1:8000`; base URL used to build the local auth start route returned to the kiosk.
 - `PIPZO_FRONTEND_DIST`; optional built frontend asset directory served by the backend for kiosk installs, for example `/opt/pipzo/app/frontend/dist`.
 - `PIPZO_INTERNET_PROBE_URL=https://www.google.com/generate_204`; endpoint used by hardware-mode Wi-Fi status to distinguish online from local-only connectivity.
+- `PIPZO_AUDIO_USER`; optional desktop user whose `/run/user/<uid>` audio session should be targeted for hardware volume control. Pi provisioning sets this to the kiosk user and runs the backend as that same user by default.
 
 See [Spotify Developer Setup](docs/spotify-developer-setup.md) for app creation, redirect URI rules, scopes, Premium requirement, token-key caveats, and V1 deferred OAuth surfaces.
 
