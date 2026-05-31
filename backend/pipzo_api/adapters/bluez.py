@@ -1,7 +1,9 @@
 import logging
 import re
+import select
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional, Sequence
 
@@ -165,6 +167,8 @@ def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
         or "software caused connection abort" in text
     ):
         return SpeakerReason.CONNECT_FAILED
+    if "attempting to pair" in text:
+        return SpeakerReason.PAIR_TIMEOUT
     if "host is down" in text or "not available" in text or "notavailable" in text or "not found" in text or "does not exist" in text:
         return SpeakerReason.DEVICE_OUT_OF_RANGE
     if "failed to pair" in text:
@@ -260,22 +264,22 @@ class BluetoothctlAdapter:
                 return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
             pair_attempted = False
-            agent_result = self._run_script(["agent NoInputNoOutput", "default-agent"], timeout_seconds=self._command_timeout_seconds)
-            if not _agent_setup_usable(agent_result):
-                return self._action(
-                    "speaker-pair",
-                    RecoveryActionState.FAILED,
-                    started_at,
-                    map_bluetoothctl_failure(agent_result.stderr, agent_result.stdout),
-                )
-
             if inspection is None or not inspection.device.paired:
-                pair_result = self._run_script([f"pair {address}"], timeout_seconds=self._command_timeout_seconds)
+                pair_result = self._run_pair_command(address)
                 pair_attempted = True
-                if pair_result.returncode != 0 or _has_failed_output(pair_result.stdout, pair_result.stderr):
+                if not _pair_command_succeeded(pair_result):
                     reason = map_bluetoothctl_failure(pair_result.stderr, pair_result.stdout)
                     if not _already_paired_output(pair_result.stdout, pair_result.stderr):
                         return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
+            else:
+                agent_result = self._run_script(["agent NoInputNoOutput", "default-agent"], timeout_seconds=self._command_timeout_seconds)
+                if not _agent_setup_usable(agent_result):
+                    return self._action(
+                        "speaker-pair",
+                        RecoveryActionState.FAILED,
+                        started_at,
+                        map_bluetoothctl_failure(agent_result.stderr, agent_result.stdout),
+                    )
 
             inspection = self._inspect_device(address, display_name, allow_missing=False)
             if inspection is None or not inspection.device.paired:
@@ -292,9 +296,9 @@ class BluetoothctlAdapter:
 
             inspection = self._inspect_device(address, display_name, allow_missing=scan_candidate_seen and not pair_attempted)
             if inspection is None and scan_candidate_seen and not pair_attempted:
-                pair_result = self._run_script([f"pair {address}"], timeout_seconds=self._command_timeout_seconds)
+                pair_result = self._run_pair_command(address)
                 pair_attempted = True
-                if pair_result.returncode != 0 or _has_failed_output(pair_result.stdout, pair_result.stderr):
+                if not _pair_command_succeeded(pair_result):
                     reason = map_bluetoothctl_failure(pair_result.stderr, pair_result.stdout)
                     if not _already_paired_output(pair_result.stdout, pair_result.stderr):
                         return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
@@ -443,6 +447,89 @@ class BluetoothctlAdapter:
             )
         return result
 
+    def _run_pair_command(self, address: str) -> BluetoothCommandResult:
+        commands = ["agent NoInputNoOutput", "default-agent", f"pair {address}"]
+        if self._runner is not subprocess_runner:
+            input_text = "\n".join(commands) + "\n"
+            result = self._run_bluetoothctl([self._bluetoothctl()], self._command_timeout_seconds, input_text)
+            self._log_pair_failure(commands, result)
+            return result
+
+        try:
+            result = self._run_interactive_pair_command(commands)
+        except subprocess.TimeoutExpired as exc:
+            result = _timeout_result(exc, self._command_timeout_seconds)
+        self._log_pair_failure(commands, result)
+        return result
+
+    def _log_pair_failure(self, commands: Sequence[str], result: BluetoothCommandResult) -> None:
+        if _pair_command_succeeded(result):
+            return
+        logger.warning(
+            "bluetoothctl command failed",
+            extra={
+                "details": {
+                    "commands": list(commands),
+                    "returncode": result.returncode,
+                    "reason": map_bluetoothctl_failure(result.stderr, result.stdout).value,
+                    "stdout": _truncate_log_text(result.stdout),
+                    "stderr": _truncate_log_text(result.stderr),
+                }
+            },
+        )
+
+    def _run_interactive_pair_command(self, commands: Sequence[str]) -> BluetoothCommandResult:
+        process = subprocess.Popen(
+            [self._bluetoothctl()],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        deadline = time.monotonic() + self._command_timeout_seconds
+        try:
+            assert process.stdin is not None
+            process.stdin.write("\n".join(commands) + "\n")
+            process.stdin.flush()
+            terminal_seen = False
+            while time.monotonic() < deadline and not terminal_seen:
+                readable = []
+                streams = [stream for stream in (process.stdout, process.stderr) if stream is not None]
+                if streams:
+                    readable, _, _ = select.select(streams, [], [], 0.2)
+                if not readable and process.poll() is not None:
+                    break
+                for stream in readable:
+                    line = stream.readline()
+                    if not line:
+                        continue
+                    if stream is process.stderr:
+                        stderr_parts.append(line)
+                    else:
+                        stdout_parts.append(line)
+                    terminal_seen = _pair_terminal_output("".join(stdout_parts), "".join(stderr_parts))
+            if not terminal_seen and process.poll() is None and time.monotonic() >= deadline:
+                process.kill()
+                raise subprocess.TimeoutExpired([self._bluetoothctl()], self._command_timeout_seconds)
+            if process.poll() is None:
+                process.stdin.write("quit\n")
+                process.stdin.flush()
+            try:
+                stdout_tail, stderr_tail = process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout_tail, stderr_tail = process.communicate()
+            stdout_parts.append(stdout_tail or "")
+            stderr_parts.append(stderr_tail or "")
+            returncode = process.returncode if process.returncode is not None else 0
+            return BluetoothCommandResult(returncode=returncode, stdout="".join(stdout_parts), stderr="".join(stderr_parts))
+        finally:
+            if process.poll() is None:
+                process.kill()
+
     def _run_bluetoothctl(self, argv: Sequence[str], timeout_seconds: int, input_text: Optional[str]) -> BluetoothCommandResult:
         try:
             return self._runner(argv, timeout_seconds, input_text)
@@ -495,6 +582,27 @@ def _has_failed_output(stdout: str, stderr: str) -> bool:
     if _already_paired_output(stdout, stderr):
         return False
     return "failed" in text or "not available" in text or "not authorized" in text or "not ready" in text
+
+
+def _pair_command_succeeded(result: BluetoothCommandResult) -> bool:
+    if result.returncode != 0:
+        return False
+    if _pair_success_output(result.stdout, result.stderr):
+        return True
+    text = f"{result.stdout}\n{result.stderr}".lower()
+    if "attempting to pair" in text:
+        return False
+    return not _has_failed_output(result.stdout, result.stderr)
+
+
+def _pair_terminal_output(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    return _pair_success_output(stdout, stderr) or "failed to pair" in text or "authentication" in text or "rejected" in text or "cancel" in text
+
+
+def _pair_success_output(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    return _already_paired_output(stdout, stderr) or "pairing successful" in text or "paired: yes" in text or "bonded: yes" in text
 
 
 def _info_lookup_failed(stdout: str, stderr: str) -> bool:
