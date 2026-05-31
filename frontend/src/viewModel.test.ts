@@ -230,6 +230,22 @@ describe("kiosk shell view model", () => {
     );
   });
 
+  it("prefers a discovered replacement when the saved primary is disconnected", () => {
+    const disconnected = localScenarios.speaker_saved_disconnected.snapshot;
+    const primaryAddress = disconnected.health.speaker.primary?.address ?? "";
+    const devices = [
+      { address: primaryAddress, displayName: "Bedroom speaker", paired: true, connected: false, signal: null },
+      { address: "CC:98:8B:94:B5:1C", displayName: "WH-1000XM3", alias: "WH-1000XM3", paired: false, connected: false, signal: 71 },
+    ];
+
+    expect(speakerSetupViewModel(disconnected, devices).actions).toContain("pair");
+    expect(preferredSpeakerSelection(disconnected, devices, primaryAddress)).toBe("CC:98:8B:94:B5:1C");
+    expect(speakerDeviceRows(disconnected, devices, "CC:98:8B:94:B5:1C")).toEqual([
+      expect.objectContaining({ title: "Bedroom speaker", selected: false, currentPrimary: true }),
+      expect.objectContaining({ title: "WH-1000XM3", selected: true, currentPrimary: false }),
+    ]);
+  });
+
   it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {
     const snapshot = localScenarios.first_boot_empty.snapshot;
     const session: SpotifyAuthSession = {

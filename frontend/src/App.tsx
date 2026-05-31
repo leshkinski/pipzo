@@ -155,6 +155,12 @@ const navLabels: Record<SurfaceId, string> = {
   idle: "Idle",
 };
 
+const speakerStateRefreshDelaysMs = [0, 500, 1500, 3000] as const;
+
+function isConfirmedSpeakerConnected(state: AppSnapshot) {
+  return state.health.speaker.status === "connected" && Boolean(state.health.speaker.primary?.connected);
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => localScenarioSnapshot("first_boot_empty"));
   const [selectedSurface, setSelectedSurface] = useState<AppSurfaceId>("setup");
@@ -333,6 +339,22 @@ export function App() {
   useEffect(() => {
     return () => {
       clearScheduledSnapshotRefreshes();
+    };
+  }, []);
+
+  useEffect(() => {
+    const originalAlert = window.alert;
+    window.alert = (message?: unknown) => {
+      const text = typeof message === "string" ? message : String(message ?? "");
+      if (/\b(connection|speaker|bluetooth)\b/i.test(text) && /\b(success|successful|connected)\b/i.test(text)) {
+        setStatusText(text);
+        return;
+      }
+      originalAlert.call(window, message);
+    };
+
+    return () => {
+      window.alert = originalAlert;
     };
   }, []);
 
@@ -600,6 +622,23 @@ export function App() {
     return request;
   }
 
+  async function refreshSpeakerStateUntilConnected() {
+    let latest = await refreshSnapshot();
+    if (isConfirmedSpeakerConnected(latest)) {
+      return latest;
+    }
+    for (const delayMs of speakerStateRefreshDelaysMs) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      }
+      latest = await refreshSnapshot();
+      if (isConfirmedSpeakerConnected(latest)) {
+        return latest;
+      }
+    }
+    return latest;
+  }
+
   function scheduleSnapshotRefreshes(delaysMs: readonly number[] = nowPlayingCommandRefreshDelaysMs) {
     if (dataSource !== "backend") {
       return;
@@ -819,11 +858,15 @@ export function App() {
     setSpeakerMessage("Scanning for Bluetooth speakers.");
     try {
       if (dataSource === "backend") {
-        await scanSpeakers();
+        const action = await scanSpeakers();
         const results = await fetchSpeakerScanResults();
         setSpeakerDevices(results.devices);
         setSelectedSpeakerAddress((current) => preferredSpeakerSelection(snapshot, results.devices, current));
-        setSpeakerMessage(results.devices.length > 0 ? "Choose one speaker and pair it." : "No Bluetooth speakers found. Put the speaker in pairing mode and scan again.");
+        if (results.devices.length > 0) {
+          setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
+        } else {
+          setSpeakerMessage(action.state === "succeeded" ? "No Bluetooth speakers found. Put the speaker in pairing mode and scan again." : `Bluetooth scan found no usable speaker: ${labelFromId(action.reason ?? "unknown")}.`);
+        }
       } else {
         const fallback = [
           { address: "AA:BB:CC:DD:EE:FF", displayName: "Pipzo Speaker", alias: "Bedroom speaker", paired: snapshot.readiness.primarySpeakerSaved, connected: snapshot.health.speaker.status === "connected", signal: 88 },
@@ -851,8 +894,27 @@ export function App() {
     try {
       if (dataSource === "backend") {
         const action = await pairSpeaker({ address: selectedSpeakerAddress, displayName: selected?.displayName });
-        await refreshSnapshot().catch(() => undefined);
-        setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker connected." : `Speaker pairing failed: ${labelFromId(action.reason ?? "unknown")}.`);
+        if (action.state !== "succeeded") {
+          await refreshSnapshot().catch(() => undefined);
+          setSpeakerMessage(`Speaker pairing failed: ${labelFromId(action.reason ?? "unknown")}.`);
+          return;
+        }
+
+        let latest = await refreshSpeakerStateUntilConnected();
+        if (!isConfirmedSpeakerConnected(latest)) {
+          const reconnectAction = await reconnectSpeaker().catch(() => null);
+          latest = await refreshSpeakerStateUntilConnected();
+          if (reconnectAction?.state !== "succeeded" && !isConfirmedSpeakerConnected(latest)) {
+            setSpeakerMessage(`Speaker paired, but reconnect failed: ${labelFromId(reconnectAction?.reason ?? latest.health.speaker.reason ?? "unknown")}.`);
+            return;
+          }
+        }
+
+        if (isConfirmedSpeakerConnected(latest)) {
+          setSpeakerMessage("Bluetooth speaker connected.");
+        } else {
+          setSpeakerMessage(`Speaker paired, but status is still ${labelFromId(latest.health.speaker.status)}.`);
+        }
       } else {
         setSnapshot((current) => ({
           ...current,
@@ -886,8 +948,13 @@ export function App() {
     try {
       if (dataSource === "backend") {
         const action = await reconnectSpeaker();
-        await refreshSnapshot().catch(() => undefined);
-        setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker reconnected." : `Reconnect failed: ${labelFromId(action.reason ?? "unknown")}.`);
+        if (action.state !== "succeeded") {
+          await refreshSnapshot().catch(() => undefined);
+          setSpeakerMessage(`Reconnect failed: ${labelFromId(action.reason ?? "unknown")}.`);
+          return;
+        }
+        const latest = await refreshSpeakerStateUntilConnected();
+        setSpeakerMessage(isConfirmedSpeakerConnected(latest) ? "Bluetooth speaker reconnected." : `Reconnect sent, but status is still ${labelFromId(latest.health.speaker.status)}.`);
       } else {
         setSnapshot((current) => ({
           ...current,
