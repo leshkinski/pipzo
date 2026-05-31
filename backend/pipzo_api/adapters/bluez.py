@@ -321,9 +321,6 @@ class BluetoothctlAdapter:
                     if not _already_paired_output(pair_result.stdout, pair_result.stderr):
                         return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
                 inspection = self._inspect_device(address, display_name, allow_missing=False)
-            if inspection is not None and _audio_sink_connected(inspection):
-                self._save_primary(address, inspection.device, connected=True)
-                return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
             inspection, failure_reason = self._connect_until_audio_sink_connected(address, display_name)
             if inspection is None:
@@ -388,7 +385,7 @@ class BluetoothctlAdapter:
                     timeout_seconds=self._scan_device_info_timeout_seconds,
                 )
             except BlueZCommandError:
-                if not discovery_stdout or device.address.upper() in discovery_addresses:
+                if not discovery_addresses or device.address.upper() in discovery_addresses:
                     devices.append(device)
                 continue
             if inspection.looks_like_audio_device or inspection.device.paired or inspection.device.connected:
