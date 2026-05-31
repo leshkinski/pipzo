@@ -183,7 +183,17 @@ describe("kiosk shell view model", () => {
       ]).actions,
     ).toEqual(["scan", "pair"]);
     expect(speakerSetupViewModel(ready).actions).toEqual(["scan", "reconnect", "forget"]);
+    expect(
+      speakerSetupViewModel(ready, [
+        { address: "11:22:33:44:55:66", displayName: "Kitchen Headset", paired: false, connected: false, signal: 62 },
+      ]).actions,
+    ).toEqual(["scan", "pair", "reconnect", "forget"]);
     expect(speakerSetupViewModel(disconnected).actions).toEqual(["reconnect", "scan", "forget"]);
+    expect(
+      speakerSetupViewModel(disconnected, [
+        { address: "11:22:33:44:55:66", displayName: "Kitchen Headset", paired: false, connected: false, signal: 62 },
+      ]).actions,
+    ).toEqual(["reconnect", "scan", "pair", "forget"]);
   });
 
   it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {

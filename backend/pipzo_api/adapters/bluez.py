@@ -254,6 +254,7 @@ class BluetoothctlAdapter:
         discovery_active_for_pair = False
         try:
             scan_candidate_seen = self._has_scan_candidate(address)
+            self._disconnect_saved_primary_if_replacing(address)
             inspection = self._inspect_device(address, display_name, allow_missing=True)
             if inspection is None:
                 discovery_active_for_pair, inspection = self._refresh_pair_candidate(address, display_name)
@@ -347,6 +348,7 @@ class BluetoothctlAdapter:
         address = _normalize_address(address)
         self._stop_discovery()
         primary = self._store.get_primary()
+        self._disconnect_device(address)
         result = self._run_script([f"remove {address}"], timeout_seconds=self._command_timeout_seconds)
         if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
             reason = map_bluetoothctl_failure(result.stderr, result.stdout)
@@ -354,6 +356,7 @@ class BluetoothctlAdapter:
                 return self._action("speaker-forget", RecoveryActionState.FAILED, started_at, reason)
         if primary is not None and primary.address.upper() == address:
             self._store.delete_primary()
+        self._last_scan = [device for device in self._last_scan if device.address.upper() != address]
         return self._action("speaker-forget", RecoveryActionState.SUCCEEDED, started_at)
 
     def _scan_devices(self, discovery_stdout: str = "") -> List[SpeakerDevice]:
@@ -391,6 +394,16 @@ class BluetoothctlAdapter:
 
     def _has_scan_candidate(self, address: str) -> bool:
         return any(device.address.upper() == address for device in self._last_scan)
+
+    def _disconnect_saved_primary_if_replacing(self, replacement_address: str) -> None:
+        primary = self._store.get_primary()
+        if primary is None or primary.address.upper() == replacement_address:
+            return
+        self._disconnect_device(primary.address)
+
+    def _disconnect_device(self, address: str) -> None:
+        # Disconnection is a best-effort cleanup before remove/replacement; remove/pair/connect still decide success.
+        self._run_script([f"disconnect {_normalize_address(address)}"], timeout_seconds=self._command_timeout_seconds)
 
     def _device_info(self, address: str, fallback_name: Optional[str] = None) -> SpeakerDevice:
         return self._device_inspection(address, fallback_name).device

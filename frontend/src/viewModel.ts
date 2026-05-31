@@ -569,9 +569,9 @@ export function speakerSetupViewModel(snapshot: AppSnapshot, devices: SpeakerDev
   if (speaker.status === "connected") {
     return {
       title: speaker.primary?.displayName ? `${speaker.primary.displayName} connected` : "Speaker connected",
-      detail: "Pipzo has a primary Bluetooth speaker ready for playback.",
+      detail: devices.length > 0 ? "Choose another discovered audio device to replace the current primary speaker." : "Pipzo has a primary Bluetooth speaker ready for playback.",
       tone: "ready",
-      actions: ["scan", "reconnect", "forget"],
+      actions: devices.length > 0 ? ["scan", "pair", "reconnect", "forget"] : ["scan", "reconnect", "forget"],
     };
   }
   if (speaker.status === "saved_disconnected") {
@@ -579,7 +579,7 @@ export function speakerSetupViewModel(snapshot: AppSnapshot, devices: SpeakerDev
       title: speaker.primary?.displayName ? `${speaker.primary.displayName} is disconnected` : "Speaker disconnected",
       detail: "Reconnect the saved speaker or scan to choose a different one.",
       tone: "attention",
-      actions: ["reconnect", "scan", "forget"],
+      actions: devices.length > 0 ? ["reconnect", "scan", "pair", "forget"] : ["reconnect", "scan", "forget"],
     };
   }
   if (speaker.status === "scanning" || speaker.status === "pairing" || speaker.status === "reconnecting" || speaker.status === "starting") {

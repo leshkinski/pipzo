@@ -532,6 +532,67 @@ def test_adapter_pair_connects_already_paired_replacement_device(tmp_path):
     assert (["/usr/bin/bluetoothctl"], 30, "connect 11:22:33:44:55:66\n") in calls
 
 
+def test_adapter_pair_disconnects_saved_primary_before_replacement_connect(tmp_path):
+    calls = []
+    device_state = {"new_paired": True, "new_trusted": False, "new_connected": False, "old_connected": True}
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "disconnect AA:BB:CC:DD:EE:FF\n":
+            device_state["old_connected"] = False
+            return BluetoothCommandResult(0, "Successful disconnected\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "trust 11:22:33:44:55:66\n":
+            device_state["new_trusted"] = True
+            return BluetoothCommandResult(0, "Changing 11:22:33:44:55:66 trust succeeded\n", "")
+        if input_text == "connect 11:22:33:44:55:66\n":
+            assert device_state["old_connected"] is False
+            device_state["new_connected"] = True
+            return BluetoothCommandResult(0, "Connection successful\n", "")
+        if input_text == "info 11:22:33:44:55:66\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 11:22:33:44:55:66",
+                        "\tName: Replacement Headset",
+                        "\tAlias: Replacement Headset",
+                        "\tPaired: yes",
+                        f"\tTrusted: {'yes' if device_state['new_trusted'] else 'no'}",
+                        f"\tConnected: {'yes' if device_state['new_connected'] else 'no'}",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-replacement-disconnect.sqlite3")
+    store.save_primary(
+        speaker=SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Old Headphones",
+            connected=True,
+        )
+    )
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("11:22:33:44:55:66", "Replacement Headset")
+
+    assert action.state == "succeeded"
+    assert store.get_primary() is not None
+    assert store.get_primary().address == "11:22:33:44:55:66"
+    disconnect_call = (["/usr/bin/bluetoothctl"], 30, "disconnect AA:BB:CC:DD:EE:FF\n")
+    connect_call = (["/usr/bin/bluetoothctl"], 30, "connect 11:22:33:44:55:66\n")
+    assert disconnect_call in calls
+    assert calls.index(disconnect_call) < calls.index(connect_call)
+
+
 def test_adapter_pair_attempts_audio_icon_device_without_prepair_audio_uuid_and_logs_failure(tmp_path, monkeypatch):
     calls = []
     logs = []
@@ -931,6 +992,80 @@ def test_adapter_forget_clears_saved_primary_when_bluez_already_removed_device(t
     assert action.state == "succeeded"
     assert action.reason is None
     assert store.get_primary() is None
+
+
+def test_adapter_forget_disconnects_before_remove_and_drops_scan_cache_entry(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "disconnect AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(0, "Successful disconnected\n", "")
+        if input_text == "remove AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(0, "Device has been removed\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "[NEW] Device AA:BB:CC:DD:EE:FF Old Headphones",
+                        "[NEW] Device 11:22:33:44:55:66 Replacement Headset",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "devices\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device AA:BB:CC:DD:EE:FF Old Headphones",
+                        "Device 11:22:33:44:55:66 Replacement Headset",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(
+                0,
+                "Device AA:BB:CC:DD:EE:FF\n\tName: Old Headphones\n\tIcon: audio-headphones\n",
+                "",
+            )
+        if input_text == "info 11:22:33:44:55:66\n":
+            return BluetoothCommandResult(
+                0,
+                "Device 11:22:33:44:55:66\n\tName: Replacement Headset\n\tIcon: audio-headset\n",
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-forget-disconnect.sqlite3")
+    store.save_primary(
+        speaker=SpeakerSummary(
+            address="AA:BB:CC:DD:EE:FF",
+            display_name="Old Headphones",
+            connected=True,
+        )
+    )
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    scan_action = adapter.scan()
+    action = adapter.forget("AA:BB:CC:DD:EE:FF")
+    results = adapter.scan_results()
+
+    assert scan_action.state == "succeeded"
+    assert action.state == "succeeded"
+    assert store.get_primary() is None
+    disconnect_call = (["/usr/bin/bluetoothctl"], 30, "disconnect AA:BB:CC:DD:EE:FF\n")
+    remove_call = (["/usr/bin/bluetoothctl"], 30, "remove AA:BB:CC:DD:EE:FF\n")
+    assert disconnect_call in calls
+    assert remove_call in calls
+    assert calls.index(disconnect_call) < calls.index(remove_call)
+    assert [device.address for device in results.devices] == ["11:22:33:44:55:66"]
 
 
 def test_adapter_reports_pair_failure_without_saving_primary(tmp_path):
