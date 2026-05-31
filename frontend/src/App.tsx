@@ -57,6 +57,7 @@ import {
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
+  shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
   speakerDeviceRows,
   sleepTimerPresets,
@@ -346,7 +347,7 @@ export function App() {
     const originalAlert = window.alert;
     window.alert = (message?: unknown) => {
       const text = typeof message === "string" ? message : String(message ?? "");
-      if (/\b(connection|speaker|bluetooth)\b/i.test(text) && /\b(success|successful|connected)\b/i.test(text)) {
+      if (shouldSuppressBluetoothSuccessAlert(text)) {
         setStatusText(text);
         return;
       }

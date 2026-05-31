@@ -22,6 +22,7 @@ import {
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
+  shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
   speakerDeviceRows,
   sleepTimerViewModel,
@@ -51,6 +52,17 @@ describe("kiosk shell view model", () => {
     expect(isSetupGated(snapshot)).toBe(false);
     expect(canOpenSurface(snapshot, "setup")).toBe(false);
     expect(preferredSurface(snapshot)).toBe("home");
+  });
+
+  it("suppresses blocking Bluetooth success alerts but leaves unrelated alerts alone", () => {
+    expect(shouldSuppressBluetoothSuccessAlert("Pairing successful")).toBe(true);
+    expect(shouldSuppressBluetoothSuccessAlert("Connection successful")).toBe(true);
+    expect(shouldSuppressBluetoothSuccessAlert("Bluetooth speaker connected.")).toBe(true);
+    expect(shouldSuppressBluetoothSuccessAlert("Connected to SRS-XE300")).toBe(true);
+
+    expect(shouldSuppressBluetoothSuccessAlert("Speaker pairing failed")).toBe(false);
+    expect(shouldSuppressBluetoothSuccessAlert("Spotify account connected.")).toBe(false);
+    expect(shouldSuppressBluetoothSuccessAlert("")).toBe(false);
   });
 
   it("keeps settings reachable during degraded recovery", () => {

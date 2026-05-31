@@ -40,6 +40,17 @@ export type NowPlayingEmptyState = {
 export const nowPlayingRefreshIntervalMs = 10_000;
 export const nowPlayingCommandRefreshDelaysMs = [900, 2_500] as const;
 
+export function shouldSuppressBluetoothSuccessAlert(message: unknown): boolean {
+  const text = typeof message === "string" ? message : String(message ?? "");
+  if (!text.trim()) {
+    return false;
+  }
+
+  const bluetoothSuccessHint = /\b(bluetooth|speaker|pair|pairing|paired|reconnect|reconnected|connection)\b/i.test(text) || /\bconnected to\b/i.test(text);
+  const successHint = /\b(success|successful|succeeded|connected)\b/i.test(text);
+  return bluetoothSuccessHint && successHint;
+}
+
 export function shouldRefreshNowPlaying(snapshot: AppSnapshot, dataSource: "backend" | "local"): boolean {
   if (dataSource !== "backend") {
     return false;
