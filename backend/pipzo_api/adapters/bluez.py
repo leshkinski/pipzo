@@ -60,14 +60,17 @@ AUDIO_CLASS_MARKERS = ("audio/video", "rendering")
 
 
 def subprocess_runner(argv: Sequence[str], timeout_seconds: int, input_text: Optional[str] = None) -> BluetoothCommandResult:
-    completed = subprocess.run(
-        list(argv),
-        check=False,
-        capture_output=True,
-        input=input_text,
-        text=True,
-        timeout=timeout_seconds,
-    )
+    try:
+        completed = subprocess.run(
+            list(argv),
+            check=False,
+            capture_output=True,
+            input=input_text,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return _timeout_result(exc, timeout_seconds)
     return BluetoothCommandResult(returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
 
 
@@ -219,7 +222,7 @@ class BluetoothctlAdapter:
         self._ensure_powered()
         self._stop_discovery()
         try:
-            result = self._runner(
+            result = self._run_bluetoothctl(
                 [self._bluetoothctl(), "--timeout", str(self._scan_timeout_seconds), "scan", "on"],
                 self._scan_timeout_seconds + 2,
                 None,
@@ -359,7 +362,7 @@ class BluetoothctlAdapter:
         return _dedupe_devices(devices)
 
     def _refresh_pair_candidate(self, address: str, display_name: Optional[str]) -> tuple[bool, Optional[DeviceInspection]]:
-        result = self._runner(
+        result = self._run_bluetoothctl(
             [self._bluetoothctl(), "--timeout", str(self._scan_timeout_seconds), "scan", "on"],
             self._scan_timeout_seconds + 2,
             None,
@@ -410,7 +413,7 @@ class BluetoothctlAdapter:
     def _run_script(self, commands: Iterable[str], timeout_seconds: int) -> BluetoothCommandResult:
         command_list = list(commands)
         input_text = "\n".join(command_list) + "\n"
-        result = self._runner([self._bluetoothctl()], timeout_seconds, input_text)
+        result = self._run_bluetoothctl([self._bluetoothctl()], timeout_seconds, input_text)
         if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
             logger.warning(
                 "bluetoothctl command failed",
@@ -425,6 +428,12 @@ class BluetoothctlAdapter:
                 },
             )
         return result
+
+    def _run_bluetoothctl(self, argv: Sequence[str], timeout_seconds: int, input_text: Optional[str]) -> BluetoothCommandResult:
+        try:
+            return self._runner(argv, timeout_seconds, input_text)
+        except subprocess.TimeoutExpired as exc:
+            return _timeout_result(exc, timeout_seconds)
 
     def _stop_discovery(self) -> None:
         result = self._run_script(["scan off"], timeout_seconds=self._discovery_cleanup_timeout_seconds)
@@ -505,6 +514,25 @@ def _truncate_log_text(value: str, limit: int = 600) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[:limit]}..."
+
+
+def _timeout_result(exc: subprocess.TimeoutExpired, timeout_seconds: int) -> BluetoothCommandResult:
+    stdout = _timeout_text(exc.output)
+    stderr = _timeout_text(exc.stderr)
+    timeout_message = f"bluetoothctl timed out after {timeout_seconds} seconds"
+    if stderr:
+        stderr = f"{stderr}\n{timeout_message}"
+    else:
+        stderr = timeout_message
+    return BluetoothCommandResult(returncode=124, stdout=stdout, stderr=stderr)
+
+
+def _timeout_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
 
 
 def _normalize_address(address: str) -> str:

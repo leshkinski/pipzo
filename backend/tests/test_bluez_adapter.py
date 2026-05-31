@@ -1,3 +1,5 @@
+import subprocess
+
 from pipzo_api.adapters.bluez import (
     BluetoothCommandResult,
     BluetoothctlAdapter,
@@ -138,6 +140,45 @@ def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
     assert calls.count((["/usr/bin/bluetoothctl"], 2, "info AA:BB:CC:DD:EE:FF\n")) == 1
 
 
+def test_adapter_scan_does_not_crash_when_cleanup_times_out(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            raise subprocess.TimeoutExpired(cmd=list(argv), timeout=timeout_seconds)
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device AA:BB:CC:DD:EE:FF",
+                        "\tName: Bedroom Speaker",
+                        "\tIcon: audio-card",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-cleanup-timeout.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.scan()
+    results = adapter.scan_results()
+
+    assert action.state == "succeeded"
+    assert action.reason is None
+    assert results.devices[0].address == "AA:BB:CC:DD:EE:FF"
+    assert calls.count((["/usr/bin/bluetoothctl"], 1, "scan off\n")) == 2
+
+
 def test_adapter_scan_returns_scan_empty_when_only_controller_state_changes_are_seen(tmp_path):
     calls = []
 
@@ -196,6 +237,29 @@ def test_adapter_scan_keeps_devices_seen_only_in_discovery_output(tmp_path):
     assert results.devices[0].address == "20:64:DE:30:D6:F2"
     assert results.devices[0].display_name == "SRS-XE300"
     assert calls.count((["/usr/bin/bluetoothctl"], 2, "info 20:64:DE:30:D6:F2\n")) == 1
+
+
+def test_adapter_scan_results_does_not_crash_when_device_inspection_times_out(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            raise subprocess.TimeoutExpired(cmd=list(argv), timeout=timeout_seconds)
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-results-info-timeout.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    results = adapter.scan_results()
+
+    assert results.devices[0].address == "AA:BB:CC:DD:EE:FF"
+    assert results.devices[0].display_name == "Bedroom Speaker"
+    assert (["/usr/bin/bluetoothctl"], 2, "info AA:BB:CC:DD:EE:FF\n") in calls
 
 
 def test_adapter_scan_prefers_classic_identity_over_matching_le_advertisement(tmp_path):
