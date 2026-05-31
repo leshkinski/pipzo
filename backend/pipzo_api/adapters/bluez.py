@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable, List, Optional, Sequence
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 from pipzo_api.bluetooth_store import BluetoothSpeakerStore
 from pipzo_api.contract import (
@@ -46,6 +46,16 @@ class DeviceInspection:
     has_audio_profile: bool
     looks_like_audio_device: bool
     services_resolved: Optional[bool]
+
+
+@dataclass
+class ScanDiagnostics:
+    discovery_devices: List[SpeakerDevice]
+    known_devices: List[SpeakerDevice]
+    accepted_devices: List[SpeakerDevice]
+    dropped_devices: List[Dict[str, str]]
+    forgotten_addresses: List[str]
+    discovery_stdout: str = ""
 
 
 BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], BluetoothCommandResult]
@@ -373,12 +383,15 @@ class BluetoothctlAdapter:
             raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
         devices: List[SpeakerDevice] = []
         discovery_candidates = parse_device_lines(discovery_stdout)
+        known_candidates = parse_device_lines(result.stdout)
+        dropped_devices: List[Dict[str, str]] = []
         discovery_addresses = {device.address.upper() for device in discovery_candidates}
         discovery_identity_keys = {_speaker_identity_key(device.display_name) for device in discovery_candidates}
-        scan_candidates = [*discovery_candidates, *parse_device_lines(result.stdout)]
+        scan_candidates = [*discovery_candidates, *known_candidates]
         for device in _dedupe_devices(scan_candidates):
             fresh_discovery_match = device.address.upper() in discovery_addresses or _speaker_identity_key(device.display_name) in discovery_identity_keys
             if device.address.upper() in self._forgotten_scan_addresses and not fresh_discovery_match:
+                dropped_devices.append(_scan_drop(device, "forgotten_address_without_fresh_discovery"))
                 continue
             try:
                 inspection = self._device_inspection(
@@ -389,14 +402,48 @@ class BluetoothctlAdapter:
             except BlueZCommandError:
                 if not discovery_addresses or fresh_discovery_match:
                     devices.append(device)
+                else:
+                    dropped_devices.append(_scan_drop(device, "info_unavailable_without_fresh_discovery"))
                 continue
             if inspection.looks_like_audio_device or inspection.device.paired or inspection.device.connected:
                 devices.append(inspection.device)
+            else:
+                dropped_devices.append(_scan_drop(device, "info_not_audio_candidate"))
         deduped = _dedupe_devices(devices)
         for device in deduped:
             if device.address.upper() in discovery_addresses or _speaker_identity_key(device.display_name) in discovery_identity_keys:
                 self._forgotten_scan_addresses.discard(device.address.upper())
+        self._log_scan_diagnostics(
+            ScanDiagnostics(
+                discovery_devices=discovery_candidates,
+                known_devices=known_candidates,
+                accepted_devices=deduped,
+                dropped_devices=dropped_devices,
+                forgotten_addresses=sorted(self._forgotten_scan_addresses),
+                discovery_stdout=discovery_stdout,
+            )
+        )
         return deduped
+
+    def _log_scan_diagnostics(self, diagnostics: ScanDiagnostics) -> None:
+        logger.info(
+            "bluetooth scan diagnostics",
+            extra={
+                "event": "bluetooth.scan.diagnostics",
+                "details": {
+                    "raw_discovery_device_count": len(diagnostics.discovery_devices),
+                    "known_device_count": len(diagnostics.known_devices),
+                    "accepted_device_count": len(diagnostics.accepted_devices),
+                    "dropped_device_count": len(diagnostics.dropped_devices),
+                    "raw_discovery_devices": [_device_log_details(device) for device in diagnostics.discovery_devices],
+                    "known_devices": [_device_log_details(device) for device in diagnostics.known_devices],
+                    "accepted_devices": [_device_log_details(device) for device in diagnostics.accepted_devices],
+                    "dropped_devices": diagnostics.dropped_devices,
+                    "forgotten_addresses": diagnostics.forgotten_addresses,
+                    "raw_discovery_stdout": _truncate_log_text(diagnostics.discovery_stdout, limit=1200),
+                },
+            },
+        )
 
     def _refresh_pair_candidate(self, address: str, display_name: Optional[str]) -> tuple[bool, Optional[DeviceInspection]]:
         result = self._run_bluetoothctl(
@@ -717,6 +764,19 @@ def _truncate_log_text(value: str, limit: int = 600) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[:limit]}..."
+
+
+def _device_log_details(device: SpeakerDevice) -> Dict[str, object]:
+    return {
+        "address": device.address,
+        "display_name": device.display_name,
+        "paired": device.paired,
+        "connected": device.connected,
+    }
+
+
+def _scan_drop(device: SpeakerDevice, reason: str) -> Dict[str, str]:
+    return {"address": device.address, "display_name": device.display_name, "reason": reason}
 
 
 def _timeout_result(exc: subprocess.TimeoutExpired, timeout_seconds: int) -> BluetoothCommandResult:

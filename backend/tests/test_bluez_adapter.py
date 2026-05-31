@@ -214,6 +214,85 @@ def test_adapter_scan_returns_scan_empty_when_only_controller_state_changes_are_
     assert not any(call[2] == "info 88:A2:9E:E0:36:F4\n" for call in calls)
 
 
+def test_adapter_scan_logs_raw_empty_diagnostics_when_bluez_finds_no_devices(tmp_path, monkeypatch):
+    logs = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 88:A2:9E:E0:36:F4\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[CHG] Controller 88:A2:9E:E0:36:F4 Discovering: yes\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "", "")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-raw-empty-diagnostics.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+    monkeypatch.setattr(bluez_logger, "info", lambda message, extra=None: logs.append((message, extra or {})))
+
+    action = adapter.scan()
+
+    assert action.state == "failed"
+    diagnostic_records = [extra for _, extra in logs if extra.get("event") == "bluetooth.scan.diagnostics"]
+    assert diagnostic_records
+    details = diagnostic_records[-1]["details"]
+    assert details["raw_discovery_device_count"] == 0
+    assert details["known_device_count"] == 0
+    assert details["accepted_device_count"] == 0
+    assert details["dropped_device_count"] == 0
+
+
+def test_adapter_scan_logs_filtered_candidate_diagnostics(tmp_path, monkeypatch):
+    logs = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device 11:22:33:44:55:66 Keyboard\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device 11:22:33:44:55:66 Keyboard\n", "")
+        if input_text == "info 11:22:33:44:55:66\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 11:22:33:44:55:66",
+                        "\tName: Keyboard",
+                        "\tIcon: input-keyboard",
+                        "\tPaired: no",
+                        "\tConnected: no",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-filtered-diagnostics.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+    monkeypatch.setattr(bluez_logger, "info", lambda message, extra=None: logs.append((message, extra or {})))
+
+    action = adapter.scan()
+
+    assert action.state == "failed"
+    diagnostic_records = [extra for _, extra in logs if extra.get("event") == "bluetooth.scan.diagnostics"]
+    details = diagnostic_records[-1]["details"]
+    assert details["raw_discovery_device_count"] == 1
+    assert details["known_device_count"] == 1
+    assert details["accepted_device_count"] == 0
+    assert details["dropped_devices"] == [
+        {
+            "address": "11:22:33:44:55:66",
+            "display_name": "Keyboard",
+            "reason": "info_not_audio_candidate",
+        }
+    ]
+
+
 def test_adapter_scan_keeps_devices_seen_only_in_discovery_output(tmp_path):
     calls = []
 
