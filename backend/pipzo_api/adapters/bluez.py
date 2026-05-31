@@ -379,8 +379,9 @@ class BluetoothctlAdapter:
     ) -> DeviceInspection:
         address = _normalize_address(address)
         result = self._run_script([f"info {address}"], timeout_seconds=timeout_seconds or 10)
-        if result.returncode != 0 or "Device " in result.stderr and "not available" in result.stderr:
-            raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
+        if result.returncode != 0 or _info_lookup_failed(result.stdout, result.stderr):
+            detail = result.stderr or result.stdout
+            raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), detail)
         return DeviceInspection(
             device=parse_info(result.stdout, address, fallback_name),
             has_audio_profile=info_has_audio_profile(result.stdout),
@@ -468,6 +469,18 @@ def _has_failed_output(stdout: str, stderr: str) -> bool:
     if _already_paired_output(stdout, stderr):
         return False
     return "failed" in text or "not available" in text or "not authorized" in text or "not ready" in text
+
+
+def _info_lookup_failed(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    return (
+        "not available" in text
+        or "not ready" in text
+        or "no default controller" in text
+        or "no controller" in text
+        or "not found" in text
+        or "does not exist" in text
+    )
 
 
 def _agent_setup_usable(result: BluetoothCommandResult) -> bool:

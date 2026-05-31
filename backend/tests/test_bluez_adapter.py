@@ -509,6 +509,42 @@ def test_adapter_pair_fails_before_agent_when_refresh_does_not_see_target_addres
     assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") not in calls
 
 
+def test_adapter_pair_refreshes_when_info_not_available_is_stdout_with_success_returncode(tmp_path):
+    calls = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                0,
+                "Device 20:64:DE:30:D6:F2 not available\nDeviceSet 20:64:DE:30:D6:F2 not available\n",
+                "",
+            )
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
+        if input_text == "info C8:0A:B8:D7:4F:2C\n":
+            return BluetoothCommandResult(1, "", "Device C8:0A:B8:D7:4F:2C not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-pair-info-stdout-missing.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    action = adapter.pair("20:64:DE:30:D6:F2", "SRS-XE300")
+
+    assert action.state == "failed"
+    assert action.reason == SpeakerReason.DEVICE_OUT_OF_RANGE
+    assert store.get_primary() is None
+    assert (["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None) in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "agent NoInputNoOutput\ndefault-agent\n") not in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") not in calls
+
+
 def test_adapter_pair_stops_when_agent_registration_has_no_success_signal(tmp_path):
     calls = []
 
