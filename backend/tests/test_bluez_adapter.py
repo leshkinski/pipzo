@@ -1294,6 +1294,63 @@ def test_adapter_scan_after_forget_keeps_non_forgotten_known_candidate_when_info
     assert results.devices[0].display_name == "WH-1000XM3"
 
 
+def test_adapter_scan_after_forget_accepts_same_classic_device_when_fresh_le_advertisement_is_seen(tmp_path):
+    scan_count = 0
+
+    def runner(argv, timeout_seconds, input_text=None):
+        nonlocal scan_count
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if input_text == "disconnect 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(0, "Successful disconnected\n", "")
+        if input_text == "remove 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(0, "Device has been removed\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            scan_count += 1
+            if scan_count == 1:
+                return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+            return BluetoothCommandResult(0, "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 20:64:DE:30:D6:F2",
+                        "\tName: SRS-XE300",
+                        "\tIcon: audio-card",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "info C8:0A:B8:D7:4F:2C\n":
+            return BluetoothCommandResult(1, "", "Device C8:0A:B8:D7:4F:2C not available\n")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-forget-same-srs-le-rediscovery.sqlite3")
+    store.save_primary(
+        speaker=SpeakerSummary(
+            address="20:64:DE:30:D6:F2",
+            display_name="SRS-XE300",
+            connected=True,
+        )
+    )
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    assert adapter.scan().state == "succeeded"
+    assert adapter.forget("20:64:DE:30:D6:F2").state == "succeeded"
+
+    second_scan = adapter.scan()
+    results = adapter.scan_results()
+
+    assert second_scan.state == "succeeded"
+    assert [device.address for device in results.devices] == ["20:64:DE:30:D6:F2"]
+    assert results.devices[0].display_name == "SRS-XE300"
+
+
 def test_adapter_reports_pair_failure_without_saving_primary(tmp_path):
     def runner(argv, timeout_seconds, input_text=None):
         if input_text == "show\n":

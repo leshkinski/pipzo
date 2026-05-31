@@ -374,9 +374,11 @@ class BluetoothctlAdapter:
         devices: List[SpeakerDevice] = []
         discovery_candidates = parse_device_lines(discovery_stdout)
         discovery_addresses = {device.address.upper() for device in discovery_candidates}
+        discovery_identity_keys = {_speaker_identity_key(device.display_name) for device in discovery_candidates}
         scan_candidates = [*discovery_candidates, *parse_device_lines(result.stdout)]
         for device in _dedupe_devices(scan_candidates):
-            if device.address.upper() in self._forgotten_scan_addresses and device.address.upper() not in discovery_addresses:
+            fresh_discovery_match = device.address.upper() in discovery_addresses or _speaker_identity_key(device.display_name) in discovery_identity_keys
+            if device.address.upper() in self._forgotten_scan_addresses and not fresh_discovery_match:
                 continue
             try:
                 inspection = self._device_inspection(
@@ -385,14 +387,14 @@ class BluetoothctlAdapter:
                     timeout_seconds=self._scan_device_info_timeout_seconds,
                 )
             except BlueZCommandError:
-                if not discovery_addresses or device.address.upper() in discovery_addresses:
+                if not discovery_addresses or fresh_discovery_match:
                     devices.append(device)
                 continue
             if inspection.looks_like_audio_device or inspection.device.paired or inspection.device.connected:
                 devices.append(inspection.device)
         deduped = _dedupe_devices(devices)
         for device in deduped:
-            if device.address.upper() in discovery_addresses:
+            if device.address.upper() in discovery_addresses or _speaker_identity_key(device.display_name) in discovery_identity_keys:
                 self._forgotten_scan_addresses.discard(device.address.upper())
         return deduped
 
