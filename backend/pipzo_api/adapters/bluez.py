@@ -45,6 +45,7 @@ class DeviceInspection:
     device: SpeakerDevice
     has_audio_profile: bool
     looks_like_audio_device: bool
+    services_resolved: Optional[bool]
 
 
 BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], BluetoothCommandResult]
@@ -134,6 +135,14 @@ def info_looks_like_audio_device(stdout: str) -> bool:
     return False
 
 
+def info_services_resolved(stdout: str) -> Optional[bool]:
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("ServicesResolved:"):
+            return _yes_value(line)
+    return None
+
+
 def map_bluetoothctl_failure(stderr: str, stdout: str = "") -> SpeakerReason:
     text = f"{stderr}\n{stdout}".lower()
     if "permission denied" in text or "not permitted" in text or "notpermitted" in text or "operation not permitted" in text:
@@ -188,6 +197,9 @@ class BluetoothctlAdapter:
         scan_timeout_seconds: int = 6,
         scan_device_info_timeout_seconds: int = 2,
         discovery_cleanup_timeout_seconds: int = 1,
+        connect_settle_timeout_seconds: float = 6,
+        connect_settle_interval_seconds: float = 0.5,
+        connect_retry_count: int = 2,
     ) -> None:
         self._store = store
         self._runner = runner
@@ -196,7 +208,11 @@ class BluetoothctlAdapter:
         self._scan_timeout_seconds = scan_timeout_seconds
         self._scan_device_info_timeout_seconds = scan_device_info_timeout_seconds
         self._discovery_cleanup_timeout_seconds = discovery_cleanup_timeout_seconds
+        self._connect_settle_timeout_seconds = connect_settle_timeout_seconds
+        self._connect_settle_interval_seconds = connect_settle_interval_seconds
+        self._connect_retry_count = max(1, connect_retry_count)
         self._last_scan: List[SpeakerDevice] = []
+        self._forgotten_scan_addresses: set[str] = set()
 
     def probe(self) -> None:
         self._bluetoothctl()
@@ -224,6 +240,7 @@ class BluetoothctlAdapter:
     def scan(self) -> RecoveryAction:
         started_at = utc_now()
         self._ensure_powered()
+        self._last_scan = []
         self._stop_discovery()
         try:
             result = self._run_bluetoothctl(
@@ -260,7 +277,7 @@ class BluetoothctlAdapter:
                 discovery_active_for_pair, inspection = self._refresh_pair_candidate(address, display_name)
                 if not discovery_active_for_pair and not scan_candidate_seen:
                     return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.DEVICE_OUT_OF_RANGE)
-            if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
+            if inspection is not None and _audio_sink_connected(inspection):
                 self._save_primary(address, inspection.device, connected=True)
                 return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
@@ -304,25 +321,16 @@ class BluetoothctlAdapter:
                     if not _already_paired_output(pair_result.stdout, pair_result.stderr):
                         return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
                 inspection = self._inspect_device(address, display_name, allow_missing=False)
-            if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
+            if inspection is not None and _audio_sink_connected(inspection):
                 self._save_primary(address, inspection.device, connected=True)
                 return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
-            connect_result = self._run_script([f"connect {address}"], timeout_seconds=self._command_timeout_seconds)
-            if connect_result.returncode != 0 or _has_failed_output(connect_result.stdout, connect_result.stderr):
-                return self._action(
-                    "speaker-pair",
-                    RecoveryActionState.FAILED,
-                    started_at,
-                    map_bluetoothctl_failure(connect_result.stderr, connect_result.stdout),
-                )
-            try:
-                inspection = self._device_inspection(address, display_name)
-            except BlueZCommandError as exc:
-                return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, exc.reason)
+            inspection, failure_reason = self._connect_until_audio_sink_connected(address, display_name)
+            if inspection is None:
+                return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, failure_reason or SpeakerReason.CONNECT_FAILED)
             if not inspection.has_audio_profile:
                 return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.AUDIO_PROFILE_UNAVAILABLE)
-            if not inspection.device.connected:
+            if not _audio_sink_connected(inspection):
                 return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.CONNECT_FAILED)
             self._save_primary(address, inspection.device, connected=True)
             return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
@@ -337,9 +345,10 @@ class BluetoothctlAdapter:
         primary = self._store.get_primary()
         if primary is None:
             return self._action("speaker-reconnect", RecoveryActionState.FAILED, started_at, SpeakerReason.PRIMARY_MISSING)
-        result = self._run_script([f"trust {primary.address}", f"connect {primary.address}"], timeout_seconds=self._command_timeout_seconds)
-        if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
-            return self._action("speaker-reconnect", RecoveryActionState.FAILED, started_at, map_bluetoothctl_failure(result.stderr, result.stdout))
+        inspection, failure_reason = self._connect_until_audio_sink_connected(primary.address, primary.display_name, trust=True)
+        if inspection is None:
+            return self._action("speaker-reconnect", RecoveryActionState.FAILED, started_at, failure_reason or SpeakerReason.CONNECT_FAILED)
+        self._save_primary(primary.address, inspection.device, connected=True)
         return self._action("speaker-reconnect", RecoveryActionState.SUCCEEDED, started_at)
 
     def forget(self, address: str) -> RecoveryAction:
@@ -356,7 +365,9 @@ class BluetoothctlAdapter:
                 return self._action("speaker-forget", RecoveryActionState.FAILED, started_at, reason)
         if primary is not None and primary.address.upper() == address:
             self._store.delete_primary()
-        self._last_scan = [device for device in self._last_scan if device.address.upper() != address]
+        self._last_scan = []
+        self._forgotten_scan_addresses.add(address)
+        self._stop_discovery()
         return self._action("speaker-forget", RecoveryActionState.SUCCEEDED, started_at)
 
     def _scan_devices(self, discovery_stdout: str = "") -> List[SpeakerDevice]:
@@ -364,8 +375,12 @@ class BluetoothctlAdapter:
         if result.returncode != 0:
             raise BlueZCommandError(map_bluetoothctl_failure(result.stderr, result.stdout), result.stderr)
         devices: List[SpeakerDevice] = []
-        scan_candidates = [*parse_device_lines(discovery_stdout), *parse_device_lines(result.stdout)]
+        discovery_candidates = parse_device_lines(discovery_stdout)
+        discovery_addresses = {device.address.upper() for device in discovery_candidates}
+        scan_candidates = [*discovery_candidates, *parse_device_lines(result.stdout)]
         for device in _dedupe_devices(scan_candidates):
+            if device.address.upper() in self._forgotten_scan_addresses and device.address.upper() not in discovery_addresses:
+                continue
             try:
                 inspection = self._device_inspection(
                     device.address,
@@ -373,11 +388,16 @@ class BluetoothctlAdapter:
                     timeout_seconds=self._scan_device_info_timeout_seconds,
                 )
             except BlueZCommandError:
-                devices.append(device)
+                if not discovery_stdout or device.address.upper() in discovery_addresses:
+                    devices.append(device)
                 continue
             if inspection.looks_like_audio_device or inspection.device.paired or inspection.device.connected:
                 devices.append(inspection.device)
-        return _dedupe_devices(devices)
+        deduped = _dedupe_devices(devices)
+        for device in deduped:
+            if device.address.upper() in discovery_addresses:
+                self._forgotten_scan_addresses.discard(device.address.upper())
+        return deduped
 
     def _refresh_pair_candidate(self, address: str, display_name: Optional[str]) -> tuple[bool, Optional[DeviceInspection]]:
         result = self._run_bluetoothctl(
@@ -405,6 +425,50 @@ class BluetoothctlAdapter:
         # Disconnection is a best-effort cleanup before remove/replacement; remove/pair/connect still decide success.
         self._run_script([f"disconnect {_normalize_address(address)}"], timeout_seconds=self._command_timeout_seconds)
 
+    def _connect_until_audio_sink_connected(
+        self,
+        address: str,
+        fallback_name: Optional[str],
+        trust: bool = False,
+    ) -> tuple[Optional[DeviceInspection], Optional[SpeakerReason]]:
+        commands = [f"connect {address}"]
+        if trust:
+            commands.insert(0, f"trust {address}")
+        last_inspection: Optional[DeviceInspection] = None
+        last_reason: Optional[SpeakerReason] = None
+        for _ in range(self._connect_retry_count):
+            result = self._run_script(commands, timeout_seconds=self._command_timeout_seconds)
+            if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
+                return None, map_bluetoothctl_failure(result.stderr, result.stdout)
+            last_inspection, last_reason = self._wait_for_audio_sink_connected(address, fallback_name)
+            if last_inspection is not None and _audio_sink_connected(last_inspection):
+                return last_inspection, None
+        if last_inspection is not None and not last_inspection.has_audio_profile:
+            return None, SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
+        return None, last_reason or SpeakerReason.CONNECT_FAILED
+
+    def _wait_for_audio_sink_connected(self, address: str, fallback_name: Optional[str]) -> tuple[Optional[DeviceInspection], Optional[SpeakerReason]]:
+        deadline = time.monotonic() + self._connect_settle_timeout_seconds
+        last_inspection: Optional[DeviceInspection] = None
+        last_reason: Optional[SpeakerReason] = None
+        while True:
+            try:
+                inspection = self._device_inspection(address, fallback_name)
+            except BlueZCommandError as exc:
+                last_reason = exc.reason
+            else:
+                last_inspection = inspection
+                if _audio_sink_connected(inspection):
+                    return inspection, None
+                if not inspection.has_audio_profile:
+                    last_reason = SpeakerReason.AUDIO_PROFILE_UNAVAILABLE
+                elif not inspection.device.connected or inspection.services_resolved is False:
+                    last_reason = SpeakerReason.CONNECT_FAILED
+            if time.monotonic() >= deadline:
+                return last_inspection, last_reason
+            if self._connect_settle_interval_seconds > 0:
+                time.sleep(self._connect_settle_interval_seconds)
+
     def _device_info(self, address: str, fallback_name: Optional[str] = None) -> SpeakerDevice:
         return self._device_inspection(address, fallback_name).device
 
@@ -423,6 +487,7 @@ class BluetoothctlAdapter:
             device=parse_info(result.stdout, address, fallback_name),
             has_audio_profile=info_has_audio_profile(result.stdout),
             looks_like_audio_device=info_looks_like_audio_device(result.stdout),
+            services_resolved=info_services_resolved(result.stdout),
         )
 
     def _inspect_device(self, address: str, fallback_name: Optional[str] = None, allow_missing: bool = False) -> Optional[DeviceInspection]:
@@ -637,6 +702,10 @@ def _agent_setup_usable(result: BluetoothCommandResult) -> bool:
     if "agent registered" in text or "default agent request successful" in text:
         return True
     return not _has_failed_output(result.stdout, result.stderr)
+
+
+def _audio_sink_connected(inspection: DeviceInspection) -> bool:
+    return inspection.device.connected and inspection.has_audio_profile and inspection.services_resolved is not False
 
 
 def _already_paired_output(stdout: str, stderr: str) -> bool:
