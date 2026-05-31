@@ -57,7 +57,6 @@ import {
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
-  shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
   speakerDeviceRows,
   sleepTimerPresets,
@@ -70,6 +69,11 @@ import {
   type SleepTimerPresetMinutes,
   type SleepTimerState,
 } from "./viewModel";
+import {
+  bluetoothSuccessAlertSuppressedEvent,
+  installBluetoothSuccessAlertSuppression,
+  type BluetoothSuccessAlertSuppressedDetail,
+} from "./bluetoothSuccessAlerts";
 
 type DataSource = "backend" | "local";
 type AppSurfaceId = SurfaceId | "sleep_timer";
@@ -344,18 +348,18 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const originalAlert = window.alert;
-    window.alert = (message?: unknown) => {
-      const text = typeof message === "string" ? message : String(message ?? "");
-      if (shouldSuppressBluetoothSuccessAlert(text)) {
-        setStatusText(text);
-        return;
-      }
-      originalAlert.call(window, message);
-    };
+    installBluetoothSuccessAlertSuppression();
 
+    function updateSuppressedBluetoothSuccess(event: Event) {
+      const detail = (event as CustomEvent<BluetoothSuccessAlertSuppressedDetail>).detail;
+      if (detail?.message) {
+        setStatusText(detail.message);
+      }
+    }
+
+    window.addEventListener(bluetoothSuccessAlertSuppressedEvent, updateSuppressedBluetoothSuccess);
     return () => {
-      window.alert = originalAlert;
+      window.removeEventListener(bluetoothSuccessAlertSuppressedEvent, updateSuppressedBluetoothSuccess);
     };
   }, []);
 
