@@ -205,6 +205,7 @@ class BluetoothctlAdapter:
         bluetoothctl_path: Optional[str] = None,
         command_timeout_seconds: int = 30,
         scan_timeout_seconds: int = 6,
+        post_forget_scan_timeout_seconds: int = 12,
         scan_device_info_timeout_seconds: int = 2,
         discovery_cleanup_timeout_seconds: int = 1,
         connect_settle_timeout_seconds: float = 6,
@@ -216,6 +217,7 @@ class BluetoothctlAdapter:
         self._bluetoothctl_path = bluetoothctl_path
         self._command_timeout_seconds = command_timeout_seconds
         self._scan_timeout_seconds = scan_timeout_seconds
+        self._post_forget_scan_timeout_seconds = post_forget_scan_timeout_seconds
         self._scan_device_info_timeout_seconds = scan_device_info_timeout_seconds
         self._discovery_cleanup_timeout_seconds = discovery_cleanup_timeout_seconds
         self._connect_settle_timeout_seconds = connect_settle_timeout_seconds
@@ -252,10 +254,11 @@ class BluetoothctlAdapter:
         self._ensure_powered()
         self._last_scan = []
         self._stop_discovery()
+        scan_timeout_seconds = self._active_scan_timeout_seconds()
         try:
             result = self._run_bluetoothctl(
-                [self._bluetoothctl(), "--timeout", str(self._scan_timeout_seconds), "scan", "on"],
-                self._scan_timeout_seconds + 2,
+                [self._bluetoothctl(), "--timeout", str(scan_timeout_seconds), "scan", "on"],
+                scan_timeout_seconds + 2,
                 None,
             )
             if result.returncode != 0:
@@ -446,9 +449,10 @@ class BluetoothctlAdapter:
         )
 
     def _refresh_pair_candidate(self, address: str, display_name: Optional[str]) -> tuple[bool, Optional[DeviceInspection]]:
+        scan_timeout_seconds = self._active_scan_timeout_seconds()
         result = self._run_bluetoothctl(
-            [self._bluetoothctl(), "--timeout", str(self._scan_timeout_seconds), "scan", "on"],
-            self._scan_timeout_seconds + 2,
+            [self._bluetoothctl(), "--timeout", str(scan_timeout_seconds), "scan", "on"],
+            scan_timeout_seconds + 2,
             None,
         )
         if result.returncode != 0:
@@ -552,11 +556,11 @@ class BluetoothctlAdapter:
             if line.strip().startswith("Powered:") and not _yes_value(line):
                 raise BlueZCommandError(SpeakerReason.BLUETOOTH_DISABLED, result.stdout)
 
-    def _run_script(self, commands: Iterable[str], timeout_seconds: int) -> BluetoothCommandResult:
+    def _run_script(self, commands: Iterable[str], timeout_seconds: int, log_failures: bool = True) -> BluetoothCommandResult:
         command_list = list(commands)
         input_text = "\n".join(command_list) + "\n"
         result = self._run_bluetoothctl([self._bluetoothctl()], timeout_seconds, input_text)
-        if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
+        if log_failures and (result.returncode != 0 or _has_failed_output(result.stdout, result.stderr)):
             logger.warning(
                 "bluetoothctl command failed",
                 extra={
@@ -661,9 +665,25 @@ class BluetoothctlAdapter:
             return _timeout_result(exc, timeout_seconds)
 
     def _stop_discovery(self) -> None:
-        result = self._run_script(["scan off"], timeout_seconds=self._discovery_cleanup_timeout_seconds)
-        if result.returncode != 0:
-            return
+        result = self._run_script(["scan off"], timeout_seconds=self._discovery_cleanup_timeout_seconds, log_failures=False)
+        if result.returncode != 0 or _has_failed_output(result.stdout, result.stderr):
+            logger.info(
+                "bluetooth discovery cleanup ignored",
+                extra={
+                    "event": "bluetooth.discovery_cleanup.ignored",
+                    "details": {
+                        "returncode": result.returncode,
+                        "reason": map_bluetoothctl_failure(result.stderr, result.stdout).value,
+                        "stdout": _truncate_log_text(result.stdout),
+                        "stderr": _truncate_log_text(result.stderr),
+                    },
+                },
+            )
+
+    def _active_scan_timeout_seconds(self) -> int:
+        if self._forgotten_scan_addresses:
+            return self._post_forget_scan_timeout_seconds
+        return self._scan_timeout_seconds
 
     def _bluetoothctl(self) -> str:
         path = self._bluetoothctl_path or shutil.which("bluetoothctl")

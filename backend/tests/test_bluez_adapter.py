@@ -115,7 +115,10 @@ def test_adapter_scan_stops_discovery_and_uses_short_bounded_scan(tmp_path):
             return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
         if input_text == "scan off\n":
             return BluetoothCommandResult(0, "Discovery stopped\n", "")
-        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+        if list(argv) in (
+            ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"],
+            ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"],
+        ):
             return BluetoothCommandResult(0, "[NEW] Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
         if input_text == "devices\n":
             return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
@@ -185,6 +188,34 @@ def test_adapter_scan_does_not_crash_when_cleanup_times_out(tmp_path):
     assert action.reason is None
     assert results.devices[0].address == "AA:BB:CC:DD:EE:FF"
     assert calls.count((["/usr/bin/bluetoothctl"], 1, "scan off\n")) == 2
+
+
+def test_adapter_scan_logs_and_ignores_scan_off_failure_output(tmp_path, monkeypatch):
+    logs = []
+
+    def runner(argv, timeout_seconds, input_text=None):
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Failed to stop discovery: org.bluez.Error.Failed\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF Bedroom Speaker\n", "")
+        if input_text == "info AA:BB:CC:DD:EE:FF\n":
+            return BluetoothCommandResult(0, "Device AA:BB:CC:DD:EE:FF\n\tName: Bedroom Speaker\n\tIcon: audio-card\n", "")
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-off-failed.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+    monkeypatch.setattr(bluez_logger, "info", lambda message, extra=None: logs.append((message, extra or {})))
+
+    action = adapter.scan()
+
+    assert action.state == "succeeded"
+    ignored_records = [extra for _, extra in logs if extra.get("event") == "bluetooth.discovery_cleanup.ignored"]
+    assert len(ignored_records) == 2
+    assert ignored_records[-1]["details"]["stdout"] == "Failed to stop discovery: org.bluez.Error.Failed"
 
 
 def test_adapter_scan_returns_scan_empty_when_only_controller_state_changes_are_seen(tmp_path):
@@ -381,6 +412,97 @@ def test_adapter_scan_prefers_classic_identity_over_matching_le_advertisement(tm
     assert action.state == "succeeded"
     assert [device.address for device in results.devices] == ["20:64:DE:30:D6:F2"]
     assert results.devices[0].display_name == "SRS-XE300"
+
+
+def test_adapter_scan_after_forget_uses_extended_window_for_late_classic_identity(tmp_path):
+    calls = []
+    removed = {"classic": False}
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Failed to stop discovery: org.bluez.Error.Failed\n", "")
+        if input_text == "disconnect 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(0, "Successful disconnected\n", "")
+        if input_text == "remove 20:64:DE:30:D6:F2\n":
+            removed["classic"] = True
+            return BluetoothCommandResult(0, "Device has been removed\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"]:
+            assert removed["classic"] is True
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                        "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "devices\n":
+            if removed["classic"]:
+                return BluetoothCommandResult(
+                    0,
+                    "\n".join(
+                        [
+                            "Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                            "Device 20:64:DE:30:D6:F2 SRS-XE300",
+                        ]
+                    ),
+                    "",
+                )
+            return BluetoothCommandResult(0, "Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 20:64:DE:30:D6:F2",
+                        "\tName: SRS-XE300",
+                        "\tAlias: SRS-XE300",
+                        "\tPaired: no",
+                        "\tConnected: no",
+                        "\tIcon: audio-card",
+                        "\tUUID: Vendor specific",
+                    ]
+                ),
+                "",
+            )
+        if input_text == "info C8:0A:B8:D7:4F:2C\n":
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device C8:0A:B8:D7:4F:2C",
+                        "\tName: LE_SRS-XE300",
+                        "\tAlias: LE_SRS-XE300",
+                        "\tPaired: no",
+                        "\tConnected: no",
+                        "\tUUID: Vendor specific",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-scan-post-forget-extended.sqlite3")
+    store.save_primary(SpeakerSummary(address="20:64:DE:30:D6:F2", display_name="SRS-XE300", connected=True))
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    forget_action = adapter.forget("20:64:DE:30:D6:F2")
+    scan_action = adapter.scan()
+    results = adapter.scan_results()
+
+    assert forget_action.state == "succeeded"
+    assert scan_action.state == "succeeded"
+    assert [device.address for device in results.devices] == ["20:64:DE:30:D6:F2"]
+    assert results.devices[0].display_name == "SRS-XE300"
+    assert (["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"], 14, None) in calls
+    assert (["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"], 8, None) not in calls
 
 
 def test_adapter_scan_drops_stale_known_device_not_seen_in_active_discovery(tmp_path):
@@ -1009,7 +1131,10 @@ def test_adapter_pair_uses_cached_scan_candidate_when_pair_refresh_info_stays_un
             return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
         if input_text == "scan off\n":
             return BluetoothCommandResult(0, "Discovery stopped\n", "")
-        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+        if list(argv) in (
+            ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"],
+            ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"],
+        ):
             scan_count += 1
             if scan_count == 1:
                 return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
@@ -1327,7 +1452,10 @@ def test_adapter_scan_after_forget_keeps_non_forgotten_known_candidate_when_info
             return BluetoothCommandResult(0, "Successful disconnected\n", "")
         if input_text == "remove 20:64:DE:30:D6:F2\n":
             return BluetoothCommandResult(0, "Device has been removed\n", "")
-        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+        if list(argv) in (
+            ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"],
+            ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"],
+        ):
             scan_count += 1
             if scan_count == 1:
                 return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
@@ -1371,6 +1499,7 @@ def test_adapter_scan_after_forget_keeps_non_forgotten_known_candidate_when_info
     assert second_scan.state == "succeeded"
     assert [device.address for device in results.devices] == ["CC:98:8B:94:B5:1C"]
     assert results.devices[0].display_name == "WH-1000XM3"
+    assert (["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"], 14, None) in calls
 
 
 def test_adapter_scan_after_forget_accepts_same_classic_device_when_fresh_le_advertisement_is_seen(tmp_path):
@@ -1386,7 +1515,10 @@ def test_adapter_scan_after_forget_accepts_same_classic_device_when_fresh_le_adv
             return BluetoothCommandResult(0, "Successful disconnected\n", "")
         if input_text == "remove 20:64:DE:30:D6:F2\n":
             return BluetoothCommandResult(0, "Device has been removed\n", "")
-        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+        if list(argv) in (
+            ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"],
+            ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"],
+        ):
             scan_count += 1
             if scan_count == 1:
                 return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
