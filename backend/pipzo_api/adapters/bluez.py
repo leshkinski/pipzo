@@ -249,10 +249,11 @@ class BluetoothctlAdapter:
         self._stop_discovery()
         discovery_active_for_pair = False
         try:
+            scan_candidate_seen = self._has_scan_candidate(address)
             inspection = self._inspect_device(address, display_name, allow_missing=True)
             if inspection is None:
                 discovery_active_for_pair, inspection = self._refresh_pair_candidate(address, display_name)
-                if not discovery_active_for_pair:
+                if not discovery_active_for_pair and not scan_candidate_seen:
                     return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, SpeakerReason.DEVICE_OUT_OF_RANGE)
             if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
                 self._save_primary(address, inspection.device, connected=True)
@@ -373,6 +374,9 @@ class BluetoothctlAdapter:
         if not any(device.address.upper() == address for device in self._last_scan):
             return False, None
         return True, self._inspect_device(address, display_name, allow_missing=True)
+
+    def _has_scan_candidate(self, address: str) -> bool:
+        return any(device.address.upper() == address for device in self._last_scan)
 
     def _device_info(self, address: str, fallback_name: Optional[str] = None) -> SpeakerDevice:
         return self._device_inspection(address, fallback_name).device
