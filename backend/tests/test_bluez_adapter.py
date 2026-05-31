@@ -690,6 +690,82 @@ def test_adapter_pair_uses_cached_scan_candidate_when_pair_refresh_info_stays_un
     assert (["/usr/bin/bluetoothctl"], 30, "connect 20:64:DE:30:D6:F2\n") in calls
 
 
+def test_adapter_pair_uses_cached_scan_candidate_when_stale_info_claims_already_paired(tmp_path):
+    calls = []
+    device_state = {"pair_attempted": False, "trusted": False, "connected": False}
+
+    def runner(argv, timeout_seconds, input_text=None):
+        calls.append((list(argv), timeout_seconds, input_text))
+        if input_text == "show\n":
+            return BluetoothCommandResult(0, "Controller 00:11:22:33:44:55\n\tPowered: yes\n", "")
+        if input_text == "scan off\n":
+            return BluetoothCommandResult(0, "Discovery stopped\n", "")
+        if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
+            return BluetoothCommandResult(0, "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+        if input_text == "devices\n":
+            return BluetoothCommandResult(0, "Device 20:64:DE:30:D6:F2 SRS-XE300\n", "")
+        if input_text == "agent NoInputNoOutput\ndefault-agent\n":
+            return BluetoothCommandResult(0, "Agent registered\nDefault agent request successful\n", "")
+        if input_text == "trust 20:64:DE:30:D6:F2\n":
+            device_state["trusted"] = True
+            return BluetoothCommandResult(0, "Changing 20:64:DE:30:D6:F2 trust succeeded\n", "")
+        if input_text == "pair 20:64:DE:30:D6:F2\n":
+            device_state["pair_attempted"] = True
+            return BluetoothCommandResult(0, "Pairing successful\n", "")
+        if input_text == "connect 20:64:DE:30:D6:F2\n":
+            device_state["connected"] = True
+            return BluetoothCommandResult(0, "Connection successful\n", "")
+        if input_text == "info 20:64:DE:30:D6:F2\n":
+            if not device_state["trusted"]:
+                return BluetoothCommandResult(
+                    0,
+                    "\n".join(
+                        [
+                            "Device 20:64:DE:30:D6:F2",
+                            "\tName: SRS-XE300",
+                            "\tAlias: SRS-XE300",
+                            "\tPaired: yes",
+                            "\tTrusted: no",
+                            "\tConnected: no",
+                            "\tIcon: audio-card",
+                        ]
+                    ),
+                    "",
+                )
+            if not device_state["pair_attempted"]:
+                return BluetoothCommandResult(1, "", "Device 20:64:DE:30:D6:F2 not available\n")
+            return BluetoothCommandResult(
+                0,
+                "\n".join(
+                    [
+                        "Device 20:64:DE:30:D6:F2",
+                        "\tName: SRS-XE300",
+                        "\tAlias: SRS-XE300",
+                        "\tPaired: yes",
+                        f"\tTrusted: {'yes' if device_state['trusted'] else 'no'}",
+                        f"\tConnected: {'yes' if device_state['connected'] else 'no'}",
+                        "\tIcon: audio-card",
+                        "\tUUID: Audio Sink",
+                    ]
+                ),
+                "",
+            )
+        return BluetoothCommandResult(0, "", "")
+
+    store = BluetoothSpeakerStore(tmp_path / "bluetooth-pair-stale-paired-cache.sqlite3")
+    adapter = BluetoothctlAdapter(store=store, runner=runner, bluetoothctl_path="/usr/bin/bluetoothctl")
+
+    scan_action = adapter.scan()
+    action = adapter.pair("20:64:DE:30:D6:F2", "SRS-XE300")
+
+    assert scan_action.state == "succeeded"
+    assert action.state == "succeeded"
+    assert store.get_primary() is not None
+    assert store.get_primary().address == "20:64:DE:30:D6:F2"
+    assert (["/usr/bin/bluetoothctl"], 30, "pair 20:64:DE:30:D6:F2\n") in calls
+    assert (["/usr/bin/bluetoothctl"], 30, "connect 20:64:DE:30:D6:F2\n") in calls
+
+
 def test_adapter_pair_refreshes_when_info_not_available_is_stdout_with_success_returncode(tmp_path):
     calls = []
 

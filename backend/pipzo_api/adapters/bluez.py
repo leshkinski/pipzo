@@ -259,6 +259,7 @@ class BluetoothctlAdapter:
                 self._save_primary(address, inspection.device, connected=True)
                 return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
 
+            pair_attempted = False
             agent_result = self._run_script(["agent NoInputNoOutput", "default-agent"], timeout_seconds=self._command_timeout_seconds)
             if not _agent_setup_usable(agent_result):
                 return self._action(
@@ -270,6 +271,7 @@ class BluetoothctlAdapter:
 
             if inspection is None or not inspection.device.paired:
                 pair_result = self._run_script([f"pair {address}"], timeout_seconds=self._command_timeout_seconds)
+                pair_attempted = True
                 if pair_result.returncode != 0 or _has_failed_output(pair_result.stdout, pair_result.stderr):
                     reason = map_bluetoothctl_failure(pair_result.stderr, pair_result.stdout)
                     if not _already_paired_output(pair_result.stdout, pair_result.stderr):
@@ -288,7 +290,15 @@ class BluetoothctlAdapter:
                     map_bluetoothctl_failure(trust_result.stderr, trust_result.stdout),
                 )
 
-            inspection = self._inspect_device(address, display_name, allow_missing=False)
+            inspection = self._inspect_device(address, display_name, allow_missing=scan_candidate_seen and not pair_attempted)
+            if inspection is None and scan_candidate_seen and not pair_attempted:
+                pair_result = self._run_script([f"pair {address}"], timeout_seconds=self._command_timeout_seconds)
+                pair_attempted = True
+                if pair_result.returncode != 0 or _has_failed_output(pair_result.stdout, pair_result.stderr):
+                    reason = map_bluetoothctl_failure(pair_result.stderr, pair_result.stdout)
+                    if not _already_paired_output(pair_result.stdout, pair_result.stderr):
+                        return self._action("speaker-pair", RecoveryActionState.FAILED, started_at, reason)
+                inspection = self._inspect_device(address, display_name, allow_missing=False)
             if inspection is not None and inspection.device.connected and inspection.has_audio_profile:
                 self._save_primary(address, inspection.device, connected=True)
                 return self._action("speaker-pair", RecoveryActionState.SUCCEEDED, started_at)
