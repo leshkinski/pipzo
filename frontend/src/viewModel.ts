@@ -564,6 +564,48 @@ export type SpeakerSetupViewModel = {
   actions: SpeakerAction[];
 };
 
+export type SpeakerDeviceRow = {
+  address: string;
+  title: string;
+  detail: string;
+  selected: boolean;
+  currentPrimary: boolean;
+};
+
+export function preferredSpeakerSelection(
+  snapshot: AppSnapshot,
+  devices: SpeakerDevice[] = [],
+  currentAddress = "",
+): string {
+  const primaryAddress = snapshot.health.speaker.primary?.address;
+  const current = devices.find((device) => device.address === currentAddress);
+  if (current && current.address !== primaryAddress) {
+    return current.address;
+  }
+  return devices.find((device) => device.address !== primaryAddress)?.address ?? current?.address ?? devices[0]?.address ?? "";
+}
+
+export function speakerDeviceRows(snapshot: AppSnapshot, devices: SpeakerDevice[] = [], selectedAddress = ""): SpeakerDeviceRow[] {
+  const primaryAddress = snapshot.health.speaker.primary?.address;
+  return devices.map((device) => {
+    const currentPrimary = device.address === primaryAddress;
+    const status = currentPrimary
+      ? "Current primary"
+      : device.connected
+        ? "Connected"
+        : device.paired
+          ? "Paired"
+          : "New";
+    return {
+      address: device.address,
+      title: device.displayName || device.alias || device.address,
+      detail: `${status} / ${device.address}`,
+      selected: device.address === selectedAddress,
+      currentPrimary,
+    };
+  });
+}
+
 export function speakerSetupViewModel(snapshot: AppSnapshot, devices: SpeakerDevice[] = []): SpeakerSetupViewModel {
   const speaker = snapshot.health.speaker;
   if (speaker.status === "connected") {

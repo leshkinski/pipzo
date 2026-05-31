@@ -52,11 +52,13 @@ import {
   nowPlayingEmptyState,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingRefreshIntervalMs,
+  preferredSpeakerSelection,
   preferredSurface,
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
+  speakerDeviceRows,
   sleepTimerPresets,
   sleepTimerViewModel,
   speakerSetupViewModel,
@@ -223,6 +225,14 @@ export function App() {
         } else {
           setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
           setLibraryMessage("Library is unavailable until network and Spotify recovery complete.");
+        }
+        const speakerResults = await fetchSpeakerScanResults().catch(() => null);
+        if (speakerResults && !cancelled) {
+          setSpeakerDevices(speakerResults.devices);
+          setSelectedSpeakerAddress((current) => preferredSpeakerSelection(state, speakerResults.devices, current));
+          if (speakerResults.devices.length > 0) {
+            setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
+          }
         }
         setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
         setDataSource("backend");
@@ -812,9 +822,7 @@ export function App() {
         await scanSpeakers();
         const results = await fetchSpeakerScanResults();
         setSpeakerDevices(results.devices);
-        setSelectedSpeakerAddress((current) =>
-          results.devices.some((device) => device.address === current) ? current : results.devices[0]?.address || "",
-        );
+        setSelectedSpeakerAddress((current) => preferredSpeakerSelection(snapshot, results.devices, current));
         setSpeakerMessage(results.devices.length > 0 ? "Choose one speaker and pair it." : "No Bluetooth speakers found. Put the speaker in pairing mode and scan again.");
       } else {
         const fallback = [
@@ -919,13 +927,15 @@ export function App() {
         const action = await forgetSpeaker({ address, confirm: true });
         await refreshSnapshot().catch(() => undefined);
         if (action.state === "succeeded") {
-          setSpeakerDevices((devices) => devices.filter((device) => device.address !== address));
-          setSelectedSpeakerAddress((current) => (current === address ? "" : current));
+          const remaining = speakerDevices.filter((device) => device.address !== address);
+          setSpeakerDevices(remaining);
+          setSelectedSpeakerAddress((current) => preferredSpeakerSelection(snapshot, remaining, current === address ? "" : current));
         }
         setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker forgotten." : `Forget failed: ${labelFromId(action.reason ?? "unknown")}.`);
       } else {
-        setSpeakerDevices((devices) => devices.filter((device) => device.address !== address));
-        setSelectedSpeakerAddress((current) => (current === address ? "" : current));
+        const remaining = speakerDevices.filter((device) => device.address !== address);
+        setSpeakerDevices(remaining);
+        setSelectedSpeakerAddress((current) => preferredSpeakerSelection(snapshot, remaining, current === address ? "" : current));
         setSnapshot((current) => ({
           ...current,
           health: { ...current.health, speaker: { status: "none_saved", reason: "user_forgot" }, playbackDevice: { status: "unavailable", reason: "speaker_unavailable" } },
@@ -1998,6 +2008,7 @@ function SpeakerPanel({
   const view = speakerSetupViewModel(snapshot, controls.devices);
   const selected = controls.devices.find((device) => device.address === controls.selectedAddress);
   const primary = snapshot.health.speaker.primary;
+  const deviceRows = speakerDeviceRows(snapshot, controls.devices, controls.selectedAddress);
 
   return (
     <section className={`speaker-panel speaker-${view.tone}`} aria-label="Bluetooth speaker setup">
@@ -2029,6 +2040,25 @@ function SpeakerPanel({
             ))}
           </select>
         </label>
+        {deviceRows.length > 0 && (
+          <div className="speaker-device-list" aria-label="Discovered Bluetooth audio devices">
+            {deviceRows.map((device) => (
+              <button
+                key={device.address}
+                className={`speaker-device-row${device.selected ? " is-selected" : ""}`}
+                disabled={controls.busy}
+                type="button"
+                onClick={() => controls.onSelect(device.address)}
+              >
+                <span>
+                  <strong>{device.title}</strong>
+                  <small>{device.detail}</small>
+                </span>
+                {device.selected && <em>Selected</em>}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="speaker-actions">
           <button disabled={controls.busy} type="button" onClick={controls.onScan}>
             Scan

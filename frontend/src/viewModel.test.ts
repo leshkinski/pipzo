@@ -17,11 +17,13 @@ import {
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
+  preferredSpeakerSelection,
   preferredSurface,
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
+  speakerDeviceRows,
   sleepTimerViewModel,
   speakerSetupViewModel,
   startSleepTimer,
@@ -194,6 +196,38 @@ describe("kiosk shell view model", () => {
         { address: "11:22:33:44:55:66", displayName: "Kitchen Headset", paired: false, connected: false, signal: 62 },
       ]).actions,
     ).toEqual(["reconnect", "scan", "pair", "forget"]);
+  });
+
+  it("surfaces replacement speaker rows while a primary speaker is connected", () => {
+    const ready = localScenarios.ready_healthy.snapshot;
+    const devices = [
+      { address: "AA:BB:CC:DD:EE:FF", displayName: "Bedroom speaker", paired: true, connected: true, signal: 88 },
+      { address: "CC:98:8B:94:B5:1C", displayName: "WH-1000XM3", alias: "WH-1000XM3", paired: false, connected: false, signal: null },
+    ];
+
+    expect(speakerSetupViewModel(ready, devices).actions).toContain("pair");
+    expect(preferredSpeakerSelection(ready, devices, "AA:BB:CC:DD:EE:FF")).toBe("CC:98:8B:94:B5:1C");
+    expect(speakerDeviceRows(ready, devices, "CC:98:8B:94:B5:1C")).toEqual([
+      expect.objectContaining({ title: "Bedroom speaker", selected: false, currentPrimary: true }),
+      expect.objectContaining({ title: "WH-1000XM3", selected: true, currentPrimary: false }),
+    ]);
+  });
+
+  it("keeps scanned replacement speaker visible after the primary is forgotten", () => {
+    const forgotten = {
+      ...localScenarios.ready_healthy.snapshot,
+      health: { ...localScenarios.ready_healthy.snapshot.health, speaker: { status: "none_saved" as const, reason: "user_forgot" as const } },
+      readiness: { ...localScenarios.ready_healthy.snapshot.readiness, primarySpeakerSaved: false },
+    };
+    const devices = [
+      { address: "CC:98:8B:94:B5:1C", displayName: "WH-1000XM3", alias: "WH-1000XM3", paired: false, connected: false, signal: null },
+    ];
+
+    expect(speakerSetupViewModel(forgotten, devices).actions).toEqual(["scan", "pair"]);
+    expect(preferredSpeakerSelection(forgotten, devices, "")).toBe("CC:98:8B:94:B5:1C");
+    expect(speakerDeviceRows(forgotten, devices, "CC:98:8B:94:B5:1C")[0]).toEqual(
+      expect.objectContaining({ title: "WH-1000XM3", selected: true, currentPrimary: false }),
+    );
   });
 
   it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {

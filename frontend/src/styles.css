@@ -923,6 +923,54 @@ button:disabled {
   font-weight: 700;
 }
 
+.speaker-device-list {
+  display: grid;
+  gap: 8px;
+}
+
+.speaker-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  background: #fffdf7;
+  color: #17211c;
+  text-align: left;
+}
+
+.speaker-device-row.is-selected {
+  border-color: #1f7a50;
+  background: #edf8f1;
+}
+
+.speaker-device-row span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  color: inherit;
+}
+
+.speaker-device-row strong,
+.speaker-device-row small {
+  overflow-wrap: anywhere;
+}
+
+.speaker-device-row small {
+  color: #65716b;
+  font-weight: 700;
+}
+
+.speaker-device-row em {
+  flex: 0 0 auto;
+  color: #1f7a50;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .volume-controls label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 86px;
