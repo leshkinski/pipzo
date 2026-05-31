@@ -49,8 +49,11 @@ BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], Bluetooth
 
 logger = logging.getLogger("pipzo.bluez")
 
-MAC_RE = re.compile(r"(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})", re.IGNORECASE)
 MAC_EXACT_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", re.IGNORECASE)
+DEVICE_LINE_RE = re.compile(
+    r"^(?:\[(?:NEW|CHG)\]\s+)?Device\s+(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})(?:\s+(?P<name>.*))?$",
+    re.IGNORECASE,
+)
 AUDIO_UUID_MARKERS = ("audio sink", "advanced audio distribution", "a/v remote control", "headset", "handsfree")
 AUDIO_ICON_MARKERS = ("audio-card", "audio-headphones", "audio-headset", "audio-speakers", "audio-speaker")
 AUDIO_CLASS_MARKERS = ("audio/video", "rendering")
@@ -71,11 +74,11 @@ def subprocess_runner(argv: Sequence[str], timeout_seconds: int, input_text: Opt
 def parse_device_lines(stdout: str) -> List[SpeakerDevice]:
     devices: dict[str, SpeakerDevice] = {}
     for line in stdout.splitlines():
-        match = MAC_RE.search(line)
+        match = DEVICE_LINE_RE.match(line.strip())
         if not match:
             continue
         address = match.group("address").upper()
-        name = line[match.end() :].strip() or address
+        name = (match.group("name") or "").strip() or address
         devices[address] = SpeakerDevice(address=address, display_name=name, paired=False, connected=False)
     return list(devices.values())
 
