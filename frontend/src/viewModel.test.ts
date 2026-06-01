@@ -23,7 +23,9 @@ import {
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldPollAppStateForSetupReadiness,
+  shouldRetryBackendRecovery,
   shouldRefreshHomeOnOpen,
+  shouldShowDeveloperPanel,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
@@ -92,6 +94,18 @@ describe("kiosk shell view model", () => {
     expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "backend")).toBe(true);
     expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "local")).toBe(false);
     expect(shouldPollAppStateForSetupReadiness(localScenarios.ready_healthy.snapshot, "backend")).toBe(false);
+  });
+
+  it("retries backend recovery only from local fallback mode", () => {
+    expect(shouldRetryBackendRecovery("local")).toBe(true);
+    expect(shouldRetryBackendRecovery("backend")).toBe(false);
+  });
+
+  it("hides mock controls in hardware fallback unless local development enables them", () => {
+    expect(shouldShowDeveloperPanel("backend", "hardware", false)).toBe(false);
+    expect(shouldShowDeveloperPanel("local", null, false)).toBe(false);
+    expect(shouldShowDeveloperPanel("local", null, true)).toBe(true);
+    expect(shouldShowDeveloperPanel("backend", "mock", false)).toBe(true);
   });
 
   it("auto-refreshes Home only when backend library browsing is available", () => {

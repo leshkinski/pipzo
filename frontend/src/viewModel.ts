@@ -140,6 +140,21 @@ export function shouldPollAppStateForSetupReadiness(snapshot: AppSnapshot, dataS
   return dataSource === "backend" && isSetupGated(snapshot);
 }
 
+export function shouldRetryBackendRecovery(dataSource: "backend" | "local"): boolean {
+  return dataSource === "local";
+}
+
+export function shouldShowDeveloperPanel(
+  dataSource: "backend" | "local",
+  backendMode: string | null | undefined,
+  localDeveloperControlsEnabled: boolean,
+): boolean {
+  if (backendMode === "mock") {
+    return true;
+  }
+  return dataSource === "local" && localDeveloperControlsEnabled;
+}
+
 export function shouldRefreshHomeOnOpen(
   activeSurface: SurfaceId | "sleep_timer",
   snapshot: AppSnapshot,

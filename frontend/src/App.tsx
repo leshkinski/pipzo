@@ -59,6 +59,8 @@ import {
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
   shouldPollAppStateForSetupReadiness,
+  shouldRetryBackendRecovery,
+  shouldShowDeveloperPanel,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
   speakerDeviceRows,
@@ -80,6 +82,12 @@ import {
 
 type DataSource = "backend" | "local";
 type AppSurfaceId = SurfaceId | "sleep_timer";
+type PipzoImportMeta = ImportMeta & {
+  env?: {
+    DEV?: boolean;
+    VITE_PIPZO_SHOW_MOCK_CONTROLS?: string;
+  };
+};
 
 type KeyboardState = {
   active: boolean;
@@ -165,6 +173,9 @@ const navLabels: Record<SurfaceId, string> = {
 const speakerStateRefreshDelaysMs = [0, 500, 1500, 3000] as const;
 const bluetoothMutationSnapshotRefreshDelaysMs = [500, 1500, 3000, 6000, 10000] as const;
 const setupReadinessRefreshIntervalMs = 2500;
+const backendRecoveryRefreshIntervalMs = 2500;
+const pipzoImportMeta = import.meta as PipzoImportMeta;
+const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzoImportMeta.env?.VITE_PIPZO_SHOW_MOCK_CONTROLS === "true";
 
 function isConfirmedSpeakerConnected(state: AppSnapshot) {
   return state.health.speaker.status === "connected" && Boolean(state.health.speaker.primary?.connected);
@@ -177,6 +188,7 @@ export function App() {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>(() => localScenarioSummaries());
   const [selectedScenario, setSelectedScenario] = useState("first_boot_empty");
   const [dataSource, setDataSource] = useState<DataSource>("local");
+  const [bootAttempted, setBootAttempted] = useState(false);
   const [backendMode, setBackendMode] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("Using local fallback scenarios.");
   const [spotifyAuthSession, setSpotifyAuthSession] = useState<SpotifyAuthSession | null>(null);
@@ -223,37 +235,8 @@ export function App() {
 
     async function boot() {
       try {
-        const [health, state] = await Promise.all([fetchHealth(), fetchAppState()]);
+        await loadBackendState({ cancelled: () => cancelled });
         if (cancelled) return;
-        let backendScenarios: ScenarioSummary[] = [];
-        if (health.mode === "mock") {
-          backendScenarios = await fetchBackendScenarios().catch(() => []);
-          if (cancelled) return;
-        }
-        setBackendMode(health.mode);
-        setSnapshot(state);
-        if (state.capabilities.canBrowse) {
-          const home = await fetchLibraryHome().catch(() => null);
-          if (home && !cancelled) {
-            setLibraryHome(home);
-            setLibraryMessage("Library loaded from backend.");
-          }
-        } else {
-          setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
-          setLibraryMessage("Library is unavailable until network and Spotify recovery complete.");
-        }
-        const speakerResults = await fetchSpeakerScanResults().catch(() => null);
-        if (speakerResults && !cancelled) {
-          setSpeakerDevices(speakerResults.devices);
-          setSelectedSpeakerAddress((current) => preferredSpeakerSelection(state, speakerResults.devices, current));
-          if (speakerResults.devices.length > 0) {
-            setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
-          }
-        }
-        setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
-        setDataSource("backend");
-        setSelectedScenario(backendScenarios[0]?.id ?? "ready_healthy");
-        setStatusText(health.mode === "mock" ? "Connected to backend mock API." : "Connected to backend hardware API.");
       } catch {
         if (cancelled) return;
         const fallback = localScenarioSnapshot("first_boot_empty");
@@ -263,6 +246,10 @@ export function App() {
         setDataSource("local");
         setBackendMode(null);
         setStatusText("Backend unavailable. Showing local fallback scenarios.");
+      } finally {
+        if (!cancelled) {
+          setBootAttempted(true);
+        }
       }
     }
 
@@ -271,6 +258,24 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!bootAttempted || !shouldRetryBackendRecovery(dataSource)) {
+      return;
+    }
+
+    let cancelled = false;
+    const retry = () => {
+      void loadBackendState({ cancelled: () => cancelled, recovery: true }).catch(() => undefined);
+    };
+    retry();
+    const intervalId = window.setInterval(retry, backendRecoveryRefreshIntervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [bootAttempted, dataSource]);
 
   useEffect(() => {
     const preferred = preferredSurface(snapshot);
@@ -502,7 +507,7 @@ export function App() {
   const visibleWarnings = snapshot.warnings;
   const degradedMode = degradedModeViewModel(snapshot);
   const spotifyPlaybackGate = useMemo(() => spotifySdkGate(snapshot, dataSource, backendMode ?? undefined), [snapshot, dataSource, backendMode]);
-  const showDeveloperPanel = dataSource !== "backend" || backendMode === "mock";
+  const showDeveloperPanel = shouldShowDeveloperPanel(dataSource, backendMode, localDeveloperControlsEnabled);
   const currentScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
     [scenarios, selectedScenario],
@@ -590,6 +595,48 @@ export function App() {
     }
     setSnapshot(localScenarioSnapshot(scenarioId));
     setStatusText("Local scenario active.");
+  }
+
+  async function loadBackendState(options?: { cancelled?: () => boolean; recovery?: boolean }) {
+    const [health, state] = await Promise.all([fetchHealth(), fetchAppState()]);
+    if (options?.cancelled?.()) return;
+    let backendScenarios: ScenarioSummary[] = [];
+    if (health.mode === "mock") {
+      backendScenarios = await fetchBackendScenarios().catch(() => []);
+      if (options?.cancelled?.()) return;
+    }
+    setBackendMode(health.mode);
+    setSnapshot(state);
+    if (state.capabilities.canBrowse) {
+      const home = await fetchLibraryHome().catch(() => null);
+      if (home && !options?.cancelled?.()) {
+        setLibraryHome(home);
+        setLibraryMessage("Library loaded from backend.");
+      }
+    } else {
+      setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
+      setLibraryMessage("Library is unavailable until network and Spotify recovery complete.");
+    }
+    const speakerResults = await fetchSpeakerScanResults().catch(() => null);
+    if (speakerResults && !options?.cancelled?.()) {
+      setSpeakerDevices(speakerResults.devices);
+      setSelectedSpeakerAddress((current) => preferredSpeakerSelection(state, speakerResults.devices, current));
+      if (speakerResults.devices.length > 0) {
+        setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
+      }
+    }
+    setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
+    setDataSource("backend");
+    setSelectedScenario(backendScenarios[0]?.id ?? "ready_healthy");
+    setStatusText(
+      options?.recovery
+        ? health.mode === "mock"
+          ? "Recovered backend mock API."
+          : "Recovered backend hardware API."
+        : health.mode === "mock"
+          ? "Connected to backend mock API."
+          : "Connected to backend hardware API.",
+    );
   }
 
   async function updateDisplay(brightness: number, status: DisplayStatus = snapshot.health.display.status) {
