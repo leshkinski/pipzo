@@ -129,6 +129,10 @@ export function isSetupGated(snapshot: AppSnapshot): boolean {
   return !snapshot.readiness.minimumReady;
 }
 
+export function shouldPollAppStateForSetupReadiness(snapshot: AppSnapshot, dataSource: "backend" | "local"): boolean {
+  return dataSource === "backend" && isSetupGated(snapshot);
+}
+
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
   if (surface === "setup") {
     return isSetupGated(snapshot);

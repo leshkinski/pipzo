@@ -21,6 +21,7 @@ import {
   preferredSurface,
   primarySurfaces,
   shouldRefreshNowPlaying,
+  shouldPollAppStateForSetupReadiness,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
@@ -52,6 +53,43 @@ describe("kiosk shell view model", () => {
     expect(isSetupGated(snapshot)).toBe(false);
     expect(canOpenSurface(snapshot, "setup")).toBe(false);
     expect(preferredSurface(snapshot)).toBe("home");
+  });
+
+  it("treats backend ready connected speaker snapshots as ungated even with stale setup metadata", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      appPhase: "ready" as const,
+      setup: { ...localScenarios.ready_healthy.snapshot.setup, blockingStep: "speaker" as const },
+      readiness: {
+        ...localScenarios.ready_healthy.snapshot.readiness,
+        minimumReady: true,
+        primarySpeakerSaved: true,
+        setupCompletedAt: undefined,
+      },
+      health: {
+        ...localScenarios.ready_healthy.snapshot.health,
+        speaker: {
+          status: "connected" as const,
+          primary: {
+            address: "CC:98:8B:94:B5:1C",
+            displayName: "WH-1000XM3",
+            connected: true,
+          },
+        },
+      },
+      surfaces: { ...localScenarios.ready_healthy.snapshot.surfaces, current: "setup" as const, route: "/setup/speaker" },
+    };
+
+    expect(isSetupGated(snapshot)).toBe(false);
+    expect(preferredSurface(snapshot)).toBe("home");
+    expect(canOpenSurface(snapshot, "setup")).toBe(false);
+    expect(shouldPollAppStateForSetupReadiness(snapshot, "backend")).toBe(false);
+  });
+
+  it("polls backend app state only while setup readiness is gated", () => {
+    expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "backend")).toBe(true);
+    expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "local")).toBe(false);
+    expect(shouldPollAppStateForSetupReadiness(localScenarios.ready_healthy.snapshot, "backend")).toBe(false);
   });
 
   it("suppresses blocking Bluetooth success alerts but leaves unrelated alerts alone", () => {

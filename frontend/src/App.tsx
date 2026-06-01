@@ -56,6 +56,7 @@ import {
   preferredSurface,
   primarySurfaces,
   shouldRefreshNowPlaying,
+  shouldPollAppStateForSetupReadiness,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
   speakerDeviceRows,
@@ -161,6 +162,8 @@ const navLabels: Record<SurfaceId, string> = {
 };
 
 const speakerStateRefreshDelaysMs = [0, 500, 1500, 3000] as const;
+const bluetoothMutationSnapshotRefreshDelaysMs = [500, 1500, 3000, 6000, 10000] as const;
+const setupReadinessRefreshIntervalMs = 2500;
 
 function isConfirmedSpeakerConnected(state: AppSnapshot) {
   return state.health.speaker.status === "connected" && Boolean(state.health.speaker.primary?.connected);
@@ -471,6 +474,24 @@ export function App() {
       if (boundaryTimeoutId !== null) {
         window.clearTimeout(boundaryTimeoutId);
       }
+    };
+  }, [dataSource, snapshot]);
+
+  useEffect(() => {
+    if (!shouldPollAppStateForSetupReadiness(snapshot, dataSource)) {
+      return;
+    }
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      if (!cancelled) {
+        void refreshSnapshot().catch(() => undefined);
+      }
+    }, setupReadinessRefreshIntervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [dataSource, snapshot]);
 
@@ -917,6 +938,7 @@ export function App() {
 
         if (isConfirmedSpeakerConnected(latest)) {
           setSpeakerMessage("Bluetooth speaker connected.");
+          scheduleSnapshotRefreshes(bluetoothMutationSnapshotRefreshDelaysMs);
         } else {
           setSpeakerMessage(`Speaker paired, but status is still ${labelFromId(latest.health.speaker.status)}.`);
         }
@@ -960,6 +982,9 @@ export function App() {
         }
         const latest = await refreshSpeakerStateUntilConnected();
         setSpeakerMessage(isConfirmedSpeakerConnected(latest) ? "Bluetooth speaker reconnected." : `Reconnect sent, but status is still ${labelFromId(latest.health.speaker.status)}.`);
+        if (isConfirmedSpeakerConnected(latest)) {
+          scheduleSnapshotRefreshes(bluetoothMutationSnapshotRefreshDelaysMs);
+        }
       } else {
         setSnapshot((current) => ({
           ...current,
@@ -1002,6 +1027,7 @@ export function App() {
           const remaining = speakerDevices.filter((device) => device.address !== address);
           setSpeakerDevices(remaining);
           setSelectedSpeakerAddress((current) => preferredSpeakerSelection(snapshot, remaining, current === address ? "" : current));
+          scheduleSnapshotRefreshes(bluetoothMutationSnapshotRefreshDelaysMs);
         }
         setSpeakerMessage(action.state === "succeeded" ? "Bluetooth speaker forgotten." : `Forget failed: ${labelFromId(action.reason ?? "unknown")}.`);
       } else {
