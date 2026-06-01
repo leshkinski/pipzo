@@ -29,6 +29,23 @@ def test_parse_device_lines_extracts_addresses_and_names():
     assert devices[1].display_name == "11:22:33:44:55:66"
 
 
+def test_parse_device_lines_extracts_pi_colored_bluez_device_events():
+    devices = parse_device_lines(
+        "\n".join(
+            [
+                "SetDiscoveryFilter success",
+                "Discovery started",
+                "\x1b[0;93m[CHG]\x1b[0m Controller 88:A2:9E:E0:36:F4 Discovering: yes",
+                "\x1b[0;92m[NEW]\x1b[0m Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                "\x1b[0;92m[NEW]\x1b[0m Device 20:64:DE:30:D6:F2 SRS-XE300",
+            ]
+        )
+    )
+
+    assert [device.address for device in devices] == ["C8:0A:B8:D7:4F:2C", "20:64:DE:30:D6:F2"]
+    assert devices[1].display_name == "SRS-XE300"
+
+
 def test_parse_device_lines_ignores_controller_state_changes():
     devices = parse_device_lines(
         "\n".join(
@@ -430,15 +447,16 @@ def test_adapter_scan_after_forget_uses_extended_window_for_late_classic_identit
             removed["classic"] = True
             return BluetoothCommandResult(0, "Device has been removed\n", "")
         if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "6", "scan", "on"]:
-            return BluetoothCommandResult(0, "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
+            return BluetoothCommandResult(0, "\x1b[0;92m[NEW]\x1b[0m Device C8:0A:B8:D7:4F:2C LE_SRS-XE300\n", "")
         if list(argv) == ["/usr/bin/bluetoothctl", "--timeout", "12", "scan", "on"]:
             assert removed["classic"] is True
             return BluetoothCommandResult(
                 0,
                 "\n".join(
                     [
-                        "[NEW] Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
-                        "[NEW] Device 20:64:DE:30:D6:F2 SRS-XE300",
+                        "\x1b[0;93m[CHG]\x1b[0m Controller 88:A2:9E:E0:36:F4 Discovering: yes",
+                        "\x1b[0;92m[NEW]\x1b[0m Device C8:0A:B8:D7:4F:2C LE_SRS-XE300",
+                        "\x1b[0;92m[NEW]\x1b[0m Device 20:64:DE:30:D6:F2 SRS-XE300",
                     ]
                 ),
                 "",

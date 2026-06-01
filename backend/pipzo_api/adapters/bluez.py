@@ -63,6 +63,7 @@ BluetoothCommandRunner = Callable[[Sequence[str], int, Optional[str]], Bluetooth
 logger = logging.getLogger("pipzo.bluez")
 
 MAC_EXACT_RE = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", re.IGNORECASE)
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 DEVICE_LINE_RE = re.compile(
     r"^(?:\[(?:NEW|CHG)\]\s+)?Device\s+(?P<address>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})(?:\s+(?P<name>.*))?$",
     re.IGNORECASE,
@@ -90,7 +91,8 @@ def subprocess_runner(argv: Sequence[str], timeout_seconds: int, input_text: Opt
 def parse_device_lines(stdout: str) -> List[SpeakerDevice]:
     devices: dict[str, SpeakerDevice] = {}
     for line in stdout.splitlines():
-        match = DEVICE_LINE_RE.match(line.strip())
+        normalized_line = ANSI_ESCAPE_RE.sub("", line).replace("\r", "").strip()
+        match = DEVICE_LINE_RE.match(normalized_line)
         if not match:
             continue
         address = match.group("address").upper()
