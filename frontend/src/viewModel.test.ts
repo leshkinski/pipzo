@@ -13,6 +13,7 @@ import {
   idlePresentation,
   isSetupGated,
   libraryAvailability,
+  homeLibraryCategoryOrder,
   nextNowPlayingBoundaryRefreshDelayMs,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingEmptyState,
@@ -22,6 +23,7 @@ import {
   primarySurfaces,
   shouldRefreshNowPlaying,
   shouldPollAppStateForSetupReadiness,
+  shouldRefreshHomeOnOpen,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
@@ -90,6 +92,13 @@ describe("kiosk shell view model", () => {
     expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "backend")).toBe(true);
     expect(shouldPollAppStateForSetupReadiness(localScenarios.first_boot_empty.snapshot, "local")).toBe(false);
     expect(shouldPollAppStateForSetupReadiness(localScenarios.ready_healthy.snapshot, "backend")).toBe(false);
+  });
+
+  it("auto-refreshes Home only when backend library browsing is available", () => {
+    expect(shouldRefreshHomeOnOpen("home", localScenarios.ready_healthy.snapshot, "backend")).toBe(true);
+    expect(shouldRefreshHomeOnOpen("home", localScenarios.ready_healthy.snapshot, "local")).toBe(false);
+    expect(shouldRefreshHomeOnOpen("settings", localScenarios.ready_healthy.snapshot, "backend")).toBe(false);
+    expect(shouldRefreshHomeOnOpen("home", localScenarios.offline_settings_mode.snapshot, "backend")).toBe(false);
   });
 
   it("suppresses blocking Bluetooth success alerts but leaves unrelated alerts alone", () => {
@@ -171,6 +180,10 @@ describe("kiosk shell view model", () => {
 
   it("keeps Browse and Idle out of primary kiosk navigation", () => {
     expect(primarySurfaces).toEqual(["home", "now_playing", "settings"]);
+  });
+
+  it("prioritizes the default Home library order around recent listening", () => {
+    expect(homeLibraryCategoryOrder).toEqual(["recently_played", "playlists", "albums", "liked_songs", "artists"]);
   });
 
   it("models the single app volume control from volume health", () => {

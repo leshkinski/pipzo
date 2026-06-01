@@ -44,6 +44,7 @@ import {
   canPlayLibraryItem,
   degradedModeViewModel,
   formatMs,
+  homeLibraryCategoryOrder,
   idlePresentation,
   isSetupGated,
   labelFromId,
@@ -56,6 +57,7 @@ import {
   preferredSurface,
   primarySurfaces,
   shouldRefreshNowPlaying,
+  shouldRefreshHomeOnOpen,
   shouldPollAppStateForSetupReadiness,
   shouldEnterIdleMode,
   sleepTimerExpiryCommand,
@@ -147,7 +149,6 @@ type LibraryControls = {
   activeCategory: LibraryCategoryId;
   busy: boolean;
   message: string;
-  onRefresh: () => void;
   onCategory: (category: LibraryCategoryId) => void;
   onPlay: (item: LibraryItem) => void;
 };
@@ -200,7 +201,7 @@ export function App() {
   const [playbackTestBusy, setPlaybackTestBusy] = useState(false);
   const [playbackTestMessage, setPlaybackTestMessage] = useState("Activate and select the browser player before confirming playback.");
   const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
-  const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("playlists");
+  const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("recently_played");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
   const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
@@ -213,6 +214,7 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   const snapshotRefreshInFlightRef = useRef<Promise<AppSnapshot> | null>(null);
   const scheduledSnapshotRefreshIdsRef = useRef<number[]>([]);
+  const homeAutoRefreshActiveRef = useRef(false);
 
   useExplicitDragScroll(appRef);
 
@@ -507,6 +509,18 @@ export function App() {
   );
 
   useEffect(() => {
+    if (!shouldRefreshHomeOnOpen(activeSurface, snapshot, dataSource)) {
+      homeAutoRefreshActiveRef.current = false;
+      return;
+    }
+    if (homeAutoRefreshActiveRef.current) {
+      return;
+    }
+    homeAutoRefreshActiveRef.current = true;
+    void refreshLibraryHome({ automatic: true });
+  }, [activeSurface, dataSource, snapshot]);
+
+  useEffect(() => {
     if (!spotifyPlaybackGate.enabled) {
       spotifyPlayerRef.current?.disconnect();
       spotifyPlayerRef.current = null;
@@ -686,14 +700,14 @@ export function App() {
     scheduledSnapshotRefreshIdsRef.current = [];
   }
 
-  async function refreshLibraryHome() {
+  async function refreshLibraryHome(options?: { automatic?: boolean }) {
     setLibraryBusy(true);
-    setLibraryMessage("Refreshing library.");
+    setLibraryMessage(options?.automatic ? "Updating library." : "Refreshing library.");
     try {
       if (dataSource === "backend") {
         const home = await fetchLibraryHome();
         setLibraryHome(home);
-        setLibraryMessage(home.sections.some((section) => section.items.length > 0) ? "Library refreshed." : "Library is connected but empty.");
+        setLibraryMessage(home.sections.some((section) => section.items.length > 0) ? "Library updated." : "Library is connected but empty.");
       } else {
         setLibraryHome(localLibraryHome());
         setLibraryMessage("Local library fixtures refreshed.");
@@ -1350,7 +1364,6 @@ export function App() {
     activeCategory: libraryCategory,
     busy: libraryBusy,
     message: libraryMessage,
-    onRefresh: refreshLibraryHome,
     onCategory: selectLibraryCategory,
     onPlay: startLibraryItem,
   };
@@ -1660,8 +1673,11 @@ function SetupPlaybackCompletionPanel({
 
 function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot; library: LibraryControls; onStartIdle: () => void }) {
   const availability = libraryAvailability(snapshot);
-  const categories: LibraryCategoryId[] = ["playlists", "albums", "artists", "liked_songs", "recently_played"];
-  const activeSection = library.home.sections.find((section) => section.id === library.activeCategory) ?? library.home.sections[0];
+  const categories: LibraryCategoryId[] = homeLibraryCategoryOrder;
+  const activeSection =
+    library.home.sections.find((section) => section.id === library.activeCategory) ??
+    homeLibraryCategoryOrder.map((category) => library.home.sections.find((section) => section.id === category)).find(Boolean) ??
+    library.home.sections[0];
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -1669,9 +1685,6 @@ function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot
         <h1>Saved music</h1>
         <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
         <div className="home-actions">
-          <button disabled={library.busy || !availability.canBrowse} type="button" onClick={library.onRefresh}>
-            Refresh library
-          </button>
           <button disabled={!idlePresentation(snapshot).enabled} type="button" onClick={onStartIdle}>
             Screensaver
           </button>

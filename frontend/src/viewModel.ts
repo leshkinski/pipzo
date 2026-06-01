@@ -1,7 +1,14 @@
-import type { AppSnapshot, IdleMode, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSnapshot, IdleMode, LibraryCategoryId, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "now_playing", "settings"];
 export const sleepTimerPresets = [15, 30, 45, 60] as const;
+export const homeLibraryCategoryOrder: Exclude<LibraryCategoryId, "home">[] = [
+  "recently_played",
+  "playlists",
+  "albums",
+  "liked_songs",
+  "artists",
+];
 
 export type SleepTimerPresetMinutes = (typeof sleepTimerPresets)[number];
 
@@ -131,6 +138,14 @@ export function isSetupGated(snapshot: AppSnapshot): boolean {
 
 export function shouldPollAppStateForSetupReadiness(snapshot: AppSnapshot, dataSource: "backend" | "local"): boolean {
   return dataSource === "backend" && isSetupGated(snapshot);
+}
+
+export function shouldRefreshHomeOnOpen(
+  activeSurface: SurfaceId | "sleep_timer",
+  snapshot: AppSnapshot,
+  dataSource: "backend" | "local",
+): boolean {
+  return activeSurface === "home" && dataSource === "backend" && libraryAvailability(snapshot).canBrowse;
 }
 
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
