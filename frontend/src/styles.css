@@ -414,10 +414,6 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
-.surface[data-surface="home"] {
-  overflow-y: hidden;
-}
-
 .app.keyboard-active .topbar,
 .app.keyboard-active .developer-panel,
 .app.keyboard-active .warning-band,
@@ -601,10 +597,15 @@ button:disabled {
 
 .home-surface {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 10px;
-  height: 100%;
+  gap: 12px;
   min-height: 0;
+}
+
+.home-library-feed {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 4px;
 }
 
 .home-header {
@@ -748,6 +749,13 @@ button:disabled {
   align-content: start;
 }
 
+.library-feature-section::before {
+  content: attr(aria-label);
+  color: #dfe8b7;
+  font-size: 18px;
+  font-weight: 900;
+}
+
 .library-section.compact {
   padding: 14px;
 }
@@ -774,7 +782,6 @@ button:disabled {
 .library-feature-grid {
   display: flex;
   gap: 12px;
-  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 8px;
@@ -782,7 +789,6 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
-.library-hero-card,
 .library-art-card {
   display: grid;
   align-content: start;
@@ -793,17 +799,11 @@ button:disabled {
   background: rgba(8, 12, 11, 0.54);
 }
 
-.library-hero-card {
-  flex: 0 0 260px;
-  min-height: 0;
-}
-
 .library-art-card {
   flex: 0 0 170px;
   min-width: 170px;
 }
 
-.library-hero-card strong,
 .library-art-card strong {
   display: block;
   overflow-wrap: anywhere;
@@ -811,17 +811,12 @@ button:disabled {
   line-height: 1.18;
 }
 
-.library-hero-card small,
 .library-art-card small {
   display: block;
   margin-top: 4px;
   color: #a9b4a9;
   line-height: 1.22;
   overflow-wrap: anywhere;
-}
-
-.library-hero-card b {
-  color: #dfe8b7;
 }
 
 .library-card-rail {
@@ -868,10 +863,6 @@ button:disabled {
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
-}
-
-.artwork-large {
-  font-size: 68px;
 }
 
 .library-list button {

@@ -1804,11 +1804,7 @@ function HomeSurface({
   canSendControls: boolean;
 }) {
   const availability = libraryAvailability(snapshot);
-  const categories: LibraryCategoryId[] = homeLibraryCategoryOrder;
-  const activeSection =
-    library.home.sections.find((section) => section.id === library.activeCategory) ??
-    homeLibraryCategoryOrder.map((category) => library.home.sections.find((section) => section.id === category)).find(Boolean) ??
-    library.home.sections[0];
+  const orderedSections = orderedHomeSections(library.home.sections);
   const nowPlaying = snapshot.nowPlaying;
   return (
     <div className="home-surface">
@@ -1827,22 +1823,12 @@ function HomeSurface({
         </section>
       )}
 
-      <section className="category-tabs" aria-label="Library categories" data-drag-scroll>
-        {categories.map((category) => (
-          <button
-            className={library.activeCategory === category ? "active" : ""}
-            disabled={!availability.canBrowse || library.busy}
-            key={category}
-            type="button"
-            onClick={() => library.onCategory(category)}
-          >
-            {labelFromId(category)}
-          </button>
-        ))}
-      </section>
-
-      {activeSection ? (
-        <LibraryFeatureSection section={activeSection} snapshot={snapshot} onPlay={library.onPlay} />
+      {orderedSections.length > 0 ? (
+        <div className="home-library-feed">
+          {orderedSections.map((section) => (
+            <LibraryFeatureSection section={section} snapshot={snapshot} onPlay={library.onPlay} key={section.id} />
+          ))}
+        </div>
       ) : (
         <section className="library-section">
           <h2>No saved content shown</h2>
@@ -1851,6 +1837,11 @@ function HomeSurface({
       )}
     </div>
   );
+}
+
+function orderedHomeSections(sections: LibraryHomeResponse["sections"]): LibraryHomeResponse["sections"] {
+  const rank = new Map<LibraryCategoryId, number>(homeLibraryCategoryOrder.map((category, index) => [category, index]));
+  return [...sections].sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
 }
 
 function HomeMiniPlayer({
@@ -1900,25 +1891,8 @@ function LibraryFeatureSection({
     <section className="library-feature-section" aria-label={section.title}>
       {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
       <div className="library-feature-grid" data-drag-scroll>
-        {featured.map((item, index) => (
-          index === 0 ? (
-            <button
-              className="library-hero-card"
-              disabled={!canPlayLibraryItem(snapshot, item)}
-              key={`${item.type}-${item.id}-${item.uri}`}
-              type="button"
-              onClick={() => onPlay(item)}
-            >
-              <ArtworkTile item={item} sectionId={section.id} large />
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.subtitle ?? labelFromId(item.type)}</small>
-              </span>
-              <b>{canPlayLibraryItem(snapshot, item) ? "Play" : "Unavailable"}</b>
-            </button>
-          ) : (
-            <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={onPlay} sectionId={section.id} key={`${item.type}-${item.id}-${item.uri}`} />
-          )
+        {featured.map((item) => (
+          <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={onPlay} sectionId={section.id} key={`${item.type}-${item.id}-${item.uri}`} />
         ))}
       </div>
       {featured.length === 0 && <p className="subtle">No items in this constrained section.</p>}
@@ -1961,9 +1935,9 @@ function LibraryArtworkCard({
   );
 }
 
-function ArtworkTile({ item, sectionId, large = false }: { item: LibraryItem; sectionId: LibraryCategoryId; large?: boolean }) {
+function ArtworkTile({ item, sectionId }: { item: LibraryItem; sectionId: LibraryCategoryId }) {
   return (
-    <span className={`artwork-tile artwork-${item.type}${large ? " artwork-large" : ""}`}>
+    <span className={`artwork-tile artwork-${item.type}`}>
       {item.artworkUrl ? (
         <img src={item.artworkUrl} alt="" draggable={false} />
       ) : (

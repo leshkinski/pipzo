@@ -555,7 +555,7 @@ describe("kiosk shell view model", () => {
     expect(scrollbarTrackRule).toContain("background: rgba(246, 240, 223, 0.08)");
   });
 
-  it("renders the active Home library section as a draggable horizontal rail", () => {
+  it("renders Home library sections as stacked draggable horizontal rails", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
     const featureGridRule = css.match(/\.library-feature-grid\s*\{[^}]+\}/)?.[0] ?? "";
@@ -563,6 +563,8 @@ describe("kiosk shell view model", () => {
     expect(featureGridRule).toContain("display: flex");
     expect(featureGridRule).toContain("overflow-x: auto");
     expect(featureGridRule).toContain("touch-action: none");
+    expect(appSource).not.toContain('className={library.activeCategory === category ? "active" : ""}');
+    expect(appSource).toContain('className="home-library-feed"');
     expect(appSource).toContain('className="library-feature-grid" data-drag-scroll');
   });
 
