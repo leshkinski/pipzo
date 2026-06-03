@@ -476,7 +476,7 @@ describe("kiosk shell view model", () => {
     expect(rootRule).toContain("--pipzo-viewport-height: 100dvh");
     expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
     expect(appRule).toContain("height: var(--pipzo-viewport-height)");
-    expect(appRule).toContain("overflow-y: auto");
+    expect(appRule).toContain("overflow: hidden");
     expect(appRule).toContain("padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px))");
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
   });
@@ -498,9 +498,20 @@ describe("kiosk shell view model", () => {
     const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(shellRule).toContain("grid-template-columns: 96px minmax(0, 1fr)");
+    expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 34px)");
     expect(navButtonRule).toContain("min-height: 82px");
+    expect(navButtonRule).toContain("font-size: 14px");
     expect(primaryControlRule).toContain("min-height: 92px");
     expect(utilityControlRule).toContain("min-height: 64px");
+  });
+
+  it("keeps ready-state shell chrome minimal", () => {
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+    expect(appSource).not.toContain("className=\"brand\"");
+    expect(appSource).not.toContain("className=\"status-strip\"");
+    expect(appSource).not.toContain(">Screensaver<");
+    expect(appSource).toContain('now_playing: "Now"');
   });
 
   it("prevents accidental text selection while preserving text entry selection", () => {
@@ -528,12 +539,11 @@ describe("kiosk shell view model", () => {
     const scrollbarRule = css.match(/\.app::-webkit-scrollbar,\s*\.surface::-webkit-scrollbar\s*\{[^}]+\}/)?.[0] ?? "";
     const scrollbarTrackRule = css.match(/\.app::-webkit-scrollbar-track,\s*\.surface::-webkit-scrollbar-track\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(appRule).toContain("overflow-y: auto");
-    expect(appRule).toContain("touch-action: pan-y");
-    expect(appRule).toContain("-webkit-overflow-scrolling: touch");
+    expect(appRule).toContain("overflow: hidden");
+    expect(appRule).toContain("touch-action: none");
     expect(shellRule).not.toContain("overflow: hidden");
-    expect(surfaceRule).toContain("min-height: min(580px, calc(var(--pipzo-viewport-height) - 132px))");
-    expect(surfaceRule).toContain("max-height: calc(var(--pipzo-viewport-height) - 132px)");
+    expect(surfaceRule).toContain("height: 100%");
+    expect(surfaceRule).toContain("min-height: 0");
     expect(surfaceRule).toContain("overflow-y: auto");
     expect(surfaceRule).toContain("touch-action: pan-y");
     expect(sideStackRule).not.toContain("overflow-y: auto");

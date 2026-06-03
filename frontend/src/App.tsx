@@ -164,7 +164,7 @@ type LibraryControls = {
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
-  now_playing: "Now Playing",
+  now_playing: "Now",
   settings: "Settings",
   browse: "Browse",
   idle: "Idle",
@@ -1450,19 +1450,7 @@ export function App() {
         <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} active />
       ) : (
         <>
-      <header className="topbar">
-        <div>
-          <div className="brand">Pipzo</div>
-          <div className="subtle">{statusText}</div>
-        </div>
-        <div className="status-strip" aria-label="System status">
-          <StatusChip label="Network" value={snapshot.health.network.status} tone={snapshot.health.network.status === "online" ? "good" : "warn"} />
-          <StatusChip label="Spotify" value={snapshot.health.spotifyAuth.status} tone={snapshot.health.spotifyAuth.status === "connected" ? "good" : "warn"} />
-          <StatusChip label="Speaker" value={snapshot.health.speaker.status} tone={snapshot.health.speaker.status === "connected" ? "good" : "warn"} />
-          <StatusChip label="Volume" value={snapshot.health.volume.status} tone={snapshot.health.volume.status === "unified" ? "good" : "warn"} />
-        </div>
-      </header>
-
+      <div className="sr-only" aria-live="polite">{statusText}</div>
       {showDeveloperPanel && (
         <DeveloperPanel
           scenarios={scenarios}
@@ -1525,10 +1513,6 @@ export function App() {
                 <span>{railTimerView.active ? railTimerView.label.replace("Stops in ", "") : "Timer"}</span>
               </button>
             )}
-            <button className="nav-utility" disabled={!idlePresentation(snapshot).enabled} type="button" onClick={() => setIdleActive(true)}>
-              <span className="nav-icon" aria-hidden="true">Z</span>
-              <span>Idle</span>
-            </button>
           </div>
         </nav>
 
@@ -1758,7 +1742,7 @@ function SetupPlaybackCompletionPanel({
   );
 }
 
-function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot; library: LibraryControls; onStartIdle: () => void }) {
+function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: LibraryControls; onStartIdle: () => void }) {
   const availability = libraryAvailability(snapshot);
   const categories: LibraryCategoryId[] = homeLibraryCategoryOrder;
   const activeSection =
@@ -1773,24 +1757,19 @@ function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot
   const nowPlaying = snapshot.nowPlaying;
   return (
     <div className="home-surface">
-      <section className="home-header">
-        <div>
-          <p className="eyebrow">Library</p>
-          <h1>{availability.title}</h1>
-          <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
-        </div>
-        <div className="home-status-stack">
+      {(nowPlaying || !availability.canBrowse || snapshot.staleness.isStale) && (
+        <section className="home-header" aria-label="Home status">
           {nowPlaying && (
             <div className="home-now-playing-pill">
               <strong>{nowPlaying.isPlaying ? "Playing" : "Paused"}</strong>
               <span>{nowPlaying.title}</span>
             </div>
           )}
-          <button disabled={!idlePresentation(snapshot).enabled} type="button" onClick={onStartIdle}>
-            Screensaver
-          </button>
-        </div>
-      </section>
+          {(!availability.canBrowse || snapshot.staleness.isStale) && (
+            <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
+          )}
+        </section>
+      )}
 
       <section className="category-tabs" aria-label="Library categories">
         {categories.map((category) => (
@@ -1817,12 +1796,6 @@ function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot
 
       {collectionSections.length > 0 && (
         <section className="library-rail-section" aria-label="More library rows">
-          <div className="library-section-heading">
-            <div>
-              <p className="eyebrow">Saved sections</p>
-              <h2>Pick a row</h2>
-            </div>
-          </div>
           <div className="library-card-rail" data-drag-scroll>
             {collectionSections.flatMap((section) => section.items.slice(0, 4).map((item) => (
               <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={library.onPlay} sectionId={section.id} key={`${section.id}-${item.type}-${item.id}-${item.uri}`} />
@@ -1852,14 +1825,7 @@ function LibraryFeatureSection({
   const featured = section.items.slice(0, 6);
   return (
     <section className="library-feature-section" aria-label={section.title}>
-      <div className="library-section-heading">
-        <div>
-          <p className="eyebrow">{labelFromId(section.id)}</p>
-          <h2>{section.title}</h2>
-          <p>{section.description}</p>
-        </div>
-        {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
-      </div>
+      {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
       <div className="library-feature-grid">
         {featured.map((item, index) => (
           index === 0 ? (
@@ -1936,14 +1902,7 @@ function LibrarySectionPanel({
 }) {
   return (
     <section className={`library-section${compact ? " compact" : ""}`} aria-label={section.title}>
-      <div className="library-section-heading">
-        <div>
-          <p className="eyebrow">{labelFromId(section.id)}</p>
-          <h2>{section.title}</h2>
-          <p>{section.description}</p>
-        </div>
-        {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
-      </div>
+      {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
       <div className="library-list">
         {section.items.map((item) => {
           const disabled = !canPlayLibraryItem(snapshot, item);
@@ -2707,14 +2666,5 @@ function TileGrid({ items }: { items: [string, string][] }) {
         </button>
       ))}
     </section>
-  );
-}
-
-function StatusChip({ label, value, tone }: { label: string; value: string; tone: "good" | "warn" }) {
-  return (
-    <div className={`chip ${tone}`}>
-      <span>{label}</span>
-      <strong>{labelFromId(value)}</strong>
-    </div>
   );
 }
