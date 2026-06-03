@@ -1305,10 +1305,12 @@ export function App() {
   async function sendPlaybackAction(action: "play" | "pause" | "next" | "previous") {
     const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
     const deviceId = remotePlayback ? undefined : spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    const requestedAction = action === "previous" ? "seek_start" : action;
     if (dataSource === "backend") {
       try {
-        const result = await controlPlayback({ action, deviceId });
-        setStatusText(result.state === "succeeded" ? `Playback ${action} sent.` : `Playback ${action} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        const result = await controlPlayback({ action: requestedAction, deviceId });
+        const label = requestedAction === "seek_start" ? "restart" : action;
+        setStatusText(result.state === "succeeded" ? `Playback ${label} sent.` : `Playback ${label} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         await refreshSnapshot().catch(() => undefined);
         if (result.state === "succeeded") {
           scheduleSnapshotRefreshes();
@@ -1807,7 +1809,7 @@ function LibraryFeatureSection({
   return (
     <section className="library-feature-section" aria-label={section.title}>
       {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
-      <div className="library-feature-grid">
+      <div className="library-feature-grid" data-drag-scroll>
         {featured.map((item, index) => (
           index === 0 ? (
             <button

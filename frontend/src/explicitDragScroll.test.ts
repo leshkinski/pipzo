@@ -43,6 +43,8 @@ class FakeImageElement extends FakeElement {}
 
 class FakeRoot extends FakeElement {
   listeners = new Map<string, Listener[]>();
+  capturedPointerIds: number[] = [];
+  releasedPointerIds: number[] = [];
 
   addEventListener(type: string, listener: Listener) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
@@ -50,6 +52,14 @@ class FakeRoot extends FakeElement {
 
   removeEventListener(type: string, listener: Listener) {
     this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
+  }
+
+  setPointerCapture(pointerId: number) {
+    this.capturedPointerIds.push(pointerId);
+  }
+
+  releasePointerCapture(pointerId: number) {
+    this.releasedPointerIds.push(pointerId);
   }
 
   contains(element?: FakeElement) {
@@ -264,5 +274,6 @@ describe("explicit drag scroll", () => {
     expect(scrollTarget.scrollLeft).toBe(110);
     expect(scrollTarget.scrollTop).toBe(0);
     expect(preventDefault).toHaveBeenCalledTimes(2);
+    expect(root.capturedPointerIds).toEqual([11]);
   });
 });

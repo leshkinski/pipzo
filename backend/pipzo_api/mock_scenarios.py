@@ -822,7 +822,7 @@ class MockScenarioStore:
                 self._snapshot.now_playing.is_playing = True
             elif action in {"pause", "stop"}:
                 self._snapshot.now_playing.is_playing = False
-            elif action in {"next", "previous"}:
+            elif action in {"next", "previous", "seek_start"}:
                 self._snapshot.now_playing.progress_ms = 0
         self._snapshot.updated_at = now
         return ActionResult(

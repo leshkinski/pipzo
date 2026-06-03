@@ -497,9 +497,11 @@ describe("kiosk shell view model", () => {
     const primaryControlRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
     const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(shellRule).toContain("grid-template-columns: 72px minmax(0, 1fr)");
+    expect(shellRule).toContain("grid-template-columns: 54px minmax(0, 1fr)");
     expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 32px)");
-    expect(navButtonRule).toContain("min-height: 82px");
+    expect(shellRule).toContain("width: 100%");
+    expect(shellRule).toContain("margin: 0");
+    expect(navButtonRule).toContain("min-height: 72px");
     expect(navButtonRule).toContain("font-size: 12px");
     expect(primaryControlRule).toContain("min-height: 92px");
     expect(utilityControlRule).toContain("min-height: 64px");
@@ -551,6 +553,17 @@ describe("kiosk shell view model", () => {
     expect(listButtonRule).not.toContain("touch-action: pan-y");
     expect(scrollbarRule).toContain("width: 18px");
     expect(scrollbarTrackRule).toContain("background: rgba(246, 240, 223, 0.08)");
+  });
+
+  it("renders the active Home library section as a draggable horizontal rail", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    const featureGridRule = css.match(/\.library-feature-grid\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(featureGridRule).toContain("display: flex");
+    expect(featureGridRule).toContain("overflow-x: auto");
+    expect(featureGridRule).toContain("touch-action: pan-x");
+    expect(appSource).toContain('className="library-feature-grid" data-drag-scroll');
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

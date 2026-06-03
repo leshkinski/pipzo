@@ -920,12 +920,18 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
             "/api/v1/playback/control",
             json={"action": "pause", "deviceId": "pipzo-device-id"},
         )
+        restart = client.post(
+            "/api/v1/playback/control",
+            json={"action": "seek_start", "deviceId": "pipzo-device-id"},
+        )
 
     assert transfer.status_code == 200
     assert transfer.json()["state"] == "succeeded"
     assert transfer.json()["mock"] is False
     assert pause.status_code == 200
     assert pause.json()["state"] == "succeeded"
+    assert restart.status_code == 200
+    assert restart.json()["state"] == "succeeded"
     assert spotify_client.transfer_calls == [
         {
             "api_base_url": "https://api.spotify.com",
@@ -940,9 +946,15 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
             "access_token": "fresh-access-token",
             "action": "pause",
             "device_id": "pipzo-device-id",
-        }
+        },
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "action": "seek_start",
+            "device_id": "pipzo-device-id",
+        },
     ]
-    assert "stored-refresh-token" not in str([transfer.json(), pause.json()])
+    assert "stored-refresh-token" not in str([transfer.json(), pause.json(), restart.json()])
 
 
 def test_hardware_sleep_timer_stop_uses_playback_pause_control(tmp_path):

@@ -104,6 +104,11 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (event.pointerType !== "mouse" && Date.now() - lastTouchStartAt < 700) {
       return;
     }
+    try {
+      root.setPointerCapture(event.pointerId);
+    } catch {
+      // Some synthetic/browser events cannot be captured; drag still works without it.
+    }
     beginDrag(event.target, event.clientX, event.clientY, "pointer", event.pointerId);
   }
 
@@ -117,6 +122,11 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
   function onPointerEnd(event: PointerEvent) {
     if (!drag || drag.mode !== "pointer" || drag.pointerId !== event.pointerId) {
       return;
+    }
+    try {
+      root.releasePointerCapture(event.pointerId);
+    } catch {
+      // Ignore missing capture on browsers that ended the pointer independently.
     }
     endDrag();
   }
@@ -163,10 +173,10 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     }
   }
 
-  root.addEventListener("pointerdown", onPointerDown, { passive: true });
-  root.addEventListener("pointermove", onPointerMove, { passive: false });
-  root.addEventListener("pointerup", onPointerEnd, { passive: true });
-  root.addEventListener("pointercancel", onPointerEnd, { passive: true });
+  root.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+  root.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });
+  root.addEventListener("pointerup", onPointerEnd, { capture: true, passive: true });
+  root.addEventListener("pointercancel", onPointerEnd, { capture: true, passive: true });
   root.addEventListener("touchstart", onTouchStart, { passive: true });
   root.addEventListener("touchmove", onTouchMove, { passive: false });
   root.addEventListener("touchend", onTouchEnd, { passive: true });
@@ -175,10 +185,10 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
   root.addEventListener("dragstart", onDragStart, true);
 
   return () => {
-    root.removeEventListener("pointerdown", onPointerDown);
-    root.removeEventListener("pointermove", onPointerMove);
-    root.removeEventListener("pointerup", onPointerEnd);
-    root.removeEventListener("pointercancel", onPointerEnd);
+    root.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("pointermove", onPointerMove, true);
+    root.removeEventListener("pointerup", onPointerEnd, true);
+    root.removeEventListener("pointercancel", onPointerEnd, true);
     root.removeEventListener("touchstart", onTouchStart);
     root.removeEventListener("touchmove", onTouchMove);
     root.removeEventListener("touchend", onTouchEnd);

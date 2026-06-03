@@ -345,6 +345,9 @@ class UrlLibSpotifyClient:
         elif action == "previous":
             path = "/v1/me/player/previous"
             method = "POST"
+        elif action == "seek_start":
+            path = "/v1/me/player/seek"
+            method = "PUT"
         elif action == "play":
             path = "/v1/me/player/play"
             method = "PUT"
@@ -353,7 +356,12 @@ class UrlLibSpotifyClient:
             method = "PUT"
 
         url = f"{api_base_url.rstrip('/')}{path}"
-        if device_id:
+        if action == "seek_start":
+            params: dict[str, object] = {"position_ms": 0}
+            if device_id:
+                params["device_id"] = device_id
+            url = f"{url}?{urlencode(params)}"
+        elif device_id:
             url = f"{url}?{urlencode({'device_id': device_id})}"
         request = Request(
             url,

@@ -323,10 +323,13 @@ button:disabled {
 
 .shell {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
   height: calc(var(--pipzo-viewport-height) - 32px);
   min-height: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .nav {
@@ -334,7 +337,7 @@ button:disabled {
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
   min-height: 0;
-  padding: 8px;
+  padding: 6px;
   border: 1px solid rgba(246, 240, 223, 0.1);
   border-radius: 8px;
   background: rgba(8, 12, 11, 0.72);
@@ -356,8 +359,8 @@ button:disabled {
   justify-items: center;
   align-content: center;
   gap: 5px;
-  min-height: 82px;
-  padding: 8px 4px;
+  min-height: 72px;
+  padding: 6px 2px;
   text-align: center;
   font-weight: 800;
   font-size: 12px;
@@ -373,7 +376,7 @@ button:disabled {
 }
 
 .nav button.nav-utility {
-  min-height: 70px;
+  min-height: 62px;
   color: #99a59b;
 }
 
@@ -384,16 +387,13 @@ button:disabled {
 .nav-icon {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   font-size: 14px;
 }
 
 .nav button span:last-child {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: clip;
-  white-space: nowrap;
+  display: none;
 }
 
 .nav-icon svg {
@@ -690,9 +690,13 @@ button:disabled {
 }
 
 .library-feature-grid {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.1fr) repeat(3, minmax(138px, 0.62fr));
+  display: flex;
   gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
 }
 
 .library-hero-card,
@@ -707,12 +711,13 @@ button:disabled {
 }
 
 .library-hero-card {
-  grid-row: span 2;
+  flex: 0 0 340px;
   min-height: 310px;
 }
 
 .library-art-card {
-  min-width: 148px;
+  flex: 0 0 188px;
+  min-width: 188px;
 }
 
 .library-hero-card strong,

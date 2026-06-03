@@ -455,7 +455,7 @@ class SetupPlaybackTestRequest(ContractModel):
 
 
 class PlaybackControlRequest(ContractModel):
-    action: Literal["play", "pause", "next", "previous", "stop"]
+    action: Literal["play", "pause", "next", "previous", "stop", "seek_start"]
     device_id: Optional[str] = None
 
 
