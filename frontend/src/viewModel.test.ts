@@ -26,6 +26,7 @@ import {
   shouldRetryBackendRecovery,
   shouldRefreshHomeOnOpen,
   shouldShowDeveloperPanel,
+  shellNavigationItems,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
@@ -194,6 +195,14 @@ describe("kiosk shell view model", () => {
 
   it("keeps Browse and Idle out of primary kiosk navigation", () => {
     expect(primarySurfaces).toEqual(["home", "now_playing", "settings"]);
+  });
+
+  it("demotes Settings behind the two daily kiosk destinations", () => {
+    expect(shellNavigationItems()).toEqual([
+      { surface: "home", label: "Home", priority: "primary" },
+      { surface: "now_playing", label: "Now Playing", priority: "primary" },
+      { surface: "settings", label: "Settings", priority: "utility" },
+    ]);
   });
 
   it("prioritizes the default Home library order around recent listening", () => {
@@ -479,6 +488,19 @@ describe("kiosk shell view model", () => {
     expect(css).not.toContain(".library-search");
     expect(appSource).not.toContain("Search saved music");
     expect(appSource).not.toContain("type=\"search\"");
+  });
+
+  it("keeps the horizontal kiosk rail and player controls touch sized", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const shellRule = (css.match(/\.shell\s*\{[^}]+\}/g) ?? []).find((rule: string) => rule.includes("grid-template-columns")) ?? "";
+    const navButtonRule = css.match(/\.nav button\s*\{[^}]+\}/)?.[0] ?? "";
+    const primaryControlRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
+    const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(shellRule).toContain("grid-template-columns: 96px minmax(0, 1fr)");
+    expect(navButtonRule).toContain("min-height: 82px");
+    expect(primaryControlRule).toContain("min-height: 92px");
+    expect(utilityControlRule).toContain("min-height: 64px");
   });
 
   it("prevents accidental text selection while preserving text entry selection", () => {

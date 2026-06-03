@@ -55,7 +55,7 @@ import {
   nowPlayingRefreshIntervalMs,
   preferredSpeakerSelection,
   preferredSurface,
-  primarySurfaces,
+  shellNavigationItems,
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
   shouldPollAppStateForSetupReadiness,
@@ -179,6 +179,25 @@ const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzo
 
 function isConfirmedSpeakerConnected(state: AppSnapshot) {
   return state.health.speaker.status === "connected" && Boolean(state.health.speaker.primary?.connected);
+}
+
+function itemInitials(title: string) {
+  return title
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase() || "P";
+}
+
+function categoryFallbackInitial(category: LibraryCategoryId) {
+  if (category === "playlists") return "P";
+  if (category === "albums") return "A";
+  if (category === "artists") return "AR";
+  if (category === "liked_songs") return "L";
+  if (category === "recently_played") return "R";
+  return "P";
 }
 
 export function App() {
@@ -1414,6 +1433,8 @@ export function App() {
     onCategory: selectLibraryCategory,
     onPlay: startLibraryItem,
   };
+  const railTimerView = sleepTimerViewModel(snapshot, sleepTimer, nowMs);
+  const railNavItems = shellNavigationItems();
 
   const appClassName = [
     "app",
@@ -1476,20 +1497,39 @@ export function App() {
 
       <main className="shell">
         <nav className="nav" aria-label="Primary">
-          {primarySurfaces.map((surface) => {
+          <div className="nav-primary">
+          {railNavItems.map((item) => {
+            const surface = item.surface;
             const disabled = !canOpenSurface(snapshot, surface);
             return (
               <button
-                className={activeSurface === surface ? "active" : ""}
+                className={[
+                  activeSurface === surface ? "active" : "",
+                  item.priority === "utility" ? "nav-utility" : "nav-main",
+                ].filter(Boolean).join(" ")}
                 disabled={disabled}
                 key={surface}
                 onClick={() => setSelectedSurface(surface)}
                 type="button"
               >
-                {navLabels[surface]}
+                <span className="nav-icon" aria-hidden="true">{surface === "home" ? "H" : surface === "now_playing" ? "NP" : "S"}</span>
+                <span>{navLabels[surface]}</span>
               </button>
             );
           })}
+          </div>
+          <div className="nav-bottom">
+            {(railTimerView.active || railTimerView.expired) && (
+              <button className="nav-utility timer-rail-button" type="button" onClick={() => setSelectedSurface("sleep_timer")}>
+                <span className="nav-icon" aria-hidden="true"><TimerIcon /></span>
+                <span>{railTimerView.active ? railTimerView.label.replace("Stops in ", "") : "Timer"}</span>
+              </button>
+            )}
+            <button className="nav-utility" disabled={!idlePresentation(snapshot).enabled} type="button" onClick={() => setIdleActive(true)}>
+              <span className="nav-icon" aria-hidden="true">Z</span>
+              <span>Idle</span>
+            </button>
+          </div>
         </nav>
 
         <section className="surface" aria-live="polite" data-drag-scroll data-surface={activeSurface}>
@@ -1725,43 +1765,161 @@ function HomeSurface({ snapshot, library, onStartIdle }: { snapshot: AppSnapshot
     library.home.sections.find((section) => section.id === library.activeCategory) ??
     homeLibraryCategoryOrder.map((category) => library.home.sections.find((section) => section.id === category)).find(Boolean) ??
     library.home.sections[0];
+  const collectionSections = library.home.sections.filter((section) => ["playlists", "albums", "recently_played"].includes(section.id));
+  const listSection =
+    library.home.sections.find((section) => section.id === "liked_songs")
+    ?? library.home.sections.find((section) => section.id === "artists")
+    ?? activeSection;
+  const nowPlaying = snapshot.nowPlaying;
   return (
-    <div className="surface-grid">
-      <section className="hero-panel">
-        <p className="eyebrow">Home</p>
-        <h1>Saved music</h1>
-        <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
-        <div className="home-actions">
+    <div className="home-surface">
+      <section className="home-header">
+        <div>
+          <p className="eyebrow">Library</p>
+          <h1>{availability.title}</h1>
+          <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
+        </div>
+        <div className="home-status-stack">
+          {nowPlaying && (
+            <div className="home-now-playing-pill">
+              <strong>{nowPlaying.isPlaying ? "Playing" : "Paused"}</strong>
+              <span>{nowPlaying.title}</span>
+            </div>
+          )}
           <button disabled={!idlePresentation(snapshot).enabled} type="button" onClick={onStartIdle}>
             Screensaver
           </button>
         </div>
-        <p className="subtle">{library.message}</p>
       </section>
-      <div className="side-stack" data-drag-scroll>
-        <section className="category-tabs" aria-label="Library categories">
-          {categories.map((category) => (
-            <button
-              className={library.activeCategory === category ? "active" : ""}
-              disabled={!availability.canBrowse || library.busy}
-              key={category}
-              type="button"
-              onClick={() => library.onCategory(category)}
-            >
-              {labelFromId(category)}
-            </button>
-          ))}
+
+      <section className="category-tabs" aria-label="Library categories">
+        {categories.map((category) => (
+          <button
+            className={library.activeCategory === category ? "active" : ""}
+            disabled={!availability.canBrowse || library.busy}
+            key={category}
+            type="button"
+            onClick={() => library.onCategory(category)}
+          >
+            {labelFromId(category)}
+          </button>
+        ))}
+      </section>
+
+      {activeSection ? (
+        <LibraryFeatureSection section={activeSection} snapshot={snapshot} onPlay={library.onPlay} message={library.message} />
+      ) : (
+        <section className="library-section">
+          <h2>No saved content shown</h2>
+          <p>Refresh the library or recover Spotify/network access from Settings.</p>
         </section>
-        {activeSection ? (
-          <LibrarySectionPanel section={activeSection} snapshot={snapshot} onPlay={library.onPlay} />
-        ) : (
-          <section className="library-section">
-            <h2>No saved content shown</h2>
-            <p>Refresh the library or recover Spotify/network access from Settings.</p>
-          </section>
-        )}
-      </div>
+      )}
+
+      {collectionSections.length > 0 && (
+        <section className="library-rail-section" aria-label="More library rows">
+          <div className="library-section-heading">
+            <div>
+              <p className="eyebrow">Saved sections</p>
+              <h2>Pick a row</h2>
+            </div>
+          </div>
+          <div className="library-card-rail" data-drag-scroll>
+            {collectionSections.flatMap((section) => section.items.slice(0, 4).map((item) => (
+              <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={library.onPlay} sectionId={section.id} key={`${section.id}-${item.type}-${item.id}-${item.uri}`} />
+            )))}
+          </div>
+        </section>
+      )}
+
+      {listSection && (
+        <LibrarySectionPanel section={listSection} snapshot={snapshot} onPlay={library.onPlay} compact />
+      )}
     </div>
+  );
+}
+
+function LibraryFeatureSection({
+  section,
+  snapshot,
+  onPlay,
+  message,
+}: {
+  section: LibraryHomeResponse["sections"][number];
+  snapshot: AppSnapshot;
+  onPlay: (item: LibraryItem) => void;
+  message: string;
+}) {
+  const featured = section.items.slice(0, 6);
+  return (
+    <section className="library-feature-section" aria-label={section.title}>
+      <div className="library-section-heading">
+        <div>
+          <p className="eyebrow">{labelFromId(section.id)}</p>
+          <h2>{section.title}</h2>
+          <p>{section.description}</p>
+        </div>
+        {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
+      </div>
+      <div className="library-feature-grid">
+        {featured.map((item, index) => (
+          index === 0 ? (
+            <button
+              className="library-hero-card"
+              disabled={!canPlayLibraryItem(snapshot, item)}
+              key={`${item.type}-${item.id}-${item.uri}`}
+              type="button"
+              onClick={() => onPlay(item)}
+            >
+              <ArtworkTile item={item} sectionId={section.id} large />
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.subtitle ?? labelFromId(item.type)}</small>
+              </span>
+              <b>{canPlayLibraryItem(snapshot, item) ? "Play" : "Unavailable"}</b>
+            </button>
+          ) : (
+            <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={onPlay} sectionId={section.id} key={`${item.type}-${item.id}-${item.uri}`} />
+          )
+        ))}
+      </div>
+      {section.items.length === 0 && <p className="subtle">No items in this constrained section.</p>}
+      <p className="subtle">{message}</p>
+    </section>
+  );
+}
+
+function LibraryArtworkCard({
+  item,
+  snapshot,
+  onPlay,
+  sectionId,
+}: {
+  item: LibraryItem;
+  snapshot: AppSnapshot;
+  onPlay: (item: LibraryItem) => void;
+  sectionId: LibraryCategoryId;
+}) {
+  const disabled = !canPlayLibraryItem(snapshot, item);
+  return (
+    <button className="library-art-card" disabled={disabled} type="button" onClick={() => onPlay(item)}>
+      <ArtworkTile item={item} sectionId={sectionId} />
+      <span>
+        <strong>{item.title}</strong>
+        <small>{item.subtitle ?? labelFromId(item.type)}</small>
+      </span>
+    </button>
+  );
+}
+
+function ArtworkTile({ item, sectionId, large = false }: { item: LibraryItem; sectionId: LibraryCategoryId; large?: boolean }) {
+  return (
+    <span className={`artwork-tile artwork-${item.type}${large ? " artwork-large" : ""}`}>
+      {item.artworkUrl ? (
+        <img src={item.artworkUrl} alt="" draggable={false} />
+      ) : (
+        <span>{itemInitials(item.title) || categoryFallbackInitial(sectionId)}</span>
+      )}
+    </span>
   );
 }
 
@@ -1831,29 +1989,41 @@ function NowPlayingSurface({
   const canSendControls = snapshot.capabilities.canControlPlayback && (spotifySdk.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId));
   const emptyState = nowPlayingEmptyState(snapshot);
   const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
+  const timerView = sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs);
   return (
-    <div className="surface-grid">
+    <div className="player-surface">
       <section className="art-panel" aria-label="Artwork placeholder">
-        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>P</div>}
+        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>{playing ? itemInitials(playing.title) : "P"}</div>}
       </section>
       <section className="player-panel">
-        <p className="eyebrow">Now Playing</p>
-        <h1 className="track-title">{emptyState.title}</h1>
-        <p>{emptyState.detail}</p>
-        <div className="progress"><span style={{ width: `${progress}%` }} /></div>
+        <div className="player-copy">
+          <p className="eyebrow">{remotePlayback ? "Remote playback" : "Now playing"}</p>
+          <h1 className="track-title">{emptyState.title}</h1>
+          <p>{emptyState.detail}</p>
+        </div>
+        <div className="progress" aria-label="Playback progress"><span style={{ width: `${progress}%` }} /></div>
         <div className="time-row">
           <span>{formatMs(displayedProgressMs)}</span>
           <span>{formatMs(playing?.durationMs)}</span>
         </div>
-        <div className="control-row">
-          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")}>Previous</button>
-          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing?.isPlaying ? "pause" : "play")}>{playing?.isPlaying ? "Pause" : "Play"}</button>
-          <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")}>Next</button>
-          <button className="icon-button" type="button" onClick={onOpenSleepTimer} aria-label="Sleep timer">
-            <TimerIcon />
+        <div className="transport-row" aria-label="Playback controls">
+          <button className="transport-secondary" disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")} aria-label="Previous track">
+            <PreviousIcon />
+          </button>
+          <button className="transport-primary" disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing?.isPlaying ? "pause" : "play")} aria-label={playing?.isPlaying ? "Pause" : "Play"}>
+            {playing?.isPlaying ? <PauseIcon /> : <PlayIcon />}
+          </button>
+          <button className="transport-secondary" disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")} aria-label="Next track">
+            <NextIcon />
           </button>
         </div>
-        <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
+        <div className="player-utility-row">
+          <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
+          <button className="player-utility-button" type="button" onClick={onOpenSleepTimer} aria-label="Sleep timer">
+            <TimerIcon />
+            <span>{timerView.active ? timerView.label.replace("Stops in ", "") : "Timer"}</span>
+          </button>
+        </div>
         {remotePlayback && (
           <button
             className="takeover-button"
@@ -1864,8 +2034,8 @@ function NowPlayingSurface({
             Select Pipzo
           </button>
         )}
-        {sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs).active && (
-          <p className="subtle">{sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs).label}</p>
+        {(timerView.active || timerView.expired) && (
+          <p className="player-note">{timerView.label}</p>
         )}
       </section>
     </div>
@@ -2469,6 +2639,38 @@ function TimerIcon() {
       <path d="M12 6V3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M12 13V9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M12 13h3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M8 5v14l11-7L8 5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PreviousIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M6 5h2v14H6zM9 12l9-7v14l-9-7Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function NextIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M16 5h2v14h-2zM6 5l9 7-9 7V5Z" fill="currentColor" />
     </svg>
   );
 }

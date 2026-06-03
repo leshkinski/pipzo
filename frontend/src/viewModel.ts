@@ -1,6 +1,8 @@
 import type { AppSnapshot, IdleMode, LibraryCategoryId, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "now_playing", "settings"];
+export const dailyPrimarySurfaces: SurfaceId[] = ["home", "now_playing"];
+export const demotedUtilitySurfaces: SurfaceId[] = ["settings"];
 export const sleepTimerPresets = [15, 30, 45, 60] as const;
 export const homeLibraryCategoryOrder: Exclude<LibraryCategoryId, "home">[] = [
   "recently_played",
@@ -39,10 +41,23 @@ export type SleepTimerExpiryCommand = {
   blockedReason?: string;
 };
 
+export type ShellNavigationItem = {
+  surface: SurfaceId;
+  label: string;
+  priority: "primary" | "utility";
+};
+
 export type NowPlayingEmptyState = {
   title: string;
   detail: string;
 };
+
+export function shellNavigationItems(): ShellNavigationItem[] {
+  return [
+    ...dailyPrimarySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "primary" as const })),
+    ...demotedUtilitySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "utility" as const })),
+  ];
+}
 
 export const nowPlayingRefreshIntervalMs = 10_000;
 export const nowPlayingCommandRefreshDelaysMs = [900, 2_500] as const;
