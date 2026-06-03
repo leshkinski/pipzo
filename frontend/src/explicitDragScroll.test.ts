@@ -121,6 +121,7 @@ describe("explicit drag scroll", () => {
     expect(preventDefault).not.toHaveBeenCalled();
     expect(click.preventDefault).not.toHaveBeenCalled();
     expect(click.stopPropagation).not.toHaveBeenCalled();
+    expect(root.capturedPointerIds).toEqual([]);
   });
 
   it("converts vertical touch drag distance into scrollTop and suppresses the drag click", () => {

@@ -14,6 +14,7 @@ type DragState = {
   pointerId?: number;
   mode: "pointer" | "touch";
   axis: "x" | "y" | null;
+  captured: boolean;
 };
 
 export function useExplicitDragScroll(rootRef: RefObject<HTMLElement | null>) {
@@ -50,6 +51,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
       pointerId,
       mode,
       axis: null,
+      captured: false,
     };
   }
 
@@ -71,6 +73,14 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
       const canScrollX = drag.scrollTarget.scrollWidth > drag.scrollTarget.clientWidth;
       const canScrollY = drag.scrollTarget.scrollHeight > drag.scrollTarget.clientHeight;
       drag.axis = canScrollX && (!canScrollY || Math.abs(totalDeltaX) > Math.abs(totalDelta)) ? "x" : "y";
+    }
+    if (drag.mode === "pointer" && !drag.captured && drag.pointerId !== undefined) {
+      try {
+        root.setPointerCapture(drag.pointerId);
+        drag.captured = true;
+      } catch {
+        drag.captured = true;
+      }
     }
 
     drag.dragging = true;
@@ -104,11 +114,6 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (event.pointerType !== "mouse" && Date.now() - lastTouchStartAt < 700) {
       return;
     }
-    try {
-      root.setPointerCapture(event.pointerId);
-    } catch {
-      // Some synthetic/browser events cannot be captured; drag still works without it.
-    }
     beginDrag(event.target, event.clientX, event.clientY, "pointer", event.pointerId);
   }
 
@@ -123,10 +128,12 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (!drag || drag.mode !== "pointer" || drag.pointerId !== event.pointerId) {
       return;
     }
-    try {
-      root.releasePointerCapture(event.pointerId);
-    } catch {
-      // Ignore missing capture on browsers that ended the pointer independently.
+    if (drag.captured) {
+      try {
+        root.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore missing capture on browsers that ended the pointer independently.
+      }
     }
     endDrag();
   }
