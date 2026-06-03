@@ -5,8 +5,11 @@ import { setupExplicitDragScroll } from "./explicitDragScroll";
 type Listener = (event: any) => void;
 
 class FakeElement {
+  scrollLeft = 0;
   scrollTop = 0;
+  scrollWidth = 100;
   scrollHeight = 200;
+  clientWidth = 100;
   clientHeight = 100;
   parentElement: FakeElement | null = null;
   private dragScroll: boolean;
@@ -98,8 +101,8 @@ describe("explicit drag scroll", () => {
     setupExplicitDragScroll(root as unknown as HTMLElement);
     const preventDefault = vi.fn();
 
-    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 1, pointerType: "touch" });
-    root.dispatch("pointermove", { clientY: 95, pointerId: 1, preventDefault });
+    root.dispatch("pointerdown", { target: child, clientX: 40, clientY: 100, pointerId: 1, pointerType: "touch" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 95, pointerId: 1, preventDefault });
     root.dispatch("pointerup", { pointerId: 1 });
     const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
     root.dispatch("click", click);
@@ -120,9 +123,9 @@ describe("explicit drag scroll", () => {
     setupExplicitDragScroll(root as unknown as HTMLElement);
     const preventDefault = vi.fn();
 
-    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 7, pointerType: "touch" });
-    root.dispatch("pointermove", { clientY: 82, pointerId: 7, preventDefault });
-    root.dispatch("pointermove", { clientY: 72, pointerId: 7, preventDefault });
+    root.dispatch("pointerdown", { target: child, clientX: 40, clientY: 100, pointerId: 7, pointerType: "touch" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 82, pointerId: 7, preventDefault });
+    root.dispatch("pointermove", { clientX: 40, clientY: 72, pointerId: 7, preventDefault });
     root.dispatch("pointerup", { pointerId: 7 });
     const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
     root.dispatch("click", click);
@@ -143,9 +146,9 @@ describe("explicit drag scroll", () => {
     setupExplicitDragScroll(root as unknown as HTMLElement);
     const preventDefault = vi.fn();
 
-    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 8, pointerType: "mouse" });
-    root.dispatch("pointermove", { clientY: 85, pointerId: 8, preventDefault });
-    root.dispatch("pointermove", { clientY: 75, pointerId: 8, preventDefault });
+    root.dispatch("pointerdown", { target: child, clientX: 40, clientY: 100, pointerId: 8, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 85, pointerId: 8, preventDefault });
+    root.dispatch("pointermove", { clientX: 40, clientY: 75, pointerId: 8, preventDefault });
 
     expect(scrollTarget.scrollTop).toBe(55);
     expect(preventDefault).toHaveBeenCalledTimes(2);
@@ -160,8 +163,8 @@ describe("explicit drag scroll", () => {
     setupExplicitDragScroll(root as unknown as HTMLElement);
     const preventDefault = vi.fn();
 
-    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 9, pointerType: "mouse" });
-    root.dispatch("pointermove", { clientY: 94, pointerId: 9, preventDefault });
+    root.dispatch("pointerdown", { target: child, clientX: 40, clientY: 100, pointerId: 9, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 94, pointerId: 9, preventDefault });
     root.dispatch("pointerup", { pointerId: 9 });
     const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
     root.dispatch("click", click);
@@ -180,8 +183,8 @@ describe("explicit drag scroll", () => {
     child.parentElement = scrollTarget;
     setupExplicitDragScroll(root as unknown as HTMLElement);
 
-    root.dispatch("pointerdown", { target: child, clientY: 100, pointerId: 10, pointerType: "mouse" });
-    root.dispatch("pointermove", { clientY: 80, pointerId: 10, preventDefault: vi.fn() });
+    root.dispatch("pointerdown", { target: child, clientX: 40, clientY: 100, pointerId: 10, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 80, pointerId: 10, preventDefault: vi.fn() });
     root.dispatch("pointerup", { pointerId: 10 });
     const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
     root.dispatch("click", click);
@@ -199,8 +202,8 @@ describe("explicit drag scroll", () => {
     setupExplicitDragScroll(root as unknown as HTMLElement);
     const preventDefault = vi.fn();
 
-    root.dispatch("pointerdown", { target: input, clientY: 100, pointerId: 2, pointerType: "touch" });
-    root.dispatch("pointermove", { clientY: 60, pointerId: 2, preventDefault });
+    root.dispatch("pointerdown", { target: input, clientX: 40, clientY: 100, pointerId: 2, pointerType: "touch" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 60, pointerId: 2, preventDefault });
 
     expect(scrollTarget.scrollTop).toBe(0);
     expect(preventDefault).not.toHaveBeenCalled();
@@ -218,8 +221,8 @@ describe("explicit drag scroll", () => {
     row.parentElement = sideStack;
     setupExplicitDragScroll(root as unknown as HTMLElement);
 
-    root.dispatch("pointerdown", { target: row, clientY: 100, pointerId: 3, pointerType: "touch" });
-    root.dispatch("pointermove", { clientY: 70, pointerId: 3, preventDefault: vi.fn() });
+    root.dispatch("pointerdown", { target: row, clientX: 40, clientY: 100, pointerId: 3, pointerType: "touch" });
+    root.dispatch("pointermove", { clientX: 40, clientY: 70, pointerId: 3, preventDefault: vi.fn() });
 
     expect(sideStack.scrollTop).toBe(0);
     expect(surface.scrollTop).toBe(30);
@@ -239,5 +242,27 @@ describe("explicit drag scroll", () => {
     expect(dragStart.preventDefault).toHaveBeenCalledTimes(1);
     expect(click.preventDefault).not.toHaveBeenCalled();
     expect(click.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it("converts horizontal drag distance into scrollLeft on horizontal rails", () => {
+    const root = new FakeRoot();
+    const scrollTarget = new FakeElement();
+    scrollTarget.scrollLeft = 60;
+    scrollTarget.scrollWidth = 300;
+    scrollTarget.clientWidth = 100;
+    scrollTarget.scrollHeight = 100;
+    const child = new FakeElement(false);
+    scrollTarget.parentElement = root;
+    child.parentElement = scrollTarget;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const preventDefault = vi.fn();
+
+    root.dispatch("pointerdown", { target: child, clientX: 100, clientY: 80, pointerId: 11, pointerType: "mouse" });
+    root.dispatch("pointermove", { clientX: 70, clientY: 82, pointerId: 11, preventDefault });
+    root.dispatch("pointermove", { clientX: 50, clientY: 82, pointerId: 11, preventDefault });
+
+    expect(scrollTarget.scrollLeft).toBe(110);
+    expect(scrollTarget.scrollTop).toBe(0);
+    expect(preventDefault).toHaveBeenCalledTimes(2);
   });
 });

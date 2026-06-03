@@ -210,9 +210,15 @@ def _fetch_all_categories(
         LibraryCategoryId.PLAYLISTS,
         LibraryCategoryId.ALBUMS,
         LibraryCategoryId.LIKED_SONGS,
-        LibraryCategoryId.RECENTLY_PLAYED,
     ):
         items_by_category[category] = _fetch_category(settings, spotify_client, access_token, category, limit)
+    items_by_category[LibraryCategoryId.RECENTLY_PLAYED] = _fetch_recently_played(
+        settings,
+        spotify_client,
+        access_token,
+        limit,
+        items_by_category[LibraryCategoryId.PLAYLISTS],
+    )
     items_by_category[LibraryCategoryId.ARTISTS] = _derive_artists(items_by_category, limit)
     return items_by_category
 
@@ -249,13 +255,7 @@ def _fetch_category(
         )
         return [_track_item(item.get("track", {}), LibraryCategoryId.LIKED_SONGS) for item in _payload_items(payload) if isinstance(item, dict)]
     if category == LibraryCategoryId.RECENTLY_PLAYED:
-        payload = spotify_client.fetch_library_json(
-            api_base_url=settings.spotify_api_base_url,
-            access_token=access_token,
-            path="/v1/me/player/recently-played",
-            params={"limit": limit},
-        )
-        return [_track_item(item.get("track", {}), LibraryCategoryId.RECENTLY_PLAYED) for item in _payload_items(payload) if isinstance(item, dict)]
+        return _fetch_recently_played(settings, spotify_client, access_token, limit, [])
     if category == LibraryCategoryId.ARTISTS:
         samples = {
             LibraryCategoryId.ALBUMS: _fetch_category(settings, spotify_client, access_token, LibraryCategoryId.ALBUMS, limit),
@@ -264,6 +264,55 @@ def _fetch_category(
         }
         return _derive_artists(samples, limit)
     return []
+
+
+def _fetch_recently_played(
+    settings: Settings,
+    spotify_client: SpotifyClient,
+    access_token: str,
+    limit: int,
+    saved_playlists: list[LibraryItem],
+) -> list[LibraryItem]:
+    payload = spotify_client.fetch_library_json(
+        api_base_url=settings.spotify_api_base_url,
+        access_token=access_token,
+        path="/v1/me/player/recently-played",
+        params={"limit": limit},
+    )
+    saved_playlists_by_uri = {item.uri: item for item in saved_playlists if item.uri}
+    recent_items: list[LibraryItem] = []
+    seen_contexts: set[str] = set()
+    for item in _payload_items(payload):
+        if not isinstance(item, dict):
+            continue
+        context_item = _recent_context_playlist_item(item.get("context"), saved_playlists_by_uri, seen_contexts)
+        if context_item is not None:
+            recent_items.append(context_item)
+            if len(recent_items) >= limit:
+                break
+        track = item.get("track", {})
+        if isinstance(track, dict):
+            recent_items.append(_track_item(track, LibraryCategoryId.RECENTLY_PLAYED))
+            if len(recent_items) >= limit:
+                break
+    return recent_items
+
+
+def _recent_context_playlist_item(
+    context: object,
+    saved_playlists_by_uri: dict[str, LibraryItem],
+    seen_contexts: set[str],
+) -> Optional[LibraryItem]:
+    if not isinstance(context, dict) or context.get("type") != "playlist":
+        return None
+    uri = str(context.get("uri") or "")
+    if not uri or uri in seen_contexts:
+        return None
+    playlist = saved_playlists_by_uri.get(uri)
+    if playlist is None:
+        return None
+    seen_contexts.add(uri)
+    return playlist.model_copy(update={"source": LibraryCategoryId.RECENTLY_PLAYED})
 
 
 def _payload_items(payload: dict) -> list[object]:

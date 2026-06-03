@@ -416,6 +416,16 @@ export const localLibraryItems: Record<Exclude<LibraryCategoryId, "home">, Libra
   ],
   recently_played: [
     {
+      id: "playlist-bedtime-recent",
+      type: "playlist",
+      uri: "spotify:playlist:pipzo-bedtime",
+      title: "Bedtime Favorites",
+      subtitle: "Recently played playlist",
+      source: "recently_played",
+      playbackKind: "context",
+      playable: true,
+    },
+    {
       id: "track-recent",
       type: "track",
       uri: "spotify:track:pipzo-recent",

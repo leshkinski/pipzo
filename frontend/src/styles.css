@@ -111,8 +111,8 @@ button:disabled {
   overflow: hidden;
   overscroll-behavior: contain;
   touch-action: none;
-  padding: 16px;
-  padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px));
+  padding: 16px 14px 16px 8px;
+  padding-bottom: max(16px, calc(var(--pipzo-keyboard-inset) + 16px));
 }
 
 .app.keyboard-active {
@@ -121,21 +121,27 @@ button:disabled {
 
 .app::-webkit-scrollbar,
 .surface::-webkit-scrollbar {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
 }
 
 .app::-webkit-scrollbar-track,
 .surface::-webkit-scrollbar-track {
-  background: #e5dfd3;
+  border-radius: 999px;
+  background: rgba(246, 240, 223, 0.08);
 }
 
 .app::-webkit-scrollbar-thumb,
 .surface::-webkit-scrollbar-thumb {
   min-height: 72px;
-  border: 5px solid #e5dfd3;
+  border: 4px solid rgba(8, 12, 11, 0.96);
   border-radius: 999px;
-  background: #2f6f73;
+  background: #dfe8b7;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #dfe8b7 rgba(246, 240, 223, 0.08);
 }
 
 .topbar,
@@ -317,9 +323,9 @@ button:disabled {
 
 .shell {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 16px;
-  height: calc(var(--pipzo-viewport-height) - 34px);
+  height: calc(var(--pipzo-viewport-height) - 32px);
   min-height: 0;
 }
 
@@ -349,12 +355,12 @@ button:disabled {
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: 6px;
+  gap: 5px;
   min-height: 82px;
-  padding: 8px 6px;
+  padding: 8px 4px;
   text-align: center;
   font-weight: 800;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.08;
   color: #cbd5c8;
   background: transparent;
@@ -378,9 +384,16 @@ button:disabled {
 .nav-icon {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 32px;
+  width: 36px;
+  height: 30px;
   font-size: 14px;
+}
+
+.nav button span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .nav-icon svg {
@@ -395,7 +408,7 @@ button:disabled {
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  padding-right: 8px;
+  padding-right: 6px;
   padding-bottom: max(8px, var(--pipzo-keyboard-inset));
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
@@ -625,7 +638,6 @@ button:disabled {
   gap: 10px;
   padding: 10px;
   overflow-x: auto;
-  scrollbar-width: none;
   touch-action: pan-x;
 }
 
@@ -822,21 +834,26 @@ button:disabled {
 
 .player-surface {
   display: grid;
-  grid-template-columns: minmax(340px, 1.45fr) minmax(310px, 0.9fr);
+  grid-template-columns: minmax(420px, 1.42fr) minmax(360px, 0.88fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
+  min-height: 100%;
 }
 
 .art-panel {
   display: grid;
   place-items: center;
-  align-self: start;
+  align-self: stretch;
   width: 100%;
+  max-height: calc(var(--pipzo-viewport-height) - 40px);
   aspect-ratio: 1 / 1;
   min-height: 0;
-  background: linear-gradient(135deg, #27362f, #6e7f5d 54%, #c79b66);
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(246, 240, 223, 0.12), transparent 62%),
+    rgba(8, 12, 11, 0.34);
   overflow: hidden;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.46);
 }
 
 .art-panel img {
@@ -863,9 +880,9 @@ button:disabled {
 
 .player-panel {
   display: grid;
-  align-content: start;
+  grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto auto;
   gap: 12px;
-  min-height: 0;
+  min-height: 100%;
   background: rgba(8, 12, 11, 0.58);
 }
 
@@ -892,6 +909,7 @@ button:disabled {
 }
 
 .time-row,
+.mode-row,
 .volume-row,
 .control-row,
 .transport-row,
@@ -922,7 +940,7 @@ button:disabled {
 .transport-row {
   justify-content: center;
   gap: 16px;
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .transport-row button {
@@ -956,7 +974,9 @@ button:disabled {
 
 .player-utility-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(96px, 0.32fr);
+  grid-template-columns: 1fr;
+  align-self: end;
+  margin-top: 0;
 }
 
 .player-utility-button {
@@ -988,6 +1008,36 @@ button:disabled {
   background: #dfe8b7;
   color: #111711;
   font-weight: 900;
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: repeat(2, 56px) repeat(2, minmax(82px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mode-button {
+  display: grid;
+  grid-auto-flow: column;
+  place-content: center;
+  align-items: center;
+  gap: 7px;
+  min-height: 52px;
+  padding: 0 10px;
+  color: #a9b4a9;
+  background: rgba(246, 240, 223, 0.05);
+}
+
+.mode-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mode-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player-note {
@@ -1331,6 +1381,12 @@ button:disabled {
 
 .volume-panel.icon-volume .icon-button {
   min-height: 64px;
+}
+
+.volume-panel.icon-volume input[type="range"],
+.volume-controls input[type="range"] {
+  min-height: 44px;
+  touch-action: pan-x;
 }
 
 .volume-panel.icon-volume.muted {

@@ -477,7 +477,7 @@ describe("kiosk shell view model", () => {
     expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
     expect(appRule).toContain("height: var(--pipzo-viewport-height)");
     expect(appRule).toContain("overflow: hidden");
-    expect(appRule).toContain("padding-bottom: max(18px, calc(var(--pipzo-keyboard-inset) + 18px))");
+    expect(appRule).toContain("padding-bottom: max(16px, calc(var(--pipzo-keyboard-inset) + 16px))");
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
   });
 
@@ -497,10 +497,10 @@ describe("kiosk shell view model", () => {
     const primaryControlRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
     const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(shellRule).toContain("grid-template-columns: 96px minmax(0, 1fr)");
-    expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 34px)");
+    expect(shellRule).toContain("grid-template-columns: 72px minmax(0, 1fr)");
+    expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 32px)");
     expect(navButtonRule).toContain("min-height: 82px");
-    expect(navButtonRule).toContain("font-size: 14px");
+    expect(navButtonRule).toContain("font-size: 12px");
     expect(primaryControlRule).toContain("min-height: 92px");
     expect(utilityControlRule).toContain("min-height: 64px");
   });
@@ -549,8 +549,8 @@ describe("kiosk shell view model", () => {
     expect(sideStackRule).not.toContain("overflow-y: auto");
     expect(sideStackRule).not.toContain("touch-action: pan-y");
     expect(listButtonRule).not.toContain("touch-action: pan-y");
-    expect(scrollbarRule).toContain("width: 24px");
-    expect(scrollbarTrackRule).toContain("background: #e5dfd3");
+    expect(scrollbarRule).toContain("width: 18px");
+    expect(scrollbarTrackRule).toContain("background: rgba(246, 240, 223, 0.08)");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

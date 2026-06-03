@@ -1749,11 +1749,6 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
     library.home.sections.find((section) => section.id === library.activeCategory) ??
     homeLibraryCategoryOrder.map((category) => library.home.sections.find((section) => section.id === category)).find(Boolean) ??
     library.home.sections[0];
-  const collectionSections = library.home.sections.filter((section) => ["playlists", "albums", "recently_played"].includes(section.id));
-  const listSection =
-    library.home.sections.find((section) => section.id === "liked_songs")
-    ?? library.home.sections.find((section) => section.id === "artists")
-    ?? activeSection;
   const nowPlaying = snapshot.nowPlaying;
   return (
     <div className="home-surface">
@@ -1771,7 +1766,7 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
         </section>
       )}
 
-      <section className="category-tabs" aria-label="Library categories">
+      <section className="category-tabs" aria-label="Library categories" data-drag-scroll>
         {categories.map((category) => (
           <button
             className={library.activeCategory === category ? "active" : ""}
@@ -1792,20 +1787,6 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
           <h2>No saved content shown</h2>
           <p>Refresh the library or recover Spotify/network access from Settings.</p>
         </section>
-      )}
-
-      {collectionSections.length > 0 && (
-        <section className="library-rail-section" aria-label="More library rows">
-          <div className="library-card-rail" data-drag-scroll>
-            {collectionSections.flatMap((section) => section.items.slice(0, 4).map((item) => (
-              <LibraryArtworkCard item={item} snapshot={snapshot} onPlay={library.onPlay} sectionId={section.id} key={`${section.id}-${item.type}-${item.id}-${item.uri}`} />
-            )))}
-          </div>
-        </section>
-      )}
-
-      {listSection && (
-        <LibrarySectionPanel section={listSection} snapshot={snapshot} onPlay={library.onPlay} compact />
       )}
     </div>
   );
@@ -1965,6 +1946,22 @@ function NowPlayingSurface({
           <span>{formatMs(displayedProgressMs)}</span>
           <span>{formatMs(playing?.durationMs)}</span>
         </div>
+        <div className="mode-row" aria-label="Playback modes">
+          <button className="mode-button" disabled type="button" aria-label="Shuffle unavailable in this version">
+            <ShuffleIcon />
+          </button>
+          <button className="mode-button" disabled type="button" aria-label="Repeat unavailable in this version">
+            <RepeatIcon />
+          </button>
+          <button className="mode-button mode-button-wide" disabled type="button" aria-label="Generate radio unavailable in this version">
+            <RadioIcon />
+            <span>Radio</span>
+          </button>
+          <button className="mode-button mode-button-wide" disabled type="button" aria-label="Queue unavailable in this version">
+            <QueueIcon />
+            <span>Queue</span>
+          </button>
+        </div>
         <div className="transport-row" aria-label="Playback controls">
           <button className="transport-secondary" disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")} aria-label="Previous track">
             <PreviousIcon />
@@ -2103,6 +2100,7 @@ function VolumeControlPanel({
             disabled={view.disabled || controls.busy}
             min="0"
             max="100"
+            step="2"
             type="range"
             value={value}
             onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
@@ -2126,6 +2124,7 @@ function VolumeControlPanel({
             disabled={view.disabled || controls.busy}
             min="0"
             max="100"
+            step="2"
             type="range"
             value={value}
             onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
@@ -2630,6 +2629,46 @@ function NextIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
       <path d="M16 5h2v14h-2zM6 5l9 7-9 7V5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M4 7h3c3 0 4.5 10 8 10h1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M4 17h3c1.6 0 2.8-1.8 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="m17 14 3 3-3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m17 4 3 3-3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RepeatIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M17 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 11V9a3 3 0 0 1 3-3h15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M7 22l-4-4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M21 13v2a3 3 0 0 1-3 3H3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function RadioIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M5 12a7 7 0 0 1 14 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M8 12a4 4 0 0 1 8 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="16" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function QueueIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M5 7h14M5 12h14M5 17h9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }

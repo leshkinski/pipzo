@@ -5,12 +5,15 @@ const dragThresholdPx = 8;
 
 type DragState = {
   scrollTarget: HTMLElement;
+  startX: number;
   startY: number;
+  lastX: number;
   lastY: number;
   dragging: boolean;
   suppressClick: boolean;
   pointerId?: number;
   mode: "pointer" | "touch";
+  axis: "x" | "y" | null;
 };
 
 export function useExplicitDragScroll(rootRef: RefObject<HTMLElement | null>) {
@@ -28,7 +31,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
   let drag: DragState | null = null;
   let lastTouchStartAt = 0;
 
-  function beginDrag(target: EventTarget | null, clientY: number, mode: DragState["mode"], pointerId?: number) {
+  function beginDrag(target: EventTarget | null, clientX: number, clientY: number, mode: DragState["mode"], pointerId?: number) {
     if (!(target instanceof Element) || isEditableDragTarget(target)) {
       return;
     }
@@ -38,29 +41,46 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     }
     drag = {
       scrollTarget,
+      startX: clientX,
       startY: clientY,
+      lastX: clientX,
       lastY: clientY,
       dragging: false,
       suppressClick: false,
       pointerId,
       mode,
+      axis: null,
     };
   }
 
-  function updateDrag(clientY: number, event: Event) {
+  function updateDrag(clientX: number, clientY: number, event: Event) {
     if (!drag) {
       return;
     }
+    const totalDeltaX = clientX - drag.startX;
     const totalDelta = clientY - drag.startY;
+    const stepDeltaX = clientX - drag.lastX;
     const stepDelta = clientY - drag.lastY;
-    if (!drag.dragging && Math.abs(totalDelta) < dragThresholdPx) {
+    if (!drag.dragging && Math.max(Math.abs(totalDeltaX), Math.abs(totalDelta)) < dragThresholdPx) {
+      drag.lastX = clientX;
       drag.lastY = clientY;
       return;
     }
 
+    if (!drag.axis) {
+      const canScrollX = drag.scrollTarget.scrollWidth > drag.scrollTarget.clientWidth;
+      const canScrollY = drag.scrollTarget.scrollHeight > drag.scrollTarget.clientHeight;
+      drag.axis = canScrollX && (!canScrollY || Math.abs(totalDeltaX) > Math.abs(totalDelta)) ? "x" : "y";
+    }
+
     drag.dragging = true;
     drag.suppressClick = true;
-    drag.scrollTarget.scrollTop -= stepDelta;
+    if (drag.axis === "x") {
+      drag.scrollTarget.scrollLeft -= stepDeltaX;
+    } else {
+      drag.scrollTarget.scrollTop -= stepDelta;
+    }
+    drag.lastX = clientX;
     drag.lastY = clientY;
     event.preventDefault();
   }
@@ -84,14 +104,14 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (event.pointerType !== "mouse" && Date.now() - lastTouchStartAt < 700) {
       return;
     }
-    beginDrag(event.target, event.clientY, "pointer", event.pointerId);
+    beginDrag(event.target, event.clientX, event.clientY, "pointer", event.pointerId);
   }
 
   function onPointerMove(event: PointerEvent) {
     if (!drag || drag.mode !== "pointer" || drag.pointerId !== event.pointerId) {
       return;
     }
-    updateDrag(event.clientY, event);
+    updateDrag(event.clientX, event.clientY, event);
   }
 
   function onPointerEnd(event: PointerEvent) {
@@ -107,7 +127,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (!touch) {
       return;
     }
-    beginDrag(event.target, touch.clientY, "touch");
+    beginDrag(event.target, touch.clientX, touch.clientY, "touch");
   }
 
   function onTouchMove(event: TouchEvent) {
@@ -118,7 +138,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     if (!touch) {
       return;
     }
-    updateDrag(touch.clientY, event);
+    updateDrag(touch.clientX, touch.clientY, event);
   }
 
   function onTouchEnd() {
@@ -179,7 +199,7 @@ function findDragScrollTarget(target: Element, root: HTMLElement): HTMLElement |
   while (element && root.contains(element)) {
     if (element instanceof HTMLElement && element.matches(dragScrollSelector)) {
       fallback ??= element;
-      if (element.scrollHeight > element.clientHeight) {
+      if (element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) {
         return element;
       }
     }

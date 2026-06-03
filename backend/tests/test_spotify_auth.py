@@ -1152,6 +1152,59 @@ def test_hardware_library_uses_existing_scopes_and_maps_spotify_payloads(tmp_pat
     assert all(call["access_token"] == "fresh-catalog-token" for call in spotify_client.catalog_calls)
 
 
+def test_hardware_library_home_includes_recent_saved_playlist_contexts(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-catalog-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="playlist-read-private user-library-read user-read-recently-played",
+            expires_in=3600,
+        ),
+        catalog_payloads={
+            "/v1/me/playlists": {
+                "items": [
+                    {
+                        "id": "playlist-id",
+                        "uri": "spotify:playlist:playlist-id",
+                        "name": "Bedtime Favorites",
+                        "tracks": {"total": 12},
+                        "owner": {"display_name": "Pipzo"},
+                    }
+                ]
+            },
+            "/v1/me/albums": {"items": []},
+            "/v1/me/tracks": {"items": []},
+            "/v1/me/player/recently-played": {
+                "items": [
+                    {
+                        "context": {"type": "playlist", "uri": "spotify:playlist:playlist-id"},
+                        "track": {
+                            "id": "track-id",
+                            "uri": "spotify:track:track-id",
+                            "name": "Quiet Track",
+                            "artists": [{"name": "Quiet Artist"}],
+                            "album": {"name": "Quiet Album"},
+                        },
+                    }
+                ]
+            },
+        },
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/library/home?limit=8")
+
+    assert response.status_code == 200
+    recent = next(section for section in response.json()["sections"] if section["id"] == "recently_played")
+    assert [(item["type"], item["title"], item["playbackKind"]) for item in recent["items"]] == [
+        ("playlist", "Bedtime Favorites", "context"),
+        ("track", "Quiet Track", "track"),
+    ]
+
+
 def test_hardware_library_search_filters_only_library_results(tmp_path):
     settings = make_settings(tmp_path, app_mode="hardware")
     persist_auth_record(settings)
