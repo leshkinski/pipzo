@@ -348,6 +348,12 @@ class UrlLibSpotifyClient:
         elif action == "seek_start":
             path = "/v1/me/player/seek"
             method = "PUT"
+        elif action in {"shuffle_on", "shuffle_off"}:
+            path = "/v1/me/player/shuffle"
+            method = "PUT"
+        elif action in {"repeat_context", "repeat_off"}:
+            path = "/v1/me/player/repeat"
+            method = "PUT"
         elif action == "play":
             path = "/v1/me/player/play"
             method = "PUT"
@@ -358,6 +364,16 @@ class UrlLibSpotifyClient:
         url = f"{api_base_url.rstrip('/')}{path}"
         if action == "seek_start":
             params: dict[str, object] = {"position_ms": 0}
+            if device_id:
+                params["device_id"] = device_id
+            url = f"{url}?{urlencode(params)}"
+        elif action in {"shuffle_on", "shuffle_off"}:
+            params = {"state": action == "shuffle_on"}
+            if device_id:
+                params["device_id"] = device_id
+            url = f"{url}?{urlencode(params)}"
+        elif action in {"repeat_context", "repeat_off"}:
+            params = {"state": "context" if action == "repeat_context" else "off"}
             if device_id:
                 params["device_id"] = device_id
             url = f"{url}?{urlencode(params)}"

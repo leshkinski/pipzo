@@ -283,7 +283,7 @@ export type DisplayPatch = {
 };
 
 export type PlaybackControlRequest = {
-  action: "play" | "pause" | "next" | "previous" | "stop" | "seek_start";
+  action: "play" | "pause" | "next" | "previous" | "stop" | "seek_start" | "shuffle_on" | "shuffle_off" | "repeat_context" | "repeat_off";
   deviceId?: string;
 };
 

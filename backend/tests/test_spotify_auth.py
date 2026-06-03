@@ -924,6 +924,14 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
             "/api/v1/playback/control",
             json={"action": "seek_start", "deviceId": "pipzo-device-id"},
         )
+        shuffle = client.post(
+            "/api/v1/playback/control",
+            json={"action": "shuffle_on", "deviceId": "pipzo-device-id"},
+        )
+        repeat = client.post(
+            "/api/v1/playback/control",
+            json={"action": "repeat_context", "deviceId": "pipzo-device-id"},
+        )
 
     assert transfer.status_code == 200
     assert transfer.json()["state"] == "succeeded"
@@ -932,6 +940,10 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
     assert pause.json()["state"] == "succeeded"
     assert restart.status_code == 200
     assert restart.json()["state"] == "succeeded"
+    assert shuffle.status_code == 200
+    assert shuffle.json()["state"] == "succeeded"
+    assert repeat.status_code == 200
+    assert repeat.json()["state"] == "succeeded"
     assert spotify_client.transfer_calls == [
         {
             "api_base_url": "https://api.spotify.com",
@@ -953,8 +965,20 @@ def test_hardware_playback_transfer_and_control_use_backend_token_boundary(tmp_p
             "action": "seek_start",
             "device_id": "pipzo-device-id",
         },
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "action": "shuffle_on",
+            "device_id": "pipzo-device-id",
+        },
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-access-token",
+            "action": "repeat_context",
+            "device_id": "pipzo-device-id",
+        },
     ]
-    assert "stored-refresh-token" not in str([transfer.json(), pause.json(), restart.json()])
+    assert "stored-refresh-token" not in str([transfer.json(), pause.json(), restart.json(), shuffle.json(), repeat.json()])
 
 
 def test_hardware_sleep_timer_stop_uses_playback_pause_control(tmp_path):

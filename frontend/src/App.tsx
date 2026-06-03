@@ -161,6 +161,8 @@ type LibraryControls = {
   onPlay: (item: LibraryItem) => void;
 };
 
+type PlaybackCommand = "play" | "pause" | "next" | "previous" | "shuffle" | "repeat";
+
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
   home: "Home",
@@ -231,6 +233,8 @@ export function App() {
   const [volumeMessage, setVolumeMessage] = useState("Volume follows the app control.");
   const [playbackTestBusy, setPlaybackTestBusy] = useState(false);
   const [playbackTestMessage, setPlaybackTestMessage] = useState("Activate and select the browser player before confirming playback.");
+  const [shuffleEnabled, setShuffleEnabled] = useState(false);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [libraryHome, setLibraryHome] = useState<LibraryHomeResponse>(() => localLibraryHome());
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("recently_played");
   const [libraryBusy, setLibraryBusy] = useState(false);
@@ -1302,13 +1306,26 @@ export function App() {
     }
   }
 
-  async function sendPlaybackAction(action: "play" | "pause" | "next" | "previous") {
+  async function sendPlaybackAction(action: PlaybackCommand) {
     const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
     const deviceId = remotePlayback ? undefined : spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
-    const requestedAction = action === "previous" ? "seek_start" : action;
+    const requestedAction =
+      action === "previous"
+        ? "seek_start"
+        : action === "shuffle"
+          ? shuffleEnabled ? "shuffle_off" : "shuffle_on"
+          : action === "repeat"
+            ? repeatEnabled ? "repeat_off" : "repeat_context"
+            : action;
     if (dataSource === "backend") {
       try {
         const result = await controlPlayback({ action: requestedAction, deviceId });
+        if (result.state === "succeeded" && action === "shuffle") {
+          setShuffleEnabled((current) => !current);
+        }
+        if (result.state === "succeeded" && action === "repeat") {
+          setRepeatEnabled((current) => !current);
+        }
         const label = requestedAction === "seek_start" ? "restart" : action;
         setStatusText(result.state === "succeeded" ? `Playback ${label} sent.` : `Playback ${label} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         await refreshSnapshot().catch(() => undefined);
@@ -1491,6 +1508,7 @@ export function App() {
           {railNavItems.map((item) => {
             const surface = item.surface;
             const disabled = !canOpenSurface(snapshot, surface);
+            const icon = surface === "home" ? <HomeIcon /> : surface === "now_playing" ? <NowPlayingIcon /> : <SettingsIcon />;
             return (
               <button
                 className={[
@@ -1501,8 +1519,9 @@ export function App() {
                 key={surface}
                 onClick={() => setSelectedSurface(surface)}
                 type="button"
+                aria-label={navLabels[surface]}
               >
-                <span className="nav-icon" aria-hidden="true">{surface === "home" ? "H" : surface === "now_playing" ? "NP" : "S"}</span>
+                <span className="nav-icon" aria-hidden="true">{icon}</span>
                 <span>{navLabels[surface]}</span>
               </button>
             );
@@ -1531,13 +1550,22 @@ export function App() {
               playbackTest={setupPlaybackControls}
             />
           )}
-          {activeSurface === "home" && <HomeSurface snapshot={snapshot} library={libraryControls} onStartIdle={() => setIdleActive(true)} />}
+          {activeSurface === "home" && (
+            <HomeSurface
+              snapshot={snapshot}
+              library={libraryControls}
+              onPlaybackAction={sendPlaybackAction}
+              canSendControls={snapshot.capabilities.canControlPlayback && (spotifySdkState.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId))}
+            />
+          )}
           {activeSurface === "now_playing" && (
             <NowPlayingSurface
               snapshot={snapshot}
               spotifySdk={spotifySdkState}
               onActivateSpotify={activateSpotifyPlayer}
               onPlaybackAction={sendPlaybackAction}
+              shuffleEnabled={shuffleEnabled}
+              repeatEnabled={repeatEnabled}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
               nowMs={nowMs}
@@ -1744,7 +1772,17 @@ function SetupPlaybackCompletionPanel({
   );
 }
 
-function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: LibraryControls; onStartIdle: () => void }) {
+function HomeSurface({
+  snapshot,
+  library,
+  onPlaybackAction,
+  canSendControls,
+}: {
+  snapshot: AppSnapshot;
+  library: LibraryControls;
+  onPlaybackAction: (action: PlaybackCommand) => void;
+  canSendControls: boolean;
+}) {
   const availability = libraryAvailability(snapshot);
   const categories: LibraryCategoryId[] = homeLibraryCategoryOrder;
   const activeSection =
@@ -1757,10 +1795,11 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
       {(nowPlaying || !availability.canBrowse || snapshot.staleness.isStale) && (
         <section className="home-header" aria-label="Home status">
           {nowPlaying && (
-            <div className="home-now-playing-pill">
-              <strong>{nowPlaying.isPlaying ? "Playing" : "Paused"}</strong>
-              <span>{nowPlaying.title}</span>
-            </div>
+            <HomeMiniPlayer
+              playing={nowPlaying}
+              canSendControls={canSendControls}
+              onPlaybackAction={onPlaybackAction}
+            />
           )}
           {(!availability.canBrowse || snapshot.staleness.isStale) && (
             <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
@@ -1783,7 +1822,7 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
       </section>
 
       {activeSection ? (
-        <LibraryFeatureSection section={activeSection} snapshot={snapshot} onPlay={library.onPlay} message={library.message} />
+        <LibraryFeatureSection section={activeSection} snapshot={snapshot} onPlay={library.onPlay} />
       ) : (
         <section className="library-section">
           <h2>No saved content shown</h2>
@@ -1794,18 +1833,49 @@ function HomeSurface({ snapshot, library }: { snapshot: AppSnapshot; library: Li
   );
 }
 
+function HomeMiniPlayer({
+  playing,
+  canSendControls,
+  onPlaybackAction,
+}: {
+  playing: NonNullable<AppSnapshot["nowPlaying"]>;
+  canSendControls: boolean;
+  onPlaybackAction: (action: PlaybackCommand) => void;
+}) {
+  return (
+    <div className="home-mini-player">
+      <div className="home-mini-art">
+        {playing.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <span>{itemInitials(playing.title)}</span>}
+      </div>
+      <div className="home-mini-copy">
+        <strong>{playing.title}</strong>
+        <span>{playing.artist}</span>
+      </div>
+      <div className="home-mini-controls" aria-label="Home playback controls">
+        <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("previous")} aria-label="Restart track">
+          <PreviousIcon />
+        </button>
+        <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction(playing.isPlaying ? "pause" : "play")} aria-label={playing.isPlaying ? "Pause" : "Play"}>
+          {playing.isPlaying ? <PauseIcon /> : <PlayIcon />}
+        </button>
+        <button disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("next")} aria-label="Next track">
+          <NextIcon />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LibraryFeatureSection({
   section,
   snapshot,
   onPlay,
-  message,
 }: {
   section: LibraryHomeResponse["sections"][number];
   snapshot: AppSnapshot;
   onPlay: (item: LibraryItem) => void;
-  message: string;
 }) {
-  const featured = section.items.slice(0, 6);
+  const featured = section.items.slice(0, 20);
   return (
     <section className="library-feature-section" aria-label={section.title}>
       {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
@@ -1832,7 +1902,6 @@ function LibraryFeatureSection({
         ))}
       </div>
       {section.items.length === 0 && <p className="subtle">No items in this constrained section.</p>}
-      <p className="subtle">{message}</p>
     </section>
   );
 }
@@ -1911,6 +1980,8 @@ function NowPlayingSurface({
   spotifySdk,
   onActivateSpotify,
   onPlaybackAction,
+  shuffleEnabled,
+  repeatEnabled,
   sleepTimer,
   volume,
   nowMs,
@@ -1919,7 +1990,9 @@ function NowPlayingSurface({
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
   onActivateSpotify: () => void;
-  onPlaybackAction: (action: "play" | "pause" | "next" | "previous") => void;
+  onPlaybackAction: (action: PlaybackCommand) => void;
+  shuffleEnabled: boolean;
+  repeatEnabled: boolean;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
   nowMs: number;
@@ -1949,17 +2022,17 @@ function NowPlayingSurface({
           <span>{formatMs(playing?.durationMs)}</span>
         </div>
         <div className="mode-row" aria-label="Playback modes">
-          <button className="mode-button" disabled type="button" aria-label="Shuffle unavailable in this version">
+          <button className={shuffleEnabled ? "mode-button active" : "mode-button"} disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("shuffle")} aria-label={shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on"}>
             <ShuffleIcon />
           </button>
-          <button className="mode-button" disabled type="button" aria-label="Repeat unavailable in this version">
+          <button className={repeatEnabled ? "mode-button active" : "mode-button"} disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("repeat")} aria-label={repeatEnabled ? "Turn repeat off" : "Turn repeat on"}>
             <RepeatIcon />
           </button>
-          <button className="mode-button mode-button-wide" disabled type="button" aria-label="Generate radio unavailable in this version">
+          <button className="mode-button mode-button-wide unavailable" disabled type="button" aria-label="Radio is a follow-up feature">
             <RadioIcon />
             <span>Radio</span>
           </button>
-          <button className="mode-button mode-button-wide" disabled type="button" aria-label="Queue unavailable in this version">
+          <button className="mode-button mode-button-wide unavailable" disabled type="button" aria-label="Queue is a follow-up feature">
             <QueueIcon />
             <span>Queue</span>
           </button>
@@ -2587,6 +2660,36 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
           <path d="M18.5 7a7 7 0 0 1 0 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </>
       )}
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M4 11.5 12 5l8 6.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 10.5V20h11V10.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M10 20v-5h4v5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function NowPlayingIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2.2" />
+      <circle cx="12" cy="12" r="2.2" fill="currentColor" />
+      <path d="M15.5 8.5v7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M8.5 9.5v5l4-2.5-4-2.5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="none" stroke="currentColor" strokeWidth="2.1" />
+      <path d="M12 2.8v2.1M12 19.1v2.1M4.8 4.8l1.5 1.5M17.7 17.7l1.5 1.5M2.8 12h2.1M19.1 12h2.1M4.8 19.2l1.5-1.5M17.7 6.3l1.5-1.5" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
     </svg>
   );
 }

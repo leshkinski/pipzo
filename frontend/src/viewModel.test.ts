@@ -497,11 +497,11 @@ describe("kiosk shell view model", () => {
     const primaryControlRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
     const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(shellRule).toContain("grid-template-columns: 54px minmax(0, 1fr)");
+    expect(shellRule).toContain("grid-template-columns: 76px minmax(0, 1fr)");
     expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 32px)");
     expect(shellRule).toContain("width: 100%");
     expect(shellRule).toContain("margin: 0");
-    expect(navButtonRule).toContain("min-height: 72px");
+    expect(navButtonRule).toContain("min-height: 86px");
     expect(navButtonRule).toContain("font-size: 12px");
     expect(primaryControlRule).toContain("min-height: 92px");
     expect(utilityControlRule).toContain("min-height: 64px");
