@@ -95,12 +95,12 @@ export function transferSpotifyPlayback(body: SpotifyPlaybackTransferRequest): P
   return request<ActionResult>("/api/v1/spotify/playback/transfer", { method: "POST", body: JSON.stringify(body) });
 }
 
-export function fetchLibraryHome(): Promise<LibraryHomeResponse> {
-  return request<LibraryHomeResponse>("/api/v1/library/home");
+export function fetchLibraryHome(limit = 12): Promise<LibraryHomeResponse> {
+  return request<LibraryHomeResponse>(`/api/v1/library/home?limit=${limit}`);
 }
 
-export function fetchLibraryCategory(category: LibraryCategoryId): Promise<LibraryCategoryResponse> {
-  return request<LibraryCategoryResponse>(`/api/v1/library/${category}`);
+export function fetchLibraryCategory(category: LibraryCategoryId, limit = 50): Promise<LibraryCategoryResponse> {
+  return request<LibraryCategoryResponse>(`/api/v1/library/${category}?limit=${limit}`);
 }
 
 export function searchLibrary(query: string): Promise<LibrarySearchResponse> {

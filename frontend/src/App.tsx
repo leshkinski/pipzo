@@ -161,7 +161,7 @@ type LibraryControls = {
   onPlay: (item: LibraryItem) => void;
 };
 
-type PlaybackCommand = "play" | "pause" | "next" | "previous" | "shuffle" | "repeat";
+type PlaybackCommand = "play" | "pause" | "next" | "previous" | "previous_track" | "shuffle" | "repeat";
 
 const navLabels: Record<SurfaceId, string> = {
   setup: "Setup",
@@ -249,6 +249,7 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   const snapshotRefreshInFlightRef = useRef<Promise<AppSnapshot> | null>(null);
   const scheduledSnapshotRefreshIdsRef = useRef<number[]>([]);
+  const previousTapTimeoutRef = useRef<number | null>(null);
   const homeAutoRefreshActiveRef = useRef(false);
 
   useExplicitDragScroll(appRef);
@@ -1307,12 +1308,31 @@ export function App() {
   }
 
   async function sendPlaybackAction(action: PlaybackCommand) {
+    if (action === "previous") {
+      if (previousTapTimeoutRef.current !== null) {
+        window.clearTimeout(previousTapTimeoutRef.current);
+        previousTapTimeoutRef.current = null;
+        await dispatchPlaybackAction("previous_track");
+        return;
+      }
+      previousTapTimeoutRef.current = window.setTimeout(() => {
+        previousTapTimeoutRef.current = null;
+        void dispatchPlaybackAction("previous");
+      }, 260);
+      return;
+    }
+    await dispatchPlaybackAction(action);
+  }
+
+  async function dispatchPlaybackAction(action: PlaybackCommand) {
     const remotePlayback = snapshot.diagnostics.lastCommand === "spotify.current_playback" && snapshot.diagnostics.rawAdapterCode?.startsWith("device_mismatch:");
     const deviceId = remotePlayback ? undefined : spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
     const requestedAction =
       action === "previous"
         ? "seek_start"
-        : action === "shuffle"
+        : action === "previous_track"
+          ? "previous"
+          : action === "shuffle"
           ? shuffleEnabled ? "shuffle_off" : "shuffle_on"
           : action === "repeat"
             ? repeatEnabled ? "repeat_off" : "repeat_context"
@@ -1326,7 +1346,7 @@ export function App() {
         if (result.state === "succeeded" && action === "repeat") {
           setRepeatEnabled((current) => !current);
         }
-        const label = requestedAction === "seek_start" ? "restart" : action;
+        const label = requestedAction === "seek_start" ? "restart" : action === "previous_track" ? "previous track" : action;
         setStatusText(result.state === "succeeded" ? `Playback ${label} sent.` : `Playback ${label} blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         await refreshSnapshot().catch(() => undefined);
         if (result.state === "succeeded") {
@@ -1875,7 +1895,7 @@ function LibraryFeatureSection({
   snapshot: AppSnapshot;
   onPlay: (item: LibraryItem) => void;
 }) {
-  const featured = section.items.slice(0, 20);
+  const featured = uniqueLibraryItems(section.items).slice(0, 50);
   return (
     <section className="library-feature-section" aria-label={section.title}>
       {snapshot.staleness.isStale && <strong className="stale-pill">Stale</strong>}
@@ -1901,9 +1921,21 @@ function LibraryFeatureSection({
           )
         ))}
       </div>
-      {section.items.length === 0 && <p className="subtle">No items in this constrained section.</p>}
+      {featured.length === 0 && <p className="subtle">No items in this constrained section.</p>}
     </section>
   );
+}
+
+function uniqueLibraryItems(items: LibraryItem[]): LibraryItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.uri || `${item.type}:${item.id}:${item.title}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function LibraryArtworkCard({
@@ -2688,8 +2720,14 @@ function NowPlayingIcon() {
 function SettingsIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="none" stroke="currentColor" strokeWidth="2.1" />
-      <path d="M12 2.8v2.1M12 19.1v2.1M4.8 4.8l1.5 1.5M17.7 17.7l1.5 1.5M2.8 12h2.1M19.1 12h2.1M4.8 19.2l1.5-1.5M17.7 6.3l1.5-1.5" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
+      <path
+        d="M9.7 3.2h4.6l.7 2.4 1.8.8 2.2-1.2 2.3 4-1.8 1.6v2.4l1.8 1.6-2.3 4-2.2-1.2-1.8.8-.7 2.4H9.7L9 18.4l-1.8-.8L5 18.8l-2.3-4 1.8-1.6v-2.4L2.7 9.2l2.3-4 2.2 1.2 1.8-.8.7-2.4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
@@ -2741,10 +2779,10 @@ function NextIcon() {
 function ShuffleIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      <path d="M4 7h3c3 0 4.5 10 8 10h1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M4 17h3c1.6 0 2.8-1.8 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="m17 14 3 3-3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="m17 4 3 3-3 3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 7h2.6c4.6 0 5.6 10 10.4 10H20" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+      <path d="M4 17h2.6c1.9 0 3.1-1.7 4.2-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+      <path d="M16.8 4.4 20 7l-3.2 2.6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
+      <path d="M16.8 14.4 20 17l-3.2 2.6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
     </svg>
   );
 }

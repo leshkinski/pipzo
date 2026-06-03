@@ -562,7 +562,7 @@ describe("kiosk shell view model", () => {
 
     expect(featureGridRule).toContain("display: flex");
     expect(featureGridRule).toContain("overflow-x: auto");
-    expect(featureGridRule).toContain("touch-action: pan-x");
+    expect(featureGridRule).toContain("touch-action: none");
     expect(appSource).toContain('className="library-feature-grid" data-drag-scroll');
   });
 

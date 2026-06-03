@@ -165,6 +165,34 @@ describe("explicit drag scroll", () => {
     expect(preventDefault).toHaveBeenCalledTimes(2);
   });
 
+  it("converts horizontal card touch drag distance into scrollLeft on marked rails", () => {
+    const root = new FakeRoot();
+    const rail = new FakeElement();
+    rail.scrollLeft = 50;
+    rail.scrollWidth = 420;
+    rail.clientWidth = 180;
+    rail.scrollHeight = 100;
+    rail.clientHeight = 100;
+    const card = new FakeElement(false);
+    rail.parentElement = root;
+    card.parentElement = rail;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const preventDefault = vi.fn();
+
+    root.dispatch("touchstart", { target: card, touches: [{ clientX: 180, clientY: 90 }] });
+    root.dispatch("touchmove", { touches: [{ clientX: 150, clientY: 92 }], preventDefault });
+    root.dispatch("touchmove", { touches: [{ clientX: 110, clientY: 92 }], preventDefault });
+    root.dispatch("touchend", {});
+    const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    root.dispatch("click", click);
+
+    expect(rail.scrollLeft).toBe(120);
+    expect(rail.scrollTop).toBe(0);
+    expect(preventDefault).toHaveBeenCalledTimes(2);
+    expect(click.preventDefault).toHaveBeenCalledTimes(1);
+    expect(click.stopPropagation).toHaveBeenCalledTimes(1);
+  });
+
   it("does not suppress mouse pointer clicks until movement crosses the drag threshold", () => {
     const root = new FakeRoot();
     const scrollTarget = new FakeElement();
