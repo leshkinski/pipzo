@@ -568,6 +568,21 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain('className="library-feature-grid" data-drag-scroll');
   });
 
+  it("keeps Now Playing transport controls reserved when track text is long", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const playerCopyRule = css.match(/\.player-copy\s*\{[^}]+\}/)?.[0] ?? "";
+    const trackTitleRule = css.match(/\.player-panel h1\.track-title\s*\{[^}]+\}/)?.[0] ?? "";
+    const transportRowRule = css.match(/\.transport-row\s*\{[^}]+\}/)?.[0] ?? "";
+    const primaryButtonRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(playerCopyRule).toContain("max-height: 168px");
+    expect(playerCopyRule).toContain("overflow: hidden");
+    expect(trackTitleRule).toContain("-webkit-line-clamp: 2");
+    expect(trackTitleRule).toContain("overflow-wrap: anywhere");
+    expect(transportRowRule).toContain("min-height: 92px");
+    expect(primaryButtonRule).toContain("width: 92px");
+  });
+
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {
     const snapshot = {
       ...localScenarios.ready_healthy.snapshot,

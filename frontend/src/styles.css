@@ -487,8 +487,15 @@ button:disabled {
 }
 
 .player-panel h1.track-title {
+  display: -webkit-box;
+  max-width: 100%;
+  max-height: 2.24em;
+  overflow: hidden;
   font-size: clamp(22px, 2.6vw, 32px);
   line-height: 1.12;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .hero-panel p,
@@ -959,18 +966,33 @@ button:disabled {
 
 .player-panel {
   display: grid;
-  grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, auto) auto auto auto auto minmax(0, 1fr) auto auto;
   gap: 12px;
   min-height: 100%;
   background: rgba(8, 12, 11, 0.58);
+  overflow: hidden;
 }
 
 .player-copy {
+  display: grid;
+  gap: 8px;
   min-width: 0;
+  max-height: 168px;
+  overflow: hidden;
 }
 
 .player-copy p {
   margin: 0;
+}
+
+.player-copy p:not(.eyebrow) {
+  display: -webkit-box;
+  max-width: 100%;
+  max-height: 2.7em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .progress {
@@ -1020,11 +1042,13 @@ button:disabled {
   justify-content: center;
   gap: 16px;
   margin-top: 10px;
+  min-height: 92px;
 }
 
 .transport-row button {
   display: grid;
   place-items: center;
+  align-self: center;
   border-radius: 999px;
 }
 
@@ -1035,12 +1059,14 @@ button:disabled {
 
 .transport-secondary {
   flex: 0 0 66px;
+  width: 66px;
   min-height: 66px;
   background: rgba(246, 240, 223, 0.08);
 }
 
 .transport-primary {
   flex: 0 0 92px;
+  width: 92px;
   min-height: 92px;
   background: #dfe8b7;
   color: #111711;
