@@ -1041,11 +1041,11 @@ def test_hardware_volume_patch_coordinates_spotify_and_os_volume(tmp_path):
         {
             "api_base_url": "https://api.spotify.com",
             "access_token": "refreshed-access-token",
-            "volume_percent": 64,
+            "volume_percent": 80,
             "device_id": "pipzo-device-id",
         }
     ]
-    assert volume_adapter.set_calls == [(64, False)]
+    assert volume_adapter.set_calls == [(80, False)]
 
 
 def test_hardware_volume_patch_reports_partial_os_only_when_spotify_volume_fails(tmp_path):
@@ -1082,6 +1082,7 @@ def test_hardware_volume_patch_reports_spotify_only_when_os_audio_session_unavai
         "value": 45,
         "muted": False,
     }
+    assert spotify_client.volume_calls[-1]["volume_percent"] == 45
 
 
 def test_mock_library_browse_and_constrained_search_work_without_spotify_auth(tmp_path):

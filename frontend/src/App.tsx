@@ -2489,7 +2489,7 @@ function VolumeControlPanel({
         <div className="volume-controls">
           <button
             className="icon-button"
-            disabled={view.disabled || controls.busy}
+            disabled={view.disabled}
             type="button"
             onClick={() => controls.onChange(value, !view.muted)}
             aria-label={view.muted ? "Unmute" : "Mute"}
@@ -2501,7 +2501,7 @@ function VolumeControlPanel({
             disabled={view.disabled}
             min="0"
             max="100"
-            step="2"
+            step="1"
             type="range"
             value={dragValue}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
@@ -2526,7 +2526,7 @@ function VolumeControlPanel({
             disabled={view.disabled || controls.busy}
             min="0"
             max="100"
-            step="2"
+            step="1"
             type="range"
             value={dragValue}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}

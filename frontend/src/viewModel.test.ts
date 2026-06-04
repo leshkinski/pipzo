@@ -661,6 +661,8 @@ describe("kiosk shell view model", () => {
     expect(appSource).not.toContain("player-utility-button");
     expect(appSource).toContain("volumeRequestSeqRef");
     expect(appSource).toContain("requestId !== volumeRequestSeqRef.current");
+    expect(appSource).toContain('disabled={view.disabled}');
+    expect(appSource).toContain('step="1"');
     expect(volumeInputRule).toContain("min-height: 82px");
     expect(volumeThumbRule).toContain("width: 54px");
     expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
