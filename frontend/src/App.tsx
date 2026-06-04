@@ -94,6 +94,11 @@ type KeyboardState = {
   surface: SurfaceId | null;
 };
 
+type TouchFeedback = {
+  id: number;
+  label: string;
+};
+
 type SpotifyAuthControls = {
   session: SpotifyAuthSession | null;
   busy: boolean;
@@ -240,6 +245,7 @@ export function App() {
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
   const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
+  const [touchFeedback, setTouchFeedback] = useState<TouchFeedback | null>(null);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
     status: "disabled",
     activated: false,
@@ -251,6 +257,7 @@ export function App() {
   const scheduledSnapshotRefreshIdsRef = useRef<number[]>([]);
   const previousTapTimeoutRef = useRef<number | null>(null);
   const homeAutoRefreshActiveRef = useRef(false);
+  const touchFeedbackTimeoutRef = useRef<number | null>(null);
 
   useExplicitDragScroll(appRef);
 
@@ -378,6 +385,80 @@ export function App() {
   useEffect(() => {
     return () => {
       clearScheduledSnapshotRefreshes();
+      if (touchFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(touchFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = appRef.current;
+    if (!root) {
+      return;
+    }
+    const interactionRoot = root;
+
+    let pressedElement: HTMLElement | null = null;
+    let startX = 0;
+    let startY = 0;
+
+    function clearPressedElement() {
+      pressedElement?.classList.remove("touch-pressed");
+      pressedElement = null;
+    }
+
+    function feedbackLabel(element: HTMLElement): string {
+      const label = element.getAttribute("aria-label") ?? element.textContent ?? "Selected";
+      const normalized = label.replace(/\s+/g, " ").trim();
+      return normalized || "Selected";
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+      const element = event.target.closest<HTMLElement>("button, [role='button'], input, select, textarea, label");
+      if (!element || !interactionRoot.contains(element) || element.matches(":disabled, [aria-disabled='true']")) {
+        return;
+      }
+
+      clearPressedElement();
+      pressedElement = element;
+      startX = event.clientX;
+      startY = event.clientY;
+      element.classList.add("touch-pressed");
+      setTouchFeedback({ id: Date.now(), label: feedbackLabel(element) });
+      if (touchFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(touchFeedbackTimeoutRef.current);
+      }
+      touchFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setTouchFeedback(null);
+        touchFeedbackTimeoutRef.current = null;
+      }, 900);
+    }
+
+    function onPointerMove(event: PointerEvent) {
+      if (!pressedElement) {
+        return;
+      }
+      if (Math.max(Math.abs(event.clientX - startX), Math.abs(event.clientY - startY)) > 14) {
+        clearPressedElement();
+      }
+    }
+
+    interactionRoot.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    interactionRoot.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+    interactionRoot.addEventListener("pointerup", clearPressedElement, { capture: true, passive: true });
+    interactionRoot.addEventListener("pointercancel", clearPressedElement, { capture: true, passive: true });
+    interactionRoot.addEventListener("pointerleave", clearPressedElement, { capture: true, passive: true });
+
+    return () => {
+      clearPressedElement();
+      interactionRoot.removeEventListener("pointerdown", onPointerDown, true);
+      interactionRoot.removeEventListener("pointermove", onPointerMove, true);
+      interactionRoot.removeEventListener("pointerup", clearPressedElement, true);
+      interactionRoot.removeEventListener("pointercancel", clearPressedElement, true);
+      interactionRoot.removeEventListener("pointerleave", clearPressedElement, true);
     };
   }, []);
 
@@ -1506,6 +1587,11 @@ export function App() {
       ) : (
         <>
       <div className="sr-only" aria-live="polite">{statusText}</div>
+      {touchFeedback && (
+        <div className="interaction-toast" role="status" aria-live="polite" key={touchFeedback.id}>
+          {touchFeedback.label}
+        </div>
+      )}
       {showDeveloperPanel && (
         <DeveloperPanel
           scenarios={scenarios}

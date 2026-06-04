@@ -529,6 +529,26 @@ describe("kiosk shell view model", () => {
     expect(textEntryRule).toContain("-webkit-touch-callout: default");
   });
 
+  it("provides immediate touch feedback for interactive controls", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    const buttonRule = css.match(/button\s*\{[^}]+\}/)?.[0] ?? "";
+    const pressedRule = css.match(/button:not\(:disabled\):active,[^}]+\}/)?.[0] ?? "";
+    const formPressedRule = css.match(/input\.touch-pressed,[^}]+\}/)?.[0] ?? "";
+    const toastRule = css.match(/\.interaction-toast\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(appSource).toContain("type TouchFeedback");
+    expect(appSource).toContain("classList.add(\"touch-pressed\")");
+    expect(appSource).toContain("className=\"interaction-toast\"");
+    expect(buttonRule).toContain("transition:");
+    expect(pressedRule).toContain("transform: translateY(1px) scale(0.985)");
+    expect(pressedRule).toContain("box-shadow:");
+    expect(formPressedRule).toContain("outline: 3px solid");
+    expect(toastRule).toContain("position: fixed");
+    expect(toastRule).toContain("animation: interaction-toast-pop");
+    expect(toastRule).toContain("pointer-events: none");
+  });
+
   it("keeps direct finger panning on page and surface scrollers without button-level touch overrides", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
