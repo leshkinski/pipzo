@@ -1836,22 +1836,6 @@ label.touch-pressed {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
-.volume-percent-indicator {
-  position: absolute;
-  right: 8px;
-  top: 4px;
-  min-width: 48px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(23, 33, 28, 0.78);
-  color: #fffdf7;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1;
-  text-align: center;
-  pointer-events: none;
-}
-
 .volume-panel.icon-volume.muted {
   background: #fff0ed;
 }

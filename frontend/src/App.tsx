@@ -163,6 +163,7 @@ type VolumeControls = {
   onChange: (value: number, muted?: boolean) => void;
   onInteractionStart: () => void;
   onInteractionEnd: () => void;
+  onTransientFeedback: (label: string) => void;
 };
 
 type LikeControls = {
@@ -215,7 +216,6 @@ const setupReadinessRefreshIntervalMs = 2500;
 const backendRecoveryRefreshIntervalMs = 2500;
 const volumeLocalIntentGraceMs = 3000;
 const compactVolumeLiveCommitIntervalMs = 90;
-const volumePercentIndicatorHoldMs = 900;
 const pipzoImportMeta = import.meta as PipzoImportMeta;
 const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzoImportMeta.env?.VITE_PIPZO_SHOW_MOCK_CONTROLS === "true";
 
@@ -490,14 +490,10 @@ export function App() {
       startX = event.clientX;
       startY = event.clientY;
       element.classList.add("touch-pressed");
-      setTouchFeedback({ id: Date.now(), label: feedbackLabel(element) });
-      if (touchFeedbackTimeoutRef.current !== null) {
-        window.clearTimeout(touchFeedbackTimeoutRef.current);
+      if (element instanceof HTMLInputElement && element.type === "range") {
+        return;
       }
-      touchFeedbackTimeoutRef.current = window.setTimeout(() => {
-        setTouchFeedback(null);
-        touchFeedbackTimeoutRef.current = null;
-      }, 900);
+      showInteractionToast(feedbackLabel(element));
     }
 
     function onPointerMove(event: PointerEvent) {
@@ -851,6 +847,17 @@ export function App() {
           ? "Connected to backend mock API."
           : "Connected to backend hardware API.",
     );
+  }
+
+  function showInteractionToast(label: string) {
+    setTouchFeedback({ id: Date.now(), label });
+    if (touchFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(touchFeedbackTimeoutRef.current);
+    }
+    touchFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setTouchFeedback(null);
+      touchFeedbackTimeoutRef.current = null;
+    }, 900);
   }
 
   async function updateDisplay(brightness: number, status: DisplayStatus = snapshot.health.display.status) {
@@ -1781,6 +1788,7 @@ export function App() {
     onChange: updateVolume,
     onInteractionStart: markVolumeInteractionActive,
     onInteractionEnd: releaseVolumeInteractionWhenIdle,
+    onTransientFeedback: showInteractionToast,
   };
   const likeControls = {
     busy: likeBusy,
@@ -2634,8 +2642,6 @@ function VolumeControlPanel({
   const commitGenerationRef = useRef(0);
   const lastLiveCommitAtMsRef = useRef<number | undefined>(undefined);
   const lastCommittedTargetRef = useRef<VolumePatchTarget | null>(null);
-  const percentIndicatorTimeoutRef = useRef<number | null>(null);
-  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => {
     if (draggingRef.current) {
@@ -2649,27 +2655,10 @@ function VolumeControlPanel({
     if (commitTimeoutRef.current !== null) {
       window.clearTimeout(commitTimeoutRef.current);
     }
-    if (percentIndicatorTimeoutRef.current !== null) {
-      window.clearTimeout(percentIndicatorTimeoutRef.current);
-    }
   }, []);
 
   function showPercentIndicator() {
-    if (percentIndicatorTimeoutRef.current !== null) {
-      window.clearTimeout(percentIndicatorTimeoutRef.current);
-      percentIndicatorTimeoutRef.current = null;
-    }
-    setAdjusting(true);
-  }
-
-  function hidePercentIndicatorAfterHold() {
-    if (percentIndicatorTimeoutRef.current !== null) {
-      window.clearTimeout(percentIndicatorTimeoutRef.current);
-    }
-    percentIndicatorTimeoutRef.current = window.setTimeout(() => {
-      setAdjusting(false);
-      percentIndicatorTimeoutRef.current = null;
-    }, volumePercentIndicatorHoldMs);
+    controls.onTransientFeedback(`${Math.round(dragValueRef.current)}%`);
   }
 
   function markDragStarted() {
@@ -2691,6 +2680,7 @@ function VolumeControlPanel({
     markDragStarted();
     dragValueRef.current = nextValue;
     setDragValue(nextValue);
+    showPercentIndicator();
     const commitGeneration = commitGenerationRef.current + 1;
     commitGenerationRef.current = commitGeneration;
 
@@ -2733,7 +2723,6 @@ function VolumeControlPanel({
     draggingRef.current = false;
     sendVolumeChange(nextValue, muted);
     controls.onInteractionEnd();
-    hidePercentIndicatorAfterHold();
   }
 
   function finishVolumeInteraction() {
@@ -2775,11 +2764,6 @@ function VolumeControlPanel({
               }
             }}
           />
-          {adjusting && (
-            <output className="volume-percent-indicator" aria-live="polite">
-              {Math.round(dragValue)}%
-            </output>
-          )}
         </div>
       </section>
     );
