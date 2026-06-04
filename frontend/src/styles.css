@@ -621,8 +621,15 @@ button:disabled {
   gap: 16px;
   align-items: center;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   min-height: 86px;
   padding: 8px 12px;
+  background:
+    linear-gradient(180deg, rgba(18, 23, 18, 0.98), rgba(18, 23, 18, 0.9)),
+    rgba(18, 23, 18, 0.96);
+  box-shadow: 0 10px 22px rgba(3, 5, 5, 0.22);
 }
 
 .home-header-main {

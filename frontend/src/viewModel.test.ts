@@ -582,6 +582,9 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain('className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}');
     expect(appSource).toContain('className="home-mini-eq"');
     expect(headerRule).toContain("grid-template-columns: minmax(0, 1fr) 156px");
+    expect(headerRule).toContain("position: sticky");
+    expect(headerRule).toContain("top: 0");
+    expect(headerRule).toContain("z-index: 5");
     expect(controlsButtonRule).toContain("min-width: 72px");
     expect(controlsButtonRule).toContain("min-height: 56px");
     expect(controlsButtonRule).toContain("border-radius: 12px");
