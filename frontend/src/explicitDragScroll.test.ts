@@ -193,6 +193,33 @@ describe("explicit drag scroll", () => {
     expect(click.stopPropagation).toHaveBeenCalledTimes(1);
   });
 
+  it("routes vertical pulls on horizontal rail cards to the scrollable page surface", () => {
+    const root = new FakeRoot();
+    const surface = new FakeElement();
+    surface.scrollTop = 20;
+    surface.scrollHeight = 520;
+    surface.clientHeight = 180;
+    const rail = new FakeElement();
+    rail.scrollLeft = 50;
+    rail.scrollWidth = 420;
+    rail.clientWidth = 180;
+    rail.scrollHeight = 100;
+    rail.clientHeight = 100;
+    const card = new FakeElement(false);
+    surface.parentElement = root;
+    rail.parentElement = surface;
+    card.parentElement = rail;
+    setupExplicitDragScroll(root as unknown as HTMLElement);
+    const preventDefault = vi.fn();
+
+    root.dispatch("touchstart", { target: card, touches: [{ clientX: 180, clientY: 120 }] });
+    root.dispatch("touchmove", { touches: [{ clientX: 178, clientY: 82 }], preventDefault });
+
+    expect(surface.scrollTop).toBe(58);
+    expect(rail.scrollLeft).toBe(50);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
   it("does not suppress mouse pointer clicks until movement crosses the drag threshold", () => {
     const root = new FakeRoot();
     const scrollTarget = new FakeElement();

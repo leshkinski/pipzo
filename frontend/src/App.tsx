@@ -632,23 +632,39 @@ export function App() {
     setBackendMode(health.mode);
     setSnapshot(state);
     if (state.capabilities.canBrowse) {
-      const home = await fetchLibraryHome().catch(() => null);
-      if (home && !options?.cancelled?.()) {
-        setLibraryHome(home);
-        setLibraryMessage("Library loaded from backend.");
-      }
+      setLibraryBusy(true);
+      setLibraryMessage("Loading library from backend.");
+      void fetchLibraryHome()
+        .then((home) => {
+          if (options?.cancelled?.()) return;
+          setLibraryHome(home);
+          setLibraryMessage("Library loaded from backend.");
+        })
+        .catch(() => {
+          if (!options?.cancelled?.()) {
+            setLibraryMessage("Library refresh is still starting. Playback can be used when available.");
+          }
+        })
+        .finally(() => {
+          if (!options?.cancelled?.()) {
+            setLibraryBusy(false);
+          }
+        });
     } else {
+      setLibraryBusy(false);
       setLibraryHome({ sections: [], generatedAt: new Date().toISOString(), constrained: true });
       setLibraryMessage("Library is unavailable until network and Spotify recovery complete.");
     }
-    const speakerResults = await fetchSpeakerScanResults().catch(() => null);
-    if (speakerResults && !options?.cancelled?.()) {
-      setSpeakerDevices(speakerResults.devices);
-      setSelectedSpeakerAddress((current) => preferredSpeakerSelection(state, speakerResults.devices, current));
-      if (speakerResults.devices.length > 0) {
-        setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
-      }
-    }
+    void fetchSpeakerScanResults()
+      .then((speakerResults) => {
+        if (options?.cancelled?.()) return;
+        setSpeakerDevices(speakerResults.devices);
+        setSelectedSpeakerAddress((current) => preferredSpeakerSelection(state, speakerResults.devices, current));
+        if (speakerResults.devices.length > 0) {
+          setSpeakerMessage("Choose one discovered audio device to pair or replace the current speaker.");
+        }
+      })
+      .catch(() => undefined);
     setScenarios([...backendScenarios, ...localScenarioSummaries().filter((item) => !backendScenarios.some((backend) => backend.id === item.id))]);
     setDataSource("backend");
     setSelectedScenario(backendScenarios[0]?.id ?? "ready_healthy");

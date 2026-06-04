@@ -4,6 +4,7 @@ const dragScrollSelector = "[data-drag-scroll]";
 const dragThresholdPx = 8;
 
 type DragState = {
+  originTarget: Element;
   scrollTarget: HTMLElement;
   startX: number;
   startY: number;
@@ -41,6 +42,7 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
       return;
     }
     drag = {
+      originTarget: target,
       scrollTarget,
       startX: clientX,
       startY: clientY,
@@ -70,9 +72,17 @@ export function setupExplicitDragScroll(root: HTMLElement): () => void {
     }
 
     if (!drag.axis) {
-      const canScrollX = drag.scrollTarget.scrollWidth > drag.scrollTarget.clientWidth;
-      const canScrollY = drag.scrollTarget.scrollHeight > drag.scrollTarget.clientHeight;
-      drag.axis = canScrollX && (!canScrollY || Math.abs(totalDeltaX) > Math.abs(totalDelta)) ? "x" : "y";
+      const preferredAxis = Math.abs(totalDeltaX) > Math.abs(totalDelta) ? "x" : "y";
+      const axisTarget = findDragScrollTargetForAxis(drag.originTarget, root, preferredAxis);
+      if (axisTarget) {
+        drag.scrollTarget = axisTarget;
+        drag.axis = preferredAxis;
+      } else {
+        const fallbackAxis = preferredAxis === "x" ? "y" : "x";
+        const fallbackTarget = findDragScrollTargetForAxis(drag.originTarget, root, fallbackAxis);
+        drag.scrollTarget = fallbackTarget ?? drag.scrollTarget;
+        drag.axis = fallbackTarget ? fallbackAxis : preferredAxis;
+      }
     }
     if (drag.mode === "pointer" && !drag.captured && drag.pointerId !== undefined) {
       try {
@@ -217,6 +227,29 @@ function findDragScrollTarget(target: Element, root: HTMLElement): HTMLElement |
     if (element instanceof HTMLElement && element.matches(dragScrollSelector)) {
       fallback ??= element;
       if (element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) {
+        return element;
+      }
+    }
+    if (element === root) {
+      break;
+    }
+    element = element.parentElement;
+  }
+
+  return fallback;
+}
+
+function findDragScrollTargetForAxis(target: Element, root: HTMLElement, axis: "x" | "y"): HTMLElement | null {
+  let element: Element | null = target;
+  let fallback: HTMLElement | null = null;
+
+  while (element && root.contains(element)) {
+    if (element instanceof HTMLElement && element.matches(dragScrollSelector)) {
+      fallback ??= element;
+      const canScroll = axis === "x"
+        ? element.scrollWidth > element.clientWidth
+        : element.scrollHeight > element.clientHeight;
+      if (canScroll) {
         return element;
       }
     }
