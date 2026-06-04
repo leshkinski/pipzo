@@ -278,6 +278,7 @@ export function App() {
   const previousTapTimeoutRef = useRef<number | null>(null);
   const homeAutoRefreshActiveRef = useRef(false);
   const touchFeedbackTimeoutRef = useRef<number | null>(null);
+  const volumeRequestSeqRef = useRef(0);
 
   useExplicitDragScroll(appRef);
 
@@ -378,7 +379,8 @@ export function App() {
 
     function updateKeyboardFocus() {
       const element = document.activeElement;
-      const editable = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+      const editable = element instanceof HTMLTextAreaElement
+        || (element instanceof HTMLInputElement && !["range", "checkbox", "radio", "button", "submit", "reset"].includes(element.type));
       setKeyboardState({ active: editable, surface: editable ? activeElementSurface(element) : null });
     }
 
@@ -1512,33 +1514,44 @@ export function App() {
   async function updateVolume(value: number, muted = snapshot.health.volume.muted ?? false) {
     const bounded = Math.max(0, Math.min(100, Math.round(value)));
     const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    const requestId = volumeRequestSeqRef.current + 1;
+    volumeRequestSeqRef.current = requestId;
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
     setVolumeBusy(true);
-    if (dataSource === "backend") {
-      try {
-        const volume = await patchVolume({ value: bounded, muted, deviceId });
-        setSnapshot((current) => ({ ...current, health: { ...current.health, volume } }));
-        setVolumeMessage(volume.status === "unified" ? "Volume updated." : `Volume partially updated: ${labelFromId(volume.reason ?? volume.status)}.`);
-        setStatusText(volume.status === "unified" ? "Volume updated." : "Volume control is partially available.");
-        return;
-      } catch {
-        setVolumeMessage("Volume command could not be sent.");
-        setStatusText("Volume command could not be sent.");
-      } finally {
-        setVolumeBusy(false);
-      }
-    }
     setSnapshot((current) => ({
       ...current,
       health: {
         ...current.health,
         volume: {
           ...current.health.volume,
-          status: current.capabilities.canControlVolume ? "unified" : "unavailable",
           value: bounded,
           muted,
         },
       },
     }));
+    if (dataSource === "backend") {
+      try {
+        const volume = await patchVolume({ value: bounded, muted, deviceId });
+        if (requestId !== volumeRequestSeqRef.current) {
+          return;
+        }
+        setSnapshot((current) => ({ ...current, health: { ...current.health, volume } }));
+        setVolumeMessage(volume.status === "unified" ? "Volume updated." : `Volume partially updated: ${labelFromId(volume.reason ?? volume.status)}.`);
+        setStatusText(volume.status === "unified" ? "Volume updated." : "Volume control is partially available.");
+        return;
+      } catch {
+        if (requestId !== volumeRequestSeqRef.current) {
+          return;
+        }
+        setVolumeMessage("Volume command could not be sent.");
+        setStatusText("Volume command could not be sent.");
+      } finally {
+        if (requestId === volumeRequestSeqRef.current) {
+          setVolumeBusy(false);
+        }
+      }
+    }
     setVolumeMessage("Local volume mock updated.");
     setStatusText("Local volume mock updated.");
     setVolumeBusy(false);

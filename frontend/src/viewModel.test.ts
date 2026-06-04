@@ -469,6 +469,7 @@ describe("kiosk shell view model", () => {
 
   it("uses the visual viewport for the kiosk shell while an OSK is open", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
     const rootRule = css.match(/:root\s*\{[^}]+\}/)?.[0] ?? "";
     const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
     const keyboardShellRule = css.match(/\.app\.keyboard-active \.shell\s*\{[^}]+\}/)?.[0] ?? "";
@@ -479,6 +480,7 @@ describe("kiosk shell view model", () => {
     expect(appRule).toContain("overflow: hidden");
     expect(appRule).toContain("padding-bottom: max(16px, calc(var(--pipzo-keyboard-inset) + 16px))");
     expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
+    expect(appSource).toContain('!["range", "checkbox", "radio", "button", "submit", "reset"].includes(element.type)');
   });
 
   it("keeps V1 daily library browsing free of text search controls", () => {
@@ -657,6 +659,8 @@ describe("kiosk shell view model", () => {
     expect(transportSecondaryRule).toContain("width: 86px");
     expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
     expect(appSource).not.toContain("player-utility-button");
+    expect(appSource).toContain("volumeRequestSeqRef");
+    expect(appSource).toContain("requestId !== volumeRequestSeqRef.current");
     expect(volumeInputRule).toContain("min-height: 82px");
     expect(volumeThumbRule).toContain("width: 54px");
     expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
