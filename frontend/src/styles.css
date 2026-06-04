@@ -1836,14 +1836,6 @@ label.touch-pressed {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
-.volume-panel.icon-volume.muted {
-  background: #fff0ed;
-}
-
-.volume-panel.icon-volume.muted .icon-button {
-  color: #c84c3b;
-}
-
 .idle-settings {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, 0.45fr)) minmax(190px, 0.55fr) minmax(220px, 0.7fr);

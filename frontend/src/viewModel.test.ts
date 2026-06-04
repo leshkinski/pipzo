@@ -740,6 +740,7 @@ describe("kiosk shell view model", () => {
     const volumePanelRule = css.match(/\.volume-panel\s*\{[^}]+\}/)?.[0] ?? "";
     const volumeButtonRule = css.match(/\.volume-controls button\s*\{[^}]+\}/)?.[0] ?? "";
     const queuePanelRule = css.match(/\.queue-panel\s*\{[^}]+\}/)?.[0] ?? "";
+    const mutedVolumeRules = css.match(/\.volume-panel\.icon-volume\.muted[^}]+\}/g) ?? [];
 
     expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
     expect(appSource).toContain("const railUtilityItems = railNavItems.filter((item) => item.priority === \"utility\")");
@@ -777,6 +778,7 @@ describe("kiosk shell view model", () => {
     expect(volumeInputRule).toContain("border: 0");
     expect(volumeThumbRule).toContain("width: 54px");
     expect(volumeThumbRule).toContain("border: 0");
+    expect(mutedVolumeRules.join("\n")).not.toMatch(/background|color|accent-color/);
     expect(queuePanelRule).toContain("grid-template-rows: auto minmax(0, 1fr)");
   });
 
