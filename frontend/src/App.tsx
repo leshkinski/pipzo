@@ -60,6 +60,7 @@ import {
   preferredSpeakerSelection,
   preferredSurface,
   playbackQueueAfterSelection,
+  playbackQueueAfterNewPlaybackIntent,
   playbackQueueAfterStableRefresh,
   playbackQueueViewModel,
   queueSelectionPlayback,
@@ -1062,19 +1063,36 @@ export function App() {
     const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
     setLibraryBusy(true);
     setLibraryMessage(`Starting ${item.title}.`);
+    const queueWasOpen = queueOpen;
     try {
       if (dataSource === "backend") {
         const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         if (result.state === "succeeded") {
+          if (queueWasOpen) {
+            queueOptimisticRefreshUntilMsRef.current = 0;
+            setQueueBusy(true);
+            setQueueMessage(`Refreshing songs coming up for ${item.title}.`);
+            setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
+          }
           await refreshSnapshot().catch(() => undefined);
           scheduleSnapshotRefreshes();
+          if (queueWasOpen) {
+            await loadPlaybackQueue().catch(() => undefined);
+            window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 900);
+            window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 2_500);
+          }
           if (snapshot.setup.blockingStep === "playback_test") {
             setPlaybackTestMessage("Playback worked, so setup can finish.");
             setStatusText("Playback worked. Setup is finishing.");
           }
         }
       } else {
+        if (queueWasOpen) {
+          queueOptimisticRefreshUntilMsRef.current = 0;
+          setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
+          setQueueMessage(`Local queue will refresh after ${item.title}.`);
+        }
         setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
       }
       setSelectedSurface("now_playing");
@@ -1094,22 +1112,24 @@ export function App() {
     try {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
-        setPlaybackQueue((current) => playbackQueueAfterStableRefresh(current, queue, {
-          preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
-        }));
-        const displayedQueue = playbackQueueAfterStableRefresh(playbackQueue, queue, {
-          preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
+        let displayedQueue = queue;
+        setPlaybackQueue((current) => {
+          displayedQueue = playbackQueueAfterStableRefresh(current, queue, {
+            preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
+          });
+          return displayedQueue;
         });
         setQueueMessage(playbackQueueViewModel(displayedQueue).upcomingCount > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
       } else {
         const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
           .filter((item) => item.playbackKind === "track")
           .slice(0, 12);
-        setPlaybackQueue({
+        const queue = {
           current: fallbackItems[0] ?? null,
           items: fallbackItems.slice(1),
           generatedAt: new Date().toISOString(),
-        });
+        };
+        setPlaybackQueue(queue);
         setQueueMessage("Local queue preview loaded.");
       }
     } catch {
@@ -2581,6 +2601,7 @@ function currentProgressMs(playing: AppSnapshot["nowPlaying"], nowMs: number): n
 
 function QueuePanel({ queue }: { queue: QueueControls }) {
   const view = playbackQueueViewModel(queue);
+  const showRefreshing = queue.busy && view.rows.length === 0;
   return (
     <div className="queue-panel">
       <div className="queue-heading">
@@ -2608,7 +2629,8 @@ function QueuePanel({ queue }: { queue: QueueControls }) {
             </span>
           </button>
         ))}
-        {view.emptyCopy && <p className="subtle">{view.emptyCopy}</p>}
+        {showRefreshing && <p className="subtle">{queue.message}</p>}
+        {!showRefreshing && view.emptyCopy && <p className="subtle">{view.emptyCopy}</p>}
       </div>
     </div>
   );

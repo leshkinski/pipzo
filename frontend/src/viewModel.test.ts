@@ -19,6 +19,7 @@ import {
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
   playbackQueueAfterSelection,
+  playbackQueueAfterNewPlaybackIntent,
   playbackQueueAfterStableRefresh,
   playbackQueueViewModel,
   preferredSpeakerSelection,
@@ -867,6 +868,21 @@ describe("kiosk shell view model", () => {
     expect(playbackQueueAfterStableRefresh(optimistic, reconciled, { preserveTransientCollapse: true })).toBe(reconciled);
   });
 
+  it("invalidates stale queue rows for a new Home playback intent", () => {
+    const invalidated = playbackQueueAfterNewPlaybackIntent("2026-06-04T10:05:00.000Z");
+
+    expect(invalidated).toEqual({
+      current: null,
+      items: [],
+      generatedAt: "2026-06-04T10:05:00.000Z",
+    });
+    expect(playbackQueueViewModel(invalidated)).toMatchObject({
+      rows: [],
+      upcomingCount: 0,
+      emptyCopy: "Spotify has no current or upcoming songs right now.",
+    });
+  });
+
   it("keeps queue selection continuation consistent with display de-duping", () => {
     const queue = queueSelectionPlayback(localSingleSongPlaybackQueue, localSingleSongPlaybackQueue.current!);
 
@@ -905,6 +921,17 @@ describe("kiosk shell view model", () => {
     expect(shouldRefreshNowPlaying(ready, "local")).toBe(false);
     expect(shouldRefreshNowPlaying(firstBoot, "backend")).toBe(false);
     expect(shouldRefreshNowPlaying(offline, "backend")).toBe(false);
+  });
+
+  it("clears an open queue panel after Home starts new playback without changing queue selection continuation", () => {
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+    expect(appSource).toContain("const queueWasOpen = queueOpen");
+    expect(appSource).toContain("setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()))");
+    expect(appSource).toContain("await loadPlaybackQueue().catch(() => undefined)");
+    expect(appSource).toContain("queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000");
+    expect(appSource).toContain("playbackQueueAfterSelection(current, item, new Date().toISOString())");
+    expect(appSource).toContain("const showRefreshing = queue.busy && view.rows.length === 0");
   });
 
   it("schedules a bounded Now Playing refresh near the expected track boundary", () => {

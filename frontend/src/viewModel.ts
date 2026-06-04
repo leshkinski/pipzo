@@ -135,6 +135,14 @@ export function playbackQueueAfterSelection(
   };
 }
 
+export function playbackQueueAfterNewPlaybackIntent(generatedAt: string): PlaybackQueueResponse {
+  return {
+    current: null,
+    items: [],
+    generatedAt,
+  };
+}
+
 export function playbackQueueAfterStableRefresh(
   current: PlaybackQueueResponse,
   incoming: PlaybackQueueResponse,
