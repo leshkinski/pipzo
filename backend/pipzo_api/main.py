@@ -33,7 +33,10 @@ from .contract import (
     LibraryCategoryId,
     LibraryCategoryResponse,
     LibraryHomeResponse,
+    LibraryItem,
+    LibraryItemType,
     LibraryPlayRequest,
+    LibraryPlaybackKind,
     LibrarySearchResponse,
     NetworkConnectRequest,
     NetworkForgetRequest,
@@ -42,6 +45,7 @@ from .contract import (
     NetworkStatus,
     NowPlayingSummary,
     PlaybackControlRequest,
+    PlaybackQueueResponse,
     PlaybackDeviceReason,
     PlaybackDeviceStatus,
     RecoveryAction,
@@ -673,6 +677,24 @@ def create_app(
                 ).model_dump(mode="json", by_alias=True),
             )
         return result
+
+    @app.get("/api/v1/spotify/queue", response_model=PlaybackQueueResponse)
+    def spotify_playback_queue(settings: Settings = Depends(get_settings)) -> PlaybackQueueResponse:
+        if settings.app_mode == "mock":
+            mock_home = mock_library_home(8)
+            tracks = [
+                item
+                for section in mock_home.sections
+                for item in section.items
+                if item.playback_kind == LibraryPlaybackKind.TRACK
+            ]
+            return PlaybackQueueResponse(current=tracks[0] if tracks else None, items=tracks[1:12], generated_at=utc_now())
+        try:
+            return playback_queue(settings, spotify_client)
+        except HTTPException:
+            raise
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
 
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:
@@ -1459,6 +1481,55 @@ def run_spotify_playback_control(
         mock=False,
         started_at=started_at,
         completed_at=utc_now(),
+    )
+
+
+def playback_queue(settings: Settings, spotify_client: SpotifyClient) -> PlaybackQueueResponse:
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        payload = spotify_client.fetch_library_json(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+            path="/v1/me/player/queue",
+        )
+    except HTTPException:
+        raise
+    except SpotifyCatalogApiError:
+        raise
+    except SpotifyPlaybackApiError as exc:
+        raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.NETWORK) from exc
+
+    current = queue_track_item(payload.get("currently_playing"))
+    raw_queue = payload.get("queue") if isinstance(payload.get("queue"), list) else []
+    items = [item for item in (queue_track_item(raw_item) for raw_item in raw_queue) if item is not None]
+    return PlaybackQueueResponse(current=current, items=items, generated_at=utc_now())
+
+
+def queue_track_item(item: object) -> Optional[LibraryItem]:
+    if not isinstance(item, dict) or item.get("type") != "track":
+        return None
+    uri = str(item.get("uri") or "")
+    if not uri.startswith("spotify:track:"):
+        return None
+    artists = item.get("artists") if isinstance(item.get("artists"), list) else []
+    artist_names = [
+        str(artist.get("name"))
+        for artist in artists
+        if isinstance(artist, dict) and artist.get("name")
+    ]
+    album = item.get("album") if isinstance(item.get("album"), dict) else {}
+    images = album.get("images") if isinstance(album.get("images"), list) else []
+    artwork_url = next((str(image["url"]) for image in images if isinstance(image, dict) and image.get("url")), None)
+    return LibraryItem(
+        id=str(item.get("id") or uri),
+        type=LibraryItemType.TRACK,
+        uri=uri,
+        title=str(item.get("name") or "Unknown track"),
+        subtitle=", ".join(artist_names) or None,
+        artwork_url=artwork_url,
+        source=LibraryCategoryId.RECENTLY_PLAYED,
+        playback_kind=LibraryPlaybackKind.TRACK,
+        playable=True,
     )
 
 

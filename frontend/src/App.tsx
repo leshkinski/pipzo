@@ -11,6 +11,7 @@ import {
   fetchLibraryCategory,
   fetchLibraryHome,
   fetchNetworkScanResults,
+  fetchPlaybackQueue,
   fetchSpeakerScanResults,
   fetchSpotifyAuthSession,
   forgetSpeaker,
@@ -29,7 +30,7 @@ import {
   connectNetwork,
   transferSpotifyPlayback,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 import { localLibraryHome, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -166,6 +167,17 @@ type LibraryControls = {
   onPlay: (item: LibraryItem) => void;
 };
 
+type QueueControls = {
+  open: boolean;
+  busy: boolean;
+  message: string;
+  current: LibraryItem | null;
+  items: LibraryItem[];
+  onOpen: () => void;
+  onClose: () => void;
+  onPlay: (item: LibraryItem) => void;
+};
+
 type PlaybackCommand = "play" | "pause" | "next" | "previous" | "previous_track" | "shuffle" | "repeat";
 
 const navLabels: Record<SurfaceId, string> = {
@@ -244,6 +256,14 @@ export function App() {
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("recently_played");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [queueMessage, setQueueMessage] = useState("Tap the artwork to show the current queue.");
+  const [playbackQueue, setPlaybackQueue] = useState<PlaybackQueueResponse>(() => ({
+    current: null,
+    items: [],
+    generatedAt: new Date().toISOString(),
+  }));
   const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
   const [touchFeedback, setTouchFeedback] = useState<TouchFeedback | null>(null);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
@@ -946,6 +966,38 @@ export function App() {
     }
   }
 
+  async function openPlaybackQueue() {
+    setQueueOpen(true);
+    setQueueBusy(true);
+    setQueueMessage("Loading current queue.");
+    try {
+      if (dataSource === "backend") {
+        const queue = await fetchPlaybackQueue();
+        setPlaybackQueue(queue);
+        setQueueMessage(queue.items.length > 0 ? "Current queue loaded." : "Spotify has no upcoming queue items right now.");
+      } else {
+        const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
+          .filter((item) => item.playbackKind === "track")
+          .slice(0, 12);
+        setPlaybackQueue({
+          current: fallbackItems[0] ?? null,
+          items: fallbackItems.slice(1),
+          generatedAt: new Date().toISOString(),
+        });
+        setQueueMessage("Local queue preview loaded.");
+      }
+    } catch {
+      setQueueMessage("Current queue is unavailable from Spotify right now.");
+    } finally {
+      setQueueBusy(false);
+    }
+  }
+
+  function closePlaybackQueue() {
+    setQueueOpen(false);
+    setQueueMessage("Tap the artwork to show the current queue.");
+  }
+
   async function scanWifi() {
     setWifiBusy(true);
     setWifiMessage("Scanning for Wi-Fi networks.");
@@ -1571,6 +1623,21 @@ export function App() {
   };
   const railTimerView = sleepTimerViewModel(snapshot, sleepTimer, nowMs);
   const railNavItems = shellNavigationItems();
+  const railPrimaryItems = railNavItems.filter((item) => item.priority === "primary");
+  const railUtilityItems = railNavItems.filter((item) => item.priority === "utility");
+  const queueControls = {
+    open: queueOpen,
+    busy: queueBusy,
+    message: queueMessage,
+    current: playbackQueue.current ?? null,
+    items: playbackQueue.items,
+    onOpen: openPlaybackQueue,
+    onClose: closePlaybackQueue,
+    onPlay: (item: LibraryItem) => {
+      setQueueOpen(false);
+      void startLibraryItem(item);
+    },
+  };
 
   const appClassName = [
     "app",
@@ -1627,7 +1694,7 @@ export function App() {
       <main className="shell">
         <nav className="nav" aria-label="Primary">
           <div className="nav-primary">
-          {railNavItems.map((item) => {
+          {railPrimaryItems.map((item) => {
             const surface = item.surface;
             const disabled = !canOpenSurface(snapshot, surface);
             const icon = surface === "home" ? <HomeIcon /> : surface === "now_playing" ? <NowPlayingIcon /> : <SettingsIcon />;
@@ -1656,6 +1723,26 @@ export function App() {
                 <span>{railTimerView.active ? railTimerView.label.replace("Stops in ", "") : "Timer"}</span>
               </button>
             )}
+            {railUtilityItems.map((item) => {
+              const surface = item.surface;
+              const disabled = !canOpenSurface(snapshot, surface);
+              return (
+                <button
+                  className={[
+                    activeSurface === surface ? "active" : "",
+                    "nav-utility",
+                  ].filter(Boolean).join(" ")}
+                  disabled={disabled}
+                  key={surface}
+                  onClick={() => setSelectedSurface(surface)}
+                  type="button"
+                  aria-label={navLabels[surface]}
+                >
+                  <span className="nav-icon" aria-hidden="true"><SettingsIcon /></span>
+                  <span>{navLabels[surface]}</span>
+                </button>
+              );
+            })}
           </div>
         </nav>
 
@@ -1677,6 +1764,7 @@ export function App() {
               snapshot={snapshot}
               library={libraryControls}
               nowMs={nowMs}
+              onOpenClock={() => setIdleActive(true)}
               onOpenNowPlaying={() => setSelectedSurface("now_playing")}
               onPlaybackAction={sendPlaybackAction}
               canSendControls={snapshot.capabilities.canControlPlayback && (spotifySdkState.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId))}
@@ -1692,6 +1780,7 @@ export function App() {
               repeatEnabled={repeatEnabled}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
+              queue={queueControls}
               nowMs={nowMs}
               onOpenSleepTimer={() => {
                 setTimerReturnSurface("now_playing");
@@ -1900,6 +1989,7 @@ function HomeSurface({
   snapshot,
   library,
   nowMs,
+  onOpenClock,
   onOpenNowPlaying,
   onPlaybackAction,
   canSendControls,
@@ -1907,6 +1997,7 @@ function HomeSurface({
   snapshot: AppSnapshot;
   library: LibraryControls;
   nowMs: number;
+  onOpenClock: () => void;
   onOpenNowPlaying: () => void;
   onPlaybackAction: (action: PlaybackCommand) => void;
   canSendControls: boolean;
@@ -1930,7 +2021,7 @@ function HomeSurface({
             <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
           )}
         </div>
-        <HomeClock nowMs={nowMs} />
+        <HomeClock nowMs={nowMs} onOpenClock={onOpenClock} />
       </section>
 
       {orderedSections.length > 0 ? (
@@ -2000,7 +2091,7 @@ function HomeMiniPlayer({
   );
 }
 
-function HomeClock({ nowMs }: { nowMs: number }) {
+function HomeClock({ nowMs, onOpenClock }: { nowMs: number; onOpenClock: () => void }) {
   const now = new Date(nowMs);
   const time = new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -2013,10 +2104,10 @@ function HomeClock({ nowMs }: { nowMs: number }) {
   }).format(now);
 
   return (
-    <div className="home-clock" aria-label={`Current time ${time}, ${date}`}>
+    <button className="home-clock" type="button" onClick={onOpenClock} aria-label={`Open clock view. Current time ${time}, ${date}`}>
       <strong>{time}</strong>
       <span>{date}</span>
-    </div>
+    </button>
   );
 }
 
@@ -2133,6 +2224,7 @@ function NowPlayingSurface({
   repeatEnabled,
   sleepTimer,
   volume,
+  queue,
   nowMs,
   onOpenSleepTimer,
 }: {
@@ -2144,6 +2236,7 @@ function NowPlayingSurface({
   repeatEnabled: boolean;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
+  queue: QueueControls;
   nowMs: number;
   onOpenSleepTimer: () => void;
 }) {
@@ -2156,8 +2249,14 @@ function NowPlayingSurface({
   const timerView = sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs);
   return (
     <div className="player-surface">
-      <section className="art-panel" aria-label="Artwork placeholder">
-        {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>{playing ? itemInitials(playing.title) : "P"}</div>}
+      <section className={queue.open ? "art-panel queue-open" : "art-panel"} aria-label={queue.open ? "Current queue" : "Artwork"}>
+        {queue.open ? (
+          <QueuePanel queue={queue} />
+        ) : (
+          <button className="artwork-queue-button" type="button" onClick={queue.onOpen} aria-label="Show current queue">
+            {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>{playing ? itemInitials(playing.title) : "P"}</div>}
+          </button>
+        )}
       </section>
       <section className="player-panel">
         <div className="player-copy">
@@ -2201,7 +2300,6 @@ function NowPlayingSurface({
           <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
           <button className="player-utility-button" type="button" onClick={onOpenSleepTimer} aria-label="Sleep timer">
             <TimerIcon />
-            <span>{timerView.active ? timerView.label.replace("Stops in ", "") : "Timer"}</span>
           </button>
         </div>
         {remotePlayback && (
@@ -2234,6 +2332,46 @@ function currentProgressMs(playing: AppSnapshot["nowPlaying"], nowMs: number): n
     return playing.progressMs;
   }
   return Math.min(playing.durationMs ?? Number.MAX_SAFE_INTEGER, playing.progressMs + Math.max(0, nowMs - capturedAtMs));
+}
+
+function QueuePanel({ queue }: { queue: QueueControls }) {
+  const rows = [
+    ...(queue.current ? [{ item: queue.current, current: true }] : []),
+    ...queue.items.map((item) => ({ item, current: false })),
+  ];
+  return (
+    <div className="queue-panel">
+      <div className="queue-heading">
+        <div>
+          <p className="eyebrow">Current queue</p>
+          <h2>Songs coming up</h2>
+        </div>
+        <button type="button" onClick={queue.onClose} aria-label="Close queue">
+          Close
+        </button>
+      </div>
+      <p className="subtle">{queue.message}</p>
+      <div className="queue-list" data-drag-scroll>
+        {rows.map(({ item, current }, index) => (
+          <button
+            className={current ? "queue-row current" : "queue-row"}
+            disabled={queue.busy || item.playbackKind !== "track"}
+            key={`${item.uri}-${index}`}
+            type="button"
+            onClick={() => queue.onPlay(item)}
+          >
+            <span className="queue-index">{current ? "Now" : index}</span>
+            <span className="queue-art">{item.artworkUrl ? <img src={item.artworkUrl} alt="" draggable={false} /> : itemInitials(item.title)}</span>
+            <span className="queue-copy">
+              <strong>{item.title}</strong>
+              <small>{item.subtitle ?? labelFromId(item.type)}</small>
+            </span>
+          </button>
+        ))}
+        {rows.length === 0 && <p className="subtle">No queue songs are available yet.</p>}
+      </div>
+    </div>
+  );
 }
 
 function SettingsSurface({

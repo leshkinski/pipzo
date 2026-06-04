@@ -532,6 +532,12 @@ class LibrarySearchResponse(ContractModel):
     constrained: Literal[True] = True
 
 
+class PlaybackQueueResponse(ContractModel):
+    current: Optional[LibraryItem] = None
+    items: List[LibraryItem]
+    generated_at: datetime
+
+
 class LibraryPlayRequest(ContractModel):
     uri: str
     playback_kind: LibraryPlaybackKind

@@ -1241,6 +1241,47 @@ def test_hardware_library_home_includes_recent_saved_playlist_contexts(tmp_path)
     ]
 
 
+def test_hardware_playback_queue_returns_track_rows(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, scope="user-read-playback-state user-modify-playback-state")
+    spotify_client = FakeSpotifyClient(
+        catalog_payloads={
+            "/v1/me/player/queue": {
+                "currently_playing": {
+                    "id": "current-track",
+                    "type": "track",
+                    "uri": "spotify:track:current-track",
+                    "name": "Current Song",
+                    "artists": [{"name": "Current Artist"}],
+                    "album": {"images": [{"url": "https://example.test/current.jpg"}]},
+                },
+                "queue": [
+                    {
+                        "id": "next-track",
+                        "type": "track",
+                        "uri": "spotify:track:next-track",
+                        "name": "Next Song",
+                        "artists": [{"name": "Next Artist"}],
+                        "album": {"images": [{"url": "https://example.test/next.jpg"}]},
+                    },
+                    {"id": "episode", "type": "episode", "uri": "spotify:episode:skip", "name": "Skip Me"},
+                ],
+            }
+        }
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/spotify/queue")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["current"]["title"] == "Current Song"
+    assert body["current"]["playbackKind"] == "track"
+    assert body["current"]["artworkUrl"] == "https://example.test/current.jpg"
+    assert [item["title"] for item in body["items"]] == ["Next Song"]
+    assert spotify_client.catalog_calls[-1]["path"] == "/v1/me/player/queue"
+
+
 def test_hardware_library_search_filters_only_library_results(tmp_path):
     settings = make_settings(tmp_path, app_mode="hardware")
     persist_auth_record(settings)

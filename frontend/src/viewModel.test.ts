@@ -503,8 +503,8 @@ describe("kiosk shell view model", () => {
     expect(shellRule).toContain("margin: 0");
     expect(navButtonRule).toContain("min-height: 86px");
     expect(navButtonRule).toContain("font-size: 12px");
-    expect(primaryControlRule).toContain("min-height: 92px");
-    expect(utilityControlRule).toContain("min-height: 64px");
+    expect(primaryControlRule).toContain("min-height: 120px");
+    expect(utilityControlRule).toContain("min-height: 58px");
   });
 
   it("keeps ready-state shell chrome minimal", () => {
@@ -599,7 +599,8 @@ describe("kiosk shell view model", () => {
     const eqPlayingRule = css.match(/\.home-mini-art\.playing \.home-mini-eq span\s*\{[^}]+\}/)?.[0] ?? "";
     const clockRule = css.match(/\.home-clock strong\s*\{[^}]+\}/)?.[0] ?? "";
 
-    expect(appSource).toContain("<HomeClock nowMs={nowMs} />");
+    expect(appSource).toContain("<HomeClock nowMs={nowMs} onOpenClock={onOpenClock} />");
+    expect(appSource).toContain("onOpenClock={() => setIdleActive(true)}");
     expect(appSource).toContain('onOpenNowPlaying={() => setSelectedSurface("now_playing")}');
     expect(appSource).toContain('aria-label="Open Now Playing"');
     expect(appSource).toContain('className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}');
@@ -629,8 +630,35 @@ describe("kiosk shell view model", () => {
     expect(playerCopyRule).toContain("overflow: hidden");
     expect(trackTitleRule).toContain("-webkit-line-clamp: 2");
     expect(trackTitleRule).toContain("overflow-wrap: anywhere");
-    expect(transportRowRule).toContain("min-height: 92px");
-    expect(primaryButtonRule).toContain("width: 92px");
+    expect(transportRowRule).toContain("min-height: 120px");
+    expect(primaryButtonRule).toContain("width: 120px");
+  });
+
+  it("supports the latest kiosk Now Playing controls and queue affordances", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    const apiSource = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+    const navBottomRules: string[] = css.match(/\.nav-bottom\s*\{[^}]+\}/g) ?? [];
+    const navBottomRule = navBottomRules.find((rule) => rule.includes("align-content: end")) ?? "";
+    const transportSecondaryRule = css.match(/\.transport-secondary\s*\{[^}]+\}/)?.[0] ?? "";
+    const utilityRowRules: string[] = css.match(/\.player-utility-row\s*\{[^}]+\}/g) ?? [];
+    const utilityRowRule = utilityRowRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
+    const utilityButtonRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
+    const volumeInputRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\],[^}]+\}/)?.[0] ?? "";
+    const queuePanelRule = css.match(/\.queue-panel\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
+    expect(appSource).toContain("const railUtilityItems = railNavItems.filter((item) => item.priority === \"utility\")");
+    expect(appSource).toContain('aria-label="Show current queue"');
+    expect(appSource).toContain("function QueuePanel");
+    expect(appSource).not.toContain('<span>{timerView.active ? timerView.label.replace("Stops in ", "") : "Timer"}</span>');
+    expect(apiSource).toContain('"/api/v1/spotify/queue"');
+    expect(navBottomRule).toContain("align-content: end");
+    expect(transportSecondaryRule).toContain("width: 86px");
+    expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr) 58px");
+    expect(utilityButtonRule).toContain("border-radius: 999px");
+    expect(volumeInputRule).toContain("min-height: 82px");
+    expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

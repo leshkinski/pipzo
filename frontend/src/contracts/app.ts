@@ -349,6 +349,12 @@ export type LibrarySearchResponse = {
   constrained: true;
 };
 
+export type PlaybackQueueResponse = {
+  current?: LibraryItem | null;
+  items: LibraryItem[];
+  generatedAt: string;
+};
+
 export type LibraryPlayRequest = {
   uri: string;
   playbackKind: LibraryPlaybackKind;

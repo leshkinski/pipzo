@@ -10,6 +10,7 @@ import type {
   LibraryCategoryResponse,
   LibraryHomeResponse,
   LibraryPlayRequest,
+  PlaybackQueueResponse,
   LibrarySearchResponse,
   NetworkConnectRequest,
   NetworkForgetRequest,
@@ -109,6 +110,10 @@ export function searchLibrary(query: string): Promise<LibrarySearchResponse> {
 
 export function playLibraryItem(body: LibraryPlayRequest): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/library/play", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchPlaybackQueue(): Promise<PlaybackQueueResponse> {
+  return request<PlaybackQueueResponse>("/api/v1/spotify/queue");
 }
 
 export function fetchNetworkStatus(): Promise<HealthState["network"]> {
