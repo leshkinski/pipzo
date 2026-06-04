@@ -1,4 +1,4 @@
-import type { AppSnapshot, LibraryCategoryId, LibraryHomeResponse, LibraryItem, LibrarySearchResponse, ScenarioSummary } from "./contracts";
+import type { AppSnapshot, LibraryCategoryId, LibraryHomeResponse, LibraryItem, LibrarySearchResponse, PlaybackQueueResponse, ScenarioSummary } from "./contracts";
 
 type LocalScenario = ScenarioSummary & { snapshot: AppSnapshot };
 
@@ -436,6 +436,18 @@ export const localLibraryItems: Record<Exclude<LibraryCategoryId, "home">, Libra
       playable: true,
     },
   ],
+};
+
+export const localSingleSongPlaybackQueue: PlaybackQueueResponse = {
+  current: localLibraryItems.liked_songs[0],
+  items: [
+    localLibraryItems.liked_songs[0],
+    {
+      ...localLibraryItems.liked_songs[0],
+      id: "track-bedtime-song-repeat",
+    },
+  ],
+  generatedAt: now(),
 };
 
 const localLibraryTitles: Record<Exclude<LibraryCategoryId, "home">, { title: string; description: string }> = {

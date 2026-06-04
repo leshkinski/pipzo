@@ -1,4 +1,4 @@
-import type { AppSnapshot, IdleMode, LibraryCategoryId, LibraryItem, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSnapshot, IdleMode, LibraryCategoryId, LibraryItem, PlaybackQueueResponse, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "now_playing", "settings"];
 export const dailyPrimarySurfaces: SurfaceId[] = ["home", "now_playing"];
@@ -52,11 +52,58 @@ export type NowPlayingEmptyState = {
   detail: string;
 };
 
+export type PlaybackQueueRow = {
+  item: LibraryItem;
+  current: boolean;
+  indexLabel: string;
+};
+
+export type PlaybackQueueViewModel = {
+  rows: PlaybackQueueRow[];
+  upcomingCount: number;
+  emptyCopy: string | null;
+};
+
 export function shellNavigationItems(): ShellNavigationItem[] {
   return [
     ...dailyPrimarySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "primary" as const })),
     ...demotedUtilitySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "utility" as const })),
   ];
+}
+
+export function playbackQueueViewModel(queue: Pick<PlaybackQueueResponse, "current" | "items">): PlaybackQueueViewModel {
+  const seen = new Set<string>();
+  const rows: PlaybackQueueRow[] = [];
+  const current = queue.current ?? null;
+  let upcomingCount = 0;
+
+  if (current) {
+    seen.add(queueItemIdentity(current));
+    rows.push({ item: current, current: true, indexLabel: "Now" });
+  }
+
+  for (const item of queue.items) {
+    const identity = queueItemIdentity(item);
+    if (seen.has(identity)) {
+      continue;
+    }
+    seen.add(identity);
+    upcomingCount += 1;
+    rows.push({ item, current: false, indexLabel: String(upcomingCount) });
+  }
+
+  let emptyCopy: string | null = null;
+  if (rows.length === 0) {
+    emptyCopy = "Spotify has no current or upcoming songs right now.";
+  } else if (current && upcomingCount === 0) {
+    emptyCopy = "Only this song is playing. Spotify has no upcoming songs right now.";
+  }
+
+  return { rows, upcomingCount, emptyCopy };
+}
+
+function queueItemIdentity(item: LibraryItem): string {
+  return item.uri || item.id || `${item.type}:${item.title}:${item.subtitle ?? ""}`;
 }
 
 export const nowPlayingRefreshIntervalMs = 10_000;

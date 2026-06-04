@@ -58,6 +58,7 @@ import {
   nowPlayingRefreshIntervalMs,
   preferredSpeakerSelection,
   preferredSurface,
+  playbackQueueViewModel,
   shellNavigationItems,
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
@@ -1086,7 +1087,7 @@ export function App() {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
         setPlaybackQueue(queue);
-        setQueueMessage(queue.items.length > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
+        setQueueMessage(playbackQueueViewModel(queue).upcomingCount > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
       } else {
         const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
           .filter((item) => item.playbackKind === "track")
@@ -2528,10 +2529,7 @@ function currentProgressMs(playing: AppSnapshot["nowPlaying"], nowMs: number): n
 }
 
 function QueuePanel({ queue }: { queue: QueueControls }) {
-  const rows = [
-    ...(queue.current ? [{ item: queue.current, current: true }] : []),
-    ...queue.items.map((item) => ({ item, current: false })),
-  ];
+  const view = playbackQueueViewModel(queue);
   return (
     <div className="queue-panel">
       <div className="queue-heading">
@@ -2543,15 +2541,15 @@ function QueuePanel({ queue }: { queue: QueueControls }) {
         </button>
       </div>
       <div className="queue-list" data-drag-scroll>
-        {rows.map(({ item, current }, index) => (
+        {view.rows.map(({ item, current, indexLabel }) => (
           <button
             className={current ? "queue-row current" : "queue-row"}
             disabled={queue.busy || item.playbackKind !== "track"}
-            key={`${item.uri}-${index}`}
+            key={`${item.uri}-${current ? "current" : indexLabel}`}
             type="button"
             onClick={() => queue.onPlay(item)}
           >
-            <span className="queue-index">{current ? "Now" : index}</span>
+            <span className="queue-index">{indexLabel}</span>
             <span className="queue-art">{item.artworkUrl ? <img src={item.artworkUrl} alt="" draggable={false} /> : itemInitials(item.title)}</span>
             <span className="queue-copy">
               <strong>{item.title}</strong>
@@ -2559,7 +2557,7 @@ function QueuePanel({ queue }: { queue: QueueControls }) {
             </span>
           </button>
         ))}
-        {rows.length === 0 && <p className="subtle">No queue songs are available yet.</p>}
+        {view.emptyCopy && <p className="subtle">{view.emptyCopy}</p>}
       </div>
     </div>
   );

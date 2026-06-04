@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 // @ts-expect-error Node types are intentionally not part of the browser app tsconfig.
 import { readFileSync } from "node:fs";
-import { localScenarios } from "./localScenarios";
+import { localScenarios, localSingleSongPlaybackQueue } from "./localScenarios";
 import type { SpotifyAuthSession } from "./contracts";
 import {
   cancelSleepTimer,
@@ -18,6 +18,7 @@ import {
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
+  playbackQueueViewModel,
   preferredSpeakerSelection,
   preferredSurface,
   primarySurfaces,
@@ -780,6 +781,27 @@ describe("kiosk shell view model", () => {
     expect(volumeThumbRule).toContain("border: 0");
     expect(mutedVolumeRules.join("\n")).not.toMatch(/background|color|accent-color/);
     expect(queuePanelRule).toContain("grid-template-rows: auto minmax(0, 1fr)");
+  });
+
+  it("renders a single-song playback queue only once", () => {
+    const queue = playbackQueueViewModel(localSingleSongPlaybackQueue);
+
+    expect(queue.rows).toHaveLength(1);
+    expect(queue.rows[0]).toMatchObject({
+      current: true,
+      indexLabel: "Now",
+      item: { uri: "spotify:track:pipzo-bedtime-song", title: "Bedtime Song" },
+    });
+    expect(queue.upcomingCount).toBe(0);
+    expect(queue.emptyCopy).toBe("Only this song is playing. Spotify has no upcoming songs right now.");
+  });
+
+  it("uses honest copy when Spotify returns no current or upcoming queue rows", () => {
+    const queue = playbackQueueViewModel({ current: null, items: [] });
+
+    expect(queue.rows).toEqual([]);
+    expect(queue.upcomingCount).toBe(0);
+    expect(queue.emptyCopy).toBe("Spotify has no current or upcoming songs right now.");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {
