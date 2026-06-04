@@ -1590,6 +1590,7 @@ export function App() {
             <HomeSurface
               snapshot={snapshot}
               library={libraryControls}
+              nowMs={nowMs}
               onPlaybackAction={sendPlaybackAction}
               canSendControls={snapshot.capabilities.canControlPlayback && (spotifySdkState.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId))}
             />
@@ -1811,11 +1812,13 @@ function SetupPlaybackCompletionPanel({
 function HomeSurface({
   snapshot,
   library,
+  nowMs,
   onPlaybackAction,
   canSendControls,
 }: {
   snapshot: AppSnapshot;
   library: LibraryControls;
+  nowMs: number;
   onPlaybackAction: (action: PlaybackCommand) => void;
   canSendControls: boolean;
 }) {
@@ -1824,8 +1827,8 @@ function HomeSurface({
   const nowPlaying = snapshot.nowPlaying;
   return (
     <div className="home-surface">
-      {(nowPlaying || !availability.canBrowse || snapshot.staleness.isStale) && (
-        <section className="home-header" aria-label="Home status">
+      <section className="home-header" aria-label="Home status">
+        <div className="home-header-main">
           {nowPlaying && (
             <HomeMiniPlayer
               playing={nowPlaying}
@@ -1836,8 +1839,9 @@ function HomeSurface({
           {(!availability.canBrowse || snapshot.staleness.isStale) && (
             <p>{snapshot.staleness.isStale ? "Showing cached account content until connectivity recovers." : availability.detail}</p>
           )}
-        </section>
-      )}
+        </div>
+        <HomeClock nowMs={nowMs} />
+      </section>
 
       {orderedSections.length > 0 ? (
         <div className="home-library-feed">
@@ -1871,8 +1875,14 @@ function HomeMiniPlayer({
 }) {
   return (
     <div className="home-mini-player">
-      <div className="home-mini-art">
+      <div className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}>
         {playing.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <span>{itemInitials(playing.title)}</span>}
+        <span className="home-mini-eq" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </span>
       </div>
       <div className="home-mini-copy">
         <strong>{playing.title}</strong>
@@ -1889,6 +1899,26 @@ function HomeMiniPlayer({
           <NextIcon />
         </button>
       </div>
+    </div>
+  );
+}
+
+function HomeClock({ nowMs }: { nowMs: number }) {
+  const now = new Date(nowMs);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+  const date = new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(now);
+
+  return (
+    <div className="home-clock" aria-label={`Current time ${time}, ${date}`}>
+      <strong>{time}</strong>
+      <span>{date}</span>
     </div>
   );
 }
