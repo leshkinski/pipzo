@@ -38,6 +38,7 @@ import {
   volumeControlViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
+import { isLatestVolumeRequest, normalizedVolumeTarget, snapshotWithProtectedVolume } from "./volumeInteraction";
 
 describe("kiosk shell view model", () => {
   it("gates daily-use surfaces during first setup", () => {
@@ -238,6 +239,30 @@ describe("kiosk shell view model", () => {
       statusLabel: "Unavailable",
       tone: "attention",
     });
+  });
+
+  it("normalizes and identifies latest-only volume requests", () => {
+    expect(normalizedVolumeTarget(20.4, false)).toEqual({ value: 20, muted: false, deviceId: undefined });
+    expect(normalizedVolumeTarget(120, true, "sdk-device")).toEqual({ value: 100, muted: true, deviceId: "sdk-device" });
+    expect(normalizedVolumeTarget(-3, false)).toEqual({ value: 0, muted: false, deviceId: undefined });
+    expect(isLatestVolumeRequest(12, 12)).toBe(true);
+    expect(isLatestVolumeRequest(11, 12)).toBe(false);
+  });
+
+  it("protects optimistic volume from backend snapshots while the slider is active", () => {
+    const current = {
+      health: {
+        volume: { status: "os_only" as const, value: 37, muted: false },
+      },
+    };
+    const incoming = {
+      health: {
+        volume: { status: "os_only" as const, value: 12, muted: false },
+      },
+    };
+
+    expect(snapshotWithProtectedVolume(incoming, current, true).health.volume.value).toBe(37);
+    expect(snapshotWithProtectedVolume(incoming, current, false).health.volume.value).toBe(12);
   });
 
   it("offers local Spotify setup when authorization is required", () => {
@@ -678,7 +703,9 @@ describe("kiosk shell view model", () => {
     expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
     expect(appSource).not.toContain("player-utility-button");
     expect(appSource).toContain("volumeRequestSeqRef");
-    expect(appSource).toContain("requestId !== volumeRequestSeqRef.current");
+    expect(appSource).toContain("isLatestVolumeRequest(request.requestId, volumeRequestSeqRef.current)");
+    expect(appSource).toContain("pendingVolumeRequestRef.current = queuedRequest");
+    expect(appSource).toContain("snapshotWithProtectedVolume(state, current, volumeInteractionActiveRef.current)");
     expect(appSource).toContain('disabled={view.disabled}');
     expect(appSource).toContain('step="1"');
     expect(volumePanelRule).toContain("border: 0");

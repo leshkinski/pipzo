@@ -82,6 +82,12 @@ import {
   installBluetoothSuccessAlertSuppression,
   type BluetoothSuccessAlertSuppressedDetail,
 } from "./bluetoothSuccessAlerts";
+import {
+  isLatestVolumeRequest,
+  normalizedVolumeTarget,
+  snapshotWithProtectedVolume,
+  type QueuedVolumePatch,
+} from "./volumeInteraction";
 
 type DataSource = "backend" | "local";
 type AppSurfaceId = SurfaceId | "sleep_timer";
@@ -152,6 +158,8 @@ type VolumeControls = {
   busy: boolean;
   message: string;
   onChange: (value: number, muted?: boolean) => void;
+  onInteractionStart: () => void;
+  onInteractionEnd: () => void;
 };
 
 type LikeControls = {
@@ -291,8 +299,21 @@ export function App() {
   const homeAutoRefreshActiveRef = useRef(false);
   const touchFeedbackTimeoutRef = useRef<number | null>(null);
   const volumeRequestSeqRef = useRef(0);
+  const volumeInFlightRef = useRef(false);
+  const pendingVolumeRequestRef = useRef<QueuedVolumePatch | null>(null);
+  const volumeInteractionActiveRef = useRef(false);
+  const volumeInteractionIdleTimeoutRef = useRef<number | null>(null);
 
   useExplicitDragScroll(appRef);
+
+  useEffect(() => () => {
+    if (touchFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(touchFeedbackTimeoutRef.current);
+    }
+    if (volumeInteractionIdleTimeoutRef.current !== null) {
+      window.clearTimeout(volumeInteractionIdleTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -775,7 +796,7 @@ export function App() {
       if (options?.cancelled?.()) return;
     }
     setBackendMode(health.mode);
-    setSnapshot(state);
+    applyBackendSnapshot(state);
     if (state.capabilities.canBrowse) {
       setLibraryBusy(true);
       setLibraryMessage("Loading library from backend.");
@@ -884,7 +905,7 @@ export function App() {
     }
     const request = fetchAppState()
       .then((state) => {
-        setSnapshot(state);
+        applyBackendSnapshot(state);
         return state;
       })
       .finally(() => {
@@ -892,6 +913,33 @@ export function App() {
       });
     snapshotRefreshInFlightRef.current = request;
     return request;
+  }
+
+  function applyBackendSnapshot(state: AppSnapshot) {
+    setSnapshot((current) => snapshotWithProtectedVolume(state, current, volumeInteractionActiveRef.current));
+  }
+
+  function markVolumeInteractionActive() {
+    if (volumeInteractionIdleTimeoutRef.current !== null) {
+      window.clearTimeout(volumeInteractionIdleTimeoutRef.current);
+      volumeInteractionIdleTimeoutRef.current = null;
+    }
+    volumeInteractionActiveRef.current = true;
+  }
+
+  function releaseVolumeInteractionWhenIdle() {
+    if (volumeInFlightRef.current || pendingVolumeRequestRef.current) {
+      return;
+    }
+    if (volumeInteractionIdleTimeoutRef.current !== null) {
+      window.clearTimeout(volumeInteractionIdleTimeoutRef.current);
+    }
+    volumeInteractionIdleTimeoutRef.current = window.setTimeout(() => {
+      if (!volumeInFlightRef.current && !pendingVolumeRequestRef.current) {
+        volumeInteractionActiveRef.current = false;
+      }
+      volumeInteractionIdleTimeoutRef.current = null;
+    }, 250);
   }
 
   async function refreshSpeakerStateUntilConnected() {
@@ -1591,11 +1639,38 @@ export function App() {
     }
   }
 
+  async function drainVolumeRequests(initialRequest: QueuedVolumePatch) {
+    volumeInFlightRef.current = true;
+    let nextRequest: QueuedVolumePatch | null = initialRequest;
+    while (nextRequest) {
+      const request = nextRequest;
+      try {
+        const volume = await patchVolume({ value: request.value, muted: request.muted, deviceId: request.deviceId });
+        if (isLatestVolumeRequest(request.requestId, volumeRequestSeqRef.current)) {
+          setSnapshot((current) => ({ ...current, health: { ...current.health, volume } }));
+          setVolumeMessage(volume.status === "unified" ? "Volume updated." : `Volume partially updated: ${labelFromId(volume.reason ?? volume.status)}.`);
+          setStatusText(volume.status === "unified" ? "Volume updated." : "Volume control is partially available.");
+        }
+      } catch {
+        if (isLatestVolumeRequest(request.requestId, volumeRequestSeqRef.current)) {
+          setVolumeMessage("Volume command could not be sent.");
+          setStatusText("Volume command could not be sent.");
+        }
+      }
+      nextRequest = pendingVolumeRequestRef.current;
+      pendingVolumeRequestRef.current = null;
+    }
+    volumeInFlightRef.current = false;
+    setVolumeBusy(false);
+    releaseVolumeInteractionWhenIdle();
+  }
+
   async function updateVolume(value: number, muted = snapshot.health.volume.muted ?? false) {
-    const bounded = Math.max(0, Math.min(100, Math.round(value)));
     const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    const target = normalizedVolumeTarget(value, muted, deviceId);
     const requestId = volumeRequestSeqRef.current + 1;
     volumeRequestSeqRef.current = requestId;
+    markVolumeInteractionActive();
     setIdleActive(false);
     setLastActivityAt(Date.now());
     setVolumeBusy(true);
@@ -1605,36 +1680,24 @@ export function App() {
         ...current.health,
         volume: {
           ...current.health.volume,
-          value: bounded,
-          muted,
+          value: target.value,
+          muted: target.muted,
         },
       },
     }));
     if (dataSource === "backend") {
-      try {
-        const volume = await patchVolume({ value: bounded, muted, deviceId });
-        if (requestId !== volumeRequestSeqRef.current) {
-          return;
-        }
-        setSnapshot((current) => ({ ...current, health: { ...current.health, volume } }));
-        setVolumeMessage(volume.status === "unified" ? "Volume updated." : `Volume partially updated: ${labelFromId(volume.reason ?? volume.status)}.`);
-        setStatusText(volume.status === "unified" ? "Volume updated." : "Volume control is partially available.");
+      const queuedRequest: QueuedVolumePatch = { ...target, requestId };
+      if (volumeInFlightRef.current) {
+        pendingVolumeRequestRef.current = queuedRequest;
         return;
-      } catch {
-        if (requestId !== volumeRequestSeqRef.current) {
-          return;
-        }
-        setVolumeMessage("Volume command could not be sent.");
-        setStatusText("Volume command could not be sent.");
-      } finally {
-        if (requestId === volumeRequestSeqRef.current) {
-          setVolumeBusy(false);
-        }
       }
+      void drainVolumeRequests(queuedRequest);
+      return;
     }
     setVolumeMessage("Local volume mock updated.");
     setStatusText("Local volume mock updated.");
     setVolumeBusy(false);
+    releaseVolumeInteractionWhenIdle();
   }
 
   function setSleepTimerPreset(minutes: SleepTimerPresetMinutes) {
@@ -1700,6 +1763,8 @@ export function App() {
     busy: volumeBusy,
     message: volumeMessage,
     onChange: updateVolume,
+    onInteractionStart: markVolumeInteractionActive,
+    onInteractionEnd: releaseVolumeInteractionWhenIdle,
   };
   const likeControls = {
     busy: likeBusy,
@@ -2548,9 +2613,14 @@ function VolumeControlPanel({
   const value = view.value;
   const [dragValue, setDragValue] = useState(value);
   const dragValueRef = useRef(value);
+  const draggingRef = useRef(false);
   const commitTimeoutRef = useRef<number | null>(null);
+  const commitGenerationRef = useRef(0);
 
   useEffect(() => {
+    if (draggingRef.current) {
+      return;
+    }
     dragValueRef.current = value;
     setDragValue(value);
   }, [value]);
@@ -2562,23 +2632,40 @@ function VolumeControlPanel({
   }, []);
 
   function scheduleVolumeChange(nextValue: number, muted = view.muted) {
+    draggingRef.current = true;
+    controls.onInteractionStart();
     dragValueRef.current = nextValue;
     setDragValue(nextValue);
     if (commitTimeoutRef.current !== null) {
       window.clearTimeout(commitTimeoutRef.current);
     }
+    const commitGeneration = commitGenerationRef.current + 1;
+    commitGenerationRef.current = commitGeneration;
     commitTimeoutRef.current = window.setTimeout(() => {
+      if (commitGeneration !== commitGenerationRef.current) {
+        return;
+      }
       controls.onChange(nextValue, muted);
       commitTimeoutRef.current = null;
     }, compact ? 180 : 0);
   }
 
   function commitVolumeChange(nextValue = dragValueRef.current, muted = view.muted) {
+    commitGenerationRef.current += 1;
     if (commitTimeoutRef.current !== null) {
       window.clearTimeout(commitTimeoutRef.current);
       commitTimeoutRef.current = null;
     }
+    draggingRef.current = false;
     controls.onChange(nextValue, muted);
+    controls.onInteractionEnd();
+  }
+
+  function finishVolumeInteraction() {
+    if (!draggingRef.current && commitTimeoutRef.current === null) {
+      return;
+    }
+    commitVolumeChange();
   }
 
   if (compact) {
@@ -2602,8 +2689,19 @@ function VolumeControlPanel({
             step="1"
             type="range"
             value={dragValue}
+            onPointerDown={() => {
+              draggingRef.current = true;
+              controls.onInteractionStart();
+            }}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
-            onPointerUp={() => commitVolumeChange()}
+            onPointerUp={finishVolumeInteraction}
+            onPointerCancel={finishVolumeInteraction}
+            onTouchEnd={finishVolumeInteraction}
+            onBlur={() => {
+              if (draggingRef.current) {
+                finishVolumeInteraction();
+              }
+            }}
           />
         </div>
       </section>
@@ -2627,7 +2725,19 @@ function VolumeControlPanel({
             step="1"
             type="range"
             value={dragValue}
+            onPointerDown={() => {
+              draggingRef.current = true;
+              controls.onInteractionStart();
+            }}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
+            onPointerUp={finishVolumeInteraction}
+            onPointerCancel={finishVolumeInteraction}
+            onTouchEnd={finishVolumeInteraction}
+            onBlur={() => {
+              if (draggingRef.current) {
+                finishVolumeInteraction();
+              }
+            }}
           />
           <strong>{view.statusLabel}</strong>
         </label>
