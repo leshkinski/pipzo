@@ -1677,6 +1677,7 @@ export function App() {
               snapshot={snapshot}
               library={libraryControls}
               nowMs={nowMs}
+              onOpenNowPlaying={() => setSelectedSurface("now_playing")}
               onPlaybackAction={sendPlaybackAction}
               canSendControls={snapshot.capabilities.canControlPlayback && (spotifySdkState.status === "ready" || Boolean(snapshot.health.playbackDevice.deviceId))}
             />
@@ -1899,12 +1900,14 @@ function HomeSurface({
   snapshot,
   library,
   nowMs,
+  onOpenNowPlaying,
   onPlaybackAction,
   canSendControls,
 }: {
   snapshot: AppSnapshot;
   library: LibraryControls;
   nowMs: number;
+  onOpenNowPlaying: () => void;
   onPlaybackAction: (action: PlaybackCommand) => void;
   canSendControls: boolean;
 }) {
@@ -1919,6 +1922,7 @@ function HomeSurface({
             <HomeMiniPlayer
               playing={nowPlaying}
               canSendControls={canSendControls}
+              onOpenNowPlaying={onOpenNowPlaying}
               onPlaybackAction={onPlaybackAction}
             />
           )}
@@ -1953,15 +1957,22 @@ function orderedHomeSections(sections: LibraryHomeResponse["sections"]): Library
 function HomeMiniPlayer({
   playing,
   canSendControls,
+  onOpenNowPlaying,
   onPlaybackAction,
 }: {
   playing: NonNullable<AppSnapshot["nowPlaying"]>;
   canSendControls: boolean;
+  onOpenNowPlaying: () => void;
   onPlaybackAction: (action: PlaybackCommand) => void;
 }) {
   return (
     <div className="home-mini-player">
-      <div className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}>
+      <button
+        className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}
+        type="button"
+        onClick={onOpenNowPlaying}
+        aria-label="Open Now Playing"
+      >
         {playing.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <span>{itemInitials(playing.title)}</span>}
         <span className="home-mini-eq" aria-hidden="true">
           <span />
@@ -1969,7 +1980,7 @@ function HomeMiniPlayer({
           <span />
           <span />
         </span>
-      </div>
+      </button>
       <div className="home-mini-copy">
         <strong>{playing.title}</strong>
         <span>{playing.artist}</span>

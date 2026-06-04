@@ -755,6 +755,10 @@ label.touch-pressed {
 }
 
 .home-mini-art {
+  min-height: 58px;
+  min-width: 58px;
+  padding: 0;
+  border: 1px solid rgba(246, 240, 223, 0.14);
   display: grid;
   place-items: center;
   position: relative;

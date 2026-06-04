@@ -594,11 +594,14 @@ describe("kiosk shell view model", () => {
     const headerRules: string[] = css.match(/\.home-header\s*\{[^}]+\}/g) ?? [];
     const headerRule = headerRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const controlsButtonRule = css.match(/\.home-mini-controls button\s*\{[^}]+\}/)?.[0] ?? "";
+    const miniArtRule = css.match(/\.home-mini-art\s*\{[^}]+\}/)?.[0] ?? "";
     const playButtonRule = css.match(/\.home-mini-controls button:nth-child\(2\)\s*\{[^}]+\}/)?.[0] ?? "";
     const eqPlayingRule = css.match(/\.home-mini-art\.playing \.home-mini-eq span\s*\{[^}]+\}/)?.[0] ?? "";
     const clockRule = css.match(/\.home-clock strong\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(appSource).toContain("<HomeClock nowMs={nowMs} />");
+    expect(appSource).toContain('onOpenNowPlaying={() => setSelectedSurface("now_playing")}');
+    expect(appSource).toContain('aria-label="Open Now Playing"');
     expect(appSource).toContain('className={`home-mini-art${playing.isPlaying ? " playing" : ""}`}');
     expect(appSource).toContain('className="home-mini-eq"');
     expect(headerRule).toContain("grid-template-columns: minmax(0, 1fr) 156px");
@@ -608,6 +611,8 @@ describe("kiosk shell view model", () => {
     expect(controlsButtonRule).toContain("min-width: 72px");
     expect(controlsButtonRule).toContain("min-height: 56px");
     expect(controlsButtonRule).toContain("border-radius: 12px");
+    expect(miniArtRule).toContain("min-height: 58px");
+    expect(miniArtRule).toContain("min-width: 58px");
     expect(playButtonRule).toContain("min-width: 84px");
     expect(eqPlayingRule).toContain("animation: mini-eq-bounce");
     expect(clockRule).toContain("font-size: 30px");
