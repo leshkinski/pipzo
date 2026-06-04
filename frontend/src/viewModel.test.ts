@@ -41,8 +41,10 @@ import {
 import {
   isLatestVolumeRequest,
   normalizedVolumeTarget,
+  shouldCommitLiveVolumeChange,
   shouldProtectVolumeFromSnapshot,
   snapshotWithProtectedVolume,
+  volumePatchTargetsEqual,
 } from "./volumeInteraction";
 
 describe("kiosk shell view model", () => {
@@ -252,6 +254,14 @@ describe("kiosk shell view model", () => {
     expect(normalizedVolumeTarget(-3, false)).toEqual({ value: 0, muted: false, deviceId: undefined });
     expect(isLatestVolumeRequest(12, 12)).toBe(true);
     expect(isLatestVolumeRequest(11, 12)).toBe(false);
+  });
+
+  it("throttles live volume commits without dropping the current intent", () => {
+    expect(shouldCommitLiveVolumeChange(undefined, 1000, 90)).toBe(true);
+    expect(shouldCommitLiveVolumeChange(1000, 1089, 90)).toBe(false);
+    expect(shouldCommitLiveVolumeChange(1000, 1090, 90)).toBe(true);
+    expect(volumePatchTargetsEqual({ value: 24, muted: false }, { value: 24, muted: false })).toBe(true);
+    expect(volumePatchTargetsEqual({ value: 24, muted: false }, { value: 25, muted: false })).toBe(false);
   });
 
   it("protects optimistic volume from backend snapshots while the slider is active", () => {
@@ -726,6 +736,7 @@ describe("kiosk shell view model", () => {
     const volumeThumbRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\]::-webkit-slider-thumb,[^}]+\}/)?.[0] ?? "";
     const volumePanelRule = css.match(/\.volume-panel\s*\{[^}]+\}/)?.[0] ?? "";
     const volumeButtonRule = css.match(/\.volume-controls button\s*\{[^}]+\}/)?.[0] ?? "";
+    const volumePercentRule = css.match(/\.volume-percent-indicator\s*\{[^}]+\}/)?.[0] ?? "";
     const queuePanelRule = css.match(/\.queue-panel\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
@@ -750,8 +761,12 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("isLatestVolumeRequest(request.requestId, volumeRequestSeqRef.current)");
     expect(appSource).toContain("pendingVolumeRequestRef.current = queuedRequest");
     expect(appSource).toContain("volumeLocalIntentGraceMs = 3000");
+    expect(appSource).toContain("compactVolumeLiveCommitIntervalMs = 90");
+    expect(appSource).toContain("shouldCommitLiveVolumeChange(lastLiveCommitAtMsRef.current, nowMs, compactVolumeLiveCommitIntervalMs)");
     expect(appSource).toContain("latestVolumeIntentRef.current = target");
     expect(appSource).toContain("snapshotWithProtectedVolume(state, current, {");
+    expect(appSource).toContain('className="volume-percent-indicator"');
+    expect(appSource).toContain("{Math.round(dragValue)}%");
     expect(appSource).toContain('disabled={view.disabled}');
     expect(appSource).toContain('step="1"');
     expect(volumePanelRule).toContain("border: 0");
@@ -760,6 +775,8 @@ describe("kiosk shell view model", () => {
     expect(volumeInputRule).toContain("border: 0");
     expect(volumeThumbRule).toContain("width: 54px");
     expect(volumeThumbRule).toContain("border: 0");
+    expect(volumePercentRule).toContain("position: absolute");
+    expect(volumePercentRule).toContain("font-size: 14px");
     expect(queuePanelRule).toContain("grid-template-rows: auto minmax(0, 1fr)");
   });
 

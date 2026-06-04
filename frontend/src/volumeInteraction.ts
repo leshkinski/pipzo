@@ -26,6 +26,14 @@ export function normalizedVolumeTarget(value: number, muted: boolean, deviceId?:
   };
 }
 
+export function shouldCommitLiveVolumeChange(lastCommitAtMs: number | undefined, nowMs: number, intervalMs: number): boolean {
+  return lastCommitAtMs === undefined || nowMs - lastCommitAtMs >= intervalMs;
+}
+
+export function volumePatchTargetsEqual(left: VolumePatchTarget | null | undefined, right: VolumePatchTarget): boolean {
+  return Boolean(left && left.value === right.value && left.muted === right.muted && left.deviceId === right.deviceId);
+}
+
 export function snapshotWithProtectedVolume<TSnapshot extends AppVolumeSnapshot>(
   incoming: TSnapshot,
   current: TSnapshot,

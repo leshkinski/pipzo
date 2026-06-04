@@ -85,7 +85,9 @@ import {
 import {
   isLatestVolumeRequest,
   normalizedVolumeTarget,
+  shouldCommitLiveVolumeChange,
   snapshotWithProtectedVolume,
+  volumePatchTargetsEqual,
   type QueuedVolumePatch,
   type VolumePatchTarget,
 } from "./volumeInteraction";
@@ -212,6 +214,8 @@ const bluetoothMutationSnapshotRefreshDelaysMs = [500, 1500, 3000, 6000, 10000] 
 const setupReadinessRefreshIntervalMs = 2500;
 const backendRecoveryRefreshIntervalMs = 2500;
 const volumeLocalIntentGraceMs = 3000;
+const compactVolumeLiveCommitIntervalMs = 90;
+const volumePercentIndicatorHoldMs = 900;
 const pipzoImportMeta = import.meta as PipzoImportMeta;
 const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzoImportMeta.env?.VITE_PIPZO_SHOW_MOCK_CONTROLS === "true";
 
@@ -2628,6 +2632,10 @@ function VolumeControlPanel({
   const draggingRef = useRef(false);
   const commitTimeoutRef = useRef<number | null>(null);
   const commitGenerationRef = useRef(0);
+  const lastLiveCommitAtMsRef = useRef<number | undefined>(undefined);
+  const lastCommittedTargetRef = useRef<VolumePatchTarget | null>(null);
+  const percentIndicatorTimeoutRef = useRef<number | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => {
     if (draggingRef.current) {
@@ -2641,25 +2649,79 @@ function VolumeControlPanel({
     if (commitTimeoutRef.current !== null) {
       window.clearTimeout(commitTimeoutRef.current);
     }
+    if (percentIndicatorTimeoutRef.current !== null) {
+      window.clearTimeout(percentIndicatorTimeoutRef.current);
+    }
   }, []);
 
-  function scheduleVolumeChange(nextValue: number, muted = view.muted) {
+  function showPercentIndicator() {
+    if (percentIndicatorTimeoutRef.current !== null) {
+      window.clearTimeout(percentIndicatorTimeoutRef.current);
+      percentIndicatorTimeoutRef.current = null;
+    }
+    setAdjusting(true);
+  }
+
+  function hidePercentIndicatorAfterHold() {
+    if (percentIndicatorTimeoutRef.current !== null) {
+      window.clearTimeout(percentIndicatorTimeoutRef.current);
+    }
+    percentIndicatorTimeoutRef.current = window.setTimeout(() => {
+      setAdjusting(false);
+      percentIndicatorTimeoutRef.current = null;
+    }, volumePercentIndicatorHoldMs);
+  }
+
+  function markDragStarted() {
     draggingRef.current = true;
     controls.onInteractionStart();
+    showPercentIndicator();
+  }
+
+  function sendVolumeChange(nextValue: number, muted = view.muted) {
+    const target = normalizedVolumeTarget(nextValue, muted);
+    if (volumePatchTargetsEqual(lastCommittedTargetRef.current, target)) {
+      return;
+    }
+    lastCommittedTargetRef.current = target;
+    controls.onChange(target.value, target.muted);
+  }
+
+  function scheduleVolumeChange(nextValue: number, muted = view.muted) {
+    markDragStarted();
     dragValueRef.current = nextValue;
     setDragValue(nextValue);
+    const commitGeneration = commitGenerationRef.current + 1;
+    commitGenerationRef.current = commitGeneration;
+
+    if (!compact) {
+      sendVolumeChange(nextValue, muted);
+      return;
+    }
+
+    const nowMs = Date.now();
+    if (shouldCommitLiveVolumeChange(lastLiveCommitAtMsRef.current, nowMs, compactVolumeLiveCommitIntervalMs)) {
+      if (commitTimeoutRef.current !== null) {
+        window.clearTimeout(commitTimeoutRef.current);
+        commitTimeoutRef.current = null;
+      }
+      sendVolumeChange(nextValue, muted);
+      lastLiveCommitAtMsRef.current = nowMs;
+      return;
+    }
+
     if (commitTimeoutRef.current !== null) {
       window.clearTimeout(commitTimeoutRef.current);
     }
-    const commitGeneration = commitGenerationRef.current + 1;
-    commitGenerationRef.current = commitGeneration;
+    const delayMs = Math.max(0, compactVolumeLiveCommitIntervalMs - (nowMs - (lastLiveCommitAtMsRef.current ?? nowMs)));
     commitTimeoutRef.current = window.setTimeout(() => {
       if (commitGeneration !== commitGenerationRef.current) {
         return;
       }
-      controls.onChange(nextValue, muted);
+      sendVolumeChange(dragValueRef.current, muted);
+      lastLiveCommitAtMsRef.current = Date.now();
       commitTimeoutRef.current = null;
-    }, compact ? 180 : 0);
+    }, delayMs);
   }
 
   function commitVolumeChange(nextValue = dragValueRef.current, muted = view.muted) {
@@ -2669,8 +2731,9 @@ function VolumeControlPanel({
       commitTimeoutRef.current = null;
     }
     draggingRef.current = false;
-    controls.onChange(nextValue, muted);
+    sendVolumeChange(nextValue, muted);
     controls.onInteractionEnd();
+    hidePercentIndicatorAfterHold();
   }
 
   function finishVolumeInteraction() {
@@ -2701,10 +2764,7 @@ function VolumeControlPanel({
             step="1"
             type="range"
             value={dragValue}
-            onPointerDown={() => {
-              draggingRef.current = true;
-              controls.onInteractionStart();
-            }}
+            onPointerDown={markDragStarted}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
             onPointerUp={finishVolumeInteraction}
             onPointerCancel={finishVolumeInteraction}
@@ -2715,6 +2775,11 @@ function VolumeControlPanel({
               }
             }}
           />
+          {adjusting && (
+            <output className="volume-percent-indicator" aria-live="polite">
+              {Math.round(dragValue)}%
+            </output>
+          )}
         </div>
       </section>
     );
@@ -2737,10 +2802,7 @@ function VolumeControlPanel({
             step="1"
             type="range"
             value={dragValue}
-            onPointerDown={() => {
-              draggingRef.current = true;
-              controls.onInteractionStart();
-            }}
+            onPointerDown={markDragStarted}
             onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
             onPointerUp={finishVolumeInteraction}
             onPointerCancel={finishVolumeInteraction}
