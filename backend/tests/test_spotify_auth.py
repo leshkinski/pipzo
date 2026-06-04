@@ -1026,7 +1026,7 @@ def test_hardware_playback_control_maps_spotify_errors_to_honest_blocked_state(t
     assert response.json()["reason"] == "device_not_registered"
 
 
-def test_hardware_volume_patch_coordinates_spotify_and_os_volume(tmp_path):
+def test_hardware_volume_patch_uses_local_hardware_volume_without_spotify_sync(tmp_path):
     settings = make_settings(tmp_path, app_mode="hardware")
     persist_auth_record(settings)
     spotify_client = FakeSpotifyClient()
@@ -1036,19 +1036,12 @@ def test_hardware_volume_patch_coordinates_spotify_and_os_volume(tmp_path):
         response = client.patch("/api/v1/volume", json={"value": 64, "muted": False, "deviceId": "pipzo-device-id"})
 
     assert response.status_code == 200
-    assert response.json() == {"status": "unified", "reason": None, "value": 64, "muted": False}
-    assert spotify_client.volume_calls == [
-        {
-            "api_base_url": "https://api.spotify.com",
-            "access_token": "refreshed-access-token",
-            "volume_percent": 80,
-            "device_id": "pipzo-device-id",
-        }
-    ]
-    assert volume_adapter.set_calls == [(80, False)]
+    assert response.json() == {"status": "os_only", "reason": None, "value": 64, "muted": False}
+    assert spotify_client.volume_calls == []
+    assert volume_adapter.set_calls == [(64, False)]
 
 
-def test_hardware_volume_patch_reports_partial_os_only_when_spotify_volume_fails(tmp_path):
+def test_hardware_volume_patch_ignores_spotify_volume_failures_when_local_volume_succeeds(tmp_path):
     settings = make_settings(tmp_path, app_mode="hardware")
     persist_auth_record(settings)
     spotify_client = FakeSpotifyClient(playback_failure=SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND)
@@ -1060,10 +1053,12 @@ def test_hardware_volume_patch_reports_partial_os_only_when_spotify_volume_fails
     assert response.status_code == 200
     assert response.json() == {
         "status": "os_only",
-        "reason": "spotify_volume_unsupported",
+        "reason": None,
         "value": 31,
         "muted": True,
     }
+    assert spotify_client.volume_calls == []
+    assert volume_adapter.set_calls == [(31, True)]
 
 
 def test_hardware_volume_patch_reports_spotify_only_when_os_audio_session_unavailable(tmp_path):
@@ -1082,6 +1077,7 @@ def test_hardware_volume_patch_reports_spotify_only_when_os_audio_session_unavai
         "value": 45,
         "muted": False,
     }
+    assert volume_adapter.set_calls == [(45, False)]
     assert spotify_client.volume_calls[-1]["volume_percent"] == 45
 
 

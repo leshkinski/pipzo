@@ -326,7 +326,17 @@ export function volumeControlViewModel(snapshot: AppSnapshot): VolumeControlView
       tone: "ready",
     };
   }
-  if (volume.status === "spotify_only" || volume.status === "os_only" || volume.status === "write_only") {
+  if (volume.status === "os_only") {
+    return {
+      value,
+      muted,
+      disabled,
+      statusLabel: muted ? "Muted" : `${value}%`,
+      detail: "Pi output volume is controlled locally.",
+      tone: "ready",
+    };
+  }
+  if (volume.status === "spotify_only" || volume.status === "write_only") {
     return {
       value,
       muted,

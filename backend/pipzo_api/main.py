@@ -1541,72 +1541,43 @@ def set_unified_volume(
 ) -> VolumeHealth:
     spotify_reason: Optional[VolumeReason] = None
     os_reason: Optional[VolumeReason] = None
-    spotify_succeeded = False
     os_health: Optional[VolumeHealth] = None
-    linked_value = linked_output_volume_percent(body.value)
+
+    try:
+        os_health = volume_adapter.set_volume(body.value, body.muted)
+    except VolumeUnavailable as exc:
+        os_reason = exc.reason
+    except VolumeCommandError as exc:
+        os_reason = exc.reason
+
+    if os_health is not None:
+        if os_health.status == VolumeStatus.OUT_OF_SYNC:
+            return os_health
+        return os_health.model_copy(update={"status": VolumeStatus.OS_ONLY, "reason": None})
 
     try:
         token = issue_spotify_playback_token(settings, spotify_client)
         spotify_client.set_playback_volume(
             api_base_url=settings.spotify_api_base_url,
             access_token=token.access_token,
-            volume_percent=linked_value,
+            volume_percent=body.value,
             device_id=body.device_id,
         )
-        spotify_succeeded = True
-    except HTTPException:
-        spotify_reason = VolumeReason.SPOTIFY_VOLUME_UNSUPPORTED
-    except SpotifyPlaybackApiError as exc:
-        spotify_reason = spotify_volume_reason_from_api_error(exc)
-
-    try:
-        os_health = volume_adapter.set_volume(linked_value if spotify_succeeded else body.value, body.muted)
-    except VolumeUnavailable as exc:
-        os_reason = exc.reason
-    except VolumeCommandError as exc:
-        os_reason = exc.reason
-
-    if spotify_succeeded and os_health is not None and os_health.status != VolumeStatus.OUT_OF_SYNC:
-        return VolumeHealth(
-            status=VolumeStatus.UNIFIED,
-            value=body.value,
-            muted=os_health.muted if os_health.muted is not None else body.muted,
-        )
-    if spotify_succeeded:
-        if os_health is not None and os_health.status == VolumeStatus.OUT_OF_SYNC:
-            return os_health.model_copy(update={"status": VolumeStatus.OUT_OF_SYNC})
-        try:
-            token = issue_spotify_playback_token(settings, spotify_client)
-            spotify_client.set_playback_volume(
-                api_base_url=settings.spotify_api_base_url,
-                access_token=token.access_token,
-                volume_percent=body.value,
-                device_id=body.device_id,
-            )
-        except (HTTPException, SpotifyPlaybackApiError):
-            pass
         return VolumeHealth(
             status=VolumeStatus.SPOTIFY_ONLY,
             reason=os_reason,
             value=body.value,
             muted=body.muted,
         )
-    if os_health is not None:
-        if os_health.status == VolumeStatus.OUT_OF_SYNC:
-            return os_health
-        return os_health.model_copy(update={"status": VolumeStatus.OS_ONLY, "reason": spotify_reason})
+    except HTTPException:
+        spotify_reason = VolumeReason.SPOTIFY_VOLUME_UNSUPPORTED
+    except SpotifyPlaybackApiError as exc:
+        spotify_reason = spotify_volume_reason_from_api_error(exc)
+
     return VolumeHealth(
         status=VolumeStatus.UNAVAILABLE,
         reason=os_reason or spotify_reason or VolumeReason.UNKNOWN,
     )
-
-
-def linked_output_volume_percent(value: int) -> int:
-    bounded = max(0, min(100, value))
-    if bounded == 0:
-        return 0
-    return max(1, min(100, round((bounded / 100) ** 0.5 * 100)))
-
 
 def spotify_volume_reason_from_api_error(exc: SpotifyPlaybackApiError) -> VolumeReason:
     if exc.failure in {

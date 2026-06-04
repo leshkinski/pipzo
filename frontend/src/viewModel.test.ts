@@ -220,6 +220,13 @@ describe("kiosk shell view model", () => {
       statusLabel: "42%",
       tone: "ready",
     });
+    expect(volumeControlViewModel({ ...ready, health: { ...ready.health, volume: { status: "os_only", value: 31, muted: false } } })).toMatchObject({
+      value: 31,
+      disabled: false,
+      statusLabel: "31%",
+      tone: "ready",
+      detail: "Pi output volume is controlled locally.",
+    });
     expect(volumeControlViewModel(outOfSync)).toMatchObject({
       value: 42,
       disabled: false,
