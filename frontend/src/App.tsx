@@ -1782,10 +1782,6 @@ export function App() {
               volume={volumeControls}
               queue={queueControls}
               nowMs={nowMs}
-              onOpenSleepTimer={() => {
-                setTimerReturnSurface("now_playing");
-                setSelectedSurface("sleep_timer");
-              }}
             />
           )}
           {activeSurface === "sleep_timer" && (
@@ -2226,7 +2222,6 @@ function NowPlayingSurface({
   volume,
   queue,
   nowMs,
-  onOpenSleepTimer,
 }: {
   snapshot: AppSnapshot;
   spotifySdk: SpotifySdkState;
@@ -2238,7 +2233,6 @@ function NowPlayingSurface({
   volume: VolumeControls;
   queue: QueueControls;
   nowMs: number;
-  onOpenSleepTimer: () => void;
 }) {
   const playing = snapshot.nowPlaying;
   const displayedProgressMs = currentProgressMs(playing, nowMs);
@@ -2298,9 +2292,6 @@ function NowPlayingSurface({
         </div>
         <div className="player-utility-row">
           <VolumeControlPanel snapshot={snapshot} controls={volume} compact />
-          <button className="player-utility-button" type="button" onClick={onOpenSleepTimer} aria-label="Sleep timer">
-            <TimerIcon />
-          </button>
         </div>
         {remotePlayback && (
           <button
@@ -2444,6 +2435,41 @@ function VolumeControlPanel({
 }) {
   const view = volumeControlViewModel(snapshot);
   const value = view.value;
+  const [dragValue, setDragValue] = useState(value);
+  const dragValueRef = useRef(value);
+  const commitTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    dragValueRef.current = value;
+    setDragValue(value);
+  }, [value]);
+
+  useEffect(() => () => {
+    if (commitTimeoutRef.current !== null) {
+      window.clearTimeout(commitTimeoutRef.current);
+    }
+  }, []);
+
+  function scheduleVolumeChange(nextValue: number, muted = view.muted) {
+    dragValueRef.current = nextValue;
+    setDragValue(nextValue);
+    if (commitTimeoutRef.current !== null) {
+      window.clearTimeout(commitTimeoutRef.current);
+    }
+    commitTimeoutRef.current = window.setTimeout(() => {
+      controls.onChange(nextValue, muted);
+      commitTimeoutRef.current = null;
+    }, compact ? 180 : 0);
+  }
+
+  function commitVolumeChange(nextValue = dragValueRef.current, muted = view.muted) {
+    if (commitTimeoutRef.current !== null) {
+      window.clearTimeout(commitTimeoutRef.current);
+      commitTimeoutRef.current = null;
+    }
+    controls.onChange(nextValue, muted);
+  }
+
   if (compact) {
     return (
       <section className={`volume-panel volume-${view.tone} compact icon-volume${view.muted ? " muted" : ""}`} aria-label="Volume">
@@ -2459,13 +2485,14 @@ function VolumeControlPanel({
           </button>
           <input
             aria-label="Volume level"
-            disabled={view.disabled || controls.busy}
+            disabled={view.disabled}
             min="0"
             max="100"
             step="2"
             type="range"
-            value={value}
-            onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
+            value={dragValue}
+            onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
+            onPointerUp={() => commitVolumeChange()}
           />
         </div>
       </section>
@@ -2488,8 +2515,8 @@ function VolumeControlPanel({
             max="100"
             step="2"
             type="range"
-            value={value}
-            onChange={(event) => controls.onChange(Number(event.target.value), view.muted)}
+            value={dragValue}
+            onChange={(event) => scheduleVolumeChange(Number(event.target.value))}
           />
           <strong>{view.statusLabel}</strong>
         </label>

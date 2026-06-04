@@ -495,7 +495,7 @@ describe("kiosk shell view model", () => {
     const shellRule = (css.match(/\.shell\s*\{[^}]+\}/g) ?? []).find((rule: string) => rule.includes("grid-template-columns")) ?? "";
     const navButtonRule = css.match(/\.nav button\s*\{[^}]+\}/)?.[0] ?? "";
     const primaryControlRule = css.match(/\.transport-primary\s*\{[^}]+\}/)?.[0] ?? "";
-    const utilityControlRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
+    const utilityRowRule = (css.match(/\.player-utility-row\s*\{[^}]+\}/g) ?? []).find((rule: string) => rule.includes("grid-template-columns")) ?? "";
 
     expect(shellRule).toContain("grid-template-columns: 76px minmax(0, 1fr)");
     expect(shellRule).toContain("height: calc(var(--pipzo-viewport-height) - 32px)");
@@ -504,7 +504,7 @@ describe("kiosk shell view model", () => {
     expect(navButtonRule).toContain("min-height: 86px");
     expect(navButtonRule).toContain("font-size: 12px");
     expect(primaryControlRule).toContain("min-height: 120px");
-    expect(utilityControlRule).toContain("min-height: 58px");
+    expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
   });
 
   it("keeps ready-state shell chrome minimal", () => {
@@ -643,8 +643,8 @@ describe("kiosk shell view model", () => {
     const transportSecondaryRule = css.match(/\.transport-secondary\s*\{[^}]+\}/)?.[0] ?? "";
     const utilityRowRules: string[] = css.match(/\.player-utility-row\s*\{[^}]+\}/g) ?? [];
     const utilityRowRule = utilityRowRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
-    const utilityButtonRule = css.match(/\.player-utility-button\s*\{[^}]+\}/)?.[0] ?? "";
     const volumeInputRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\],[^}]+\}/)?.[0] ?? "";
+    const volumeThumbRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\]::-webkit-slider-thumb,[^}]+\}/)?.[0] ?? "";
     const queuePanelRule = css.match(/\.queue-panel\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
@@ -655,9 +655,10 @@ describe("kiosk shell view model", () => {
     expect(apiSource).toContain('"/api/v1/spotify/queue"');
     expect(navBottomRule).toContain("align-content: end");
     expect(transportSecondaryRule).toContain("width: 86px");
-    expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr) 58px");
-    expect(utilityButtonRule).toContain("border-radius: 999px");
+    expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
+    expect(appSource).not.toContain("player-utility-button");
     expect(volumeInputRule).toContain("min-height: 82px");
+    expect(volumeThumbRule).toContain("width: 54px");
     expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
   });
 
