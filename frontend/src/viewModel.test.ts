@@ -38,7 +38,12 @@ import {
   volumeControlViewModel,
   wifiSetupViewModel,
 } from "./viewModel";
-import { isLatestVolumeRequest, normalizedVolumeTarget, snapshotWithProtectedVolume } from "./volumeInteraction";
+import {
+  isLatestVolumeRequest,
+  normalizedVolumeTarget,
+  shouldProtectVolumeFromSnapshot,
+  snapshotWithProtectedVolume,
+} from "./volumeInteraction";
 
 describe("kiosk shell view model", () => {
   it("gates daily-use surfaces during first setup", () => {
@@ -263,6 +268,45 @@ describe("kiosk shell view model", () => {
 
     expect(snapshotWithProtectedVolume(incoming, current, true).health.volume.value).toBe(37);
     expect(snapshotWithProtectedVolume(incoming, current, false).health.volume.value).toBe(12);
+  });
+
+  it("protects recent local volume intent from stale backend snapshots until polling catches up", () => {
+    const staleVolume = { status: "os_only" as const, value: 12, muted: false };
+    const caughtUpVolume = { status: "os_only" as const, value: 37, muted: false };
+    const protection = {
+      active: false,
+      intendedVolume: { value: 37, muted: false },
+      lastIntentAtMs: 1000,
+      nowMs: 1800,
+      graceMs: 3000,
+    };
+
+    expect(shouldProtectVolumeFromSnapshot(staleVolume, protection)).toBe(true);
+    expect(shouldProtectVolumeFromSnapshot(caughtUpVolume, protection)).toBe(false);
+    expect(shouldProtectVolumeFromSnapshot(staleVolume, { ...protection, nowMs: 4501 })).toBe(false);
+  });
+
+  it("keeps optimistic volume when a recent stale app-state snapshot arrives", () => {
+    const current = {
+      health: {
+        volume: { status: "os_only" as const, value: 37, muted: false },
+      },
+    };
+    const incoming = {
+      health: {
+        volume: { status: "os_only" as const, value: 12, muted: false },
+      },
+    };
+
+    const protectedSnapshot = snapshotWithProtectedVolume(incoming, current, {
+      active: false,
+      intendedVolume: { value: 37, muted: false },
+      lastIntentAtMs: 1000,
+      nowMs: 1800,
+      graceMs: 3000,
+    });
+
+    expect(protectedSnapshot.health.volume.value).toBe(37);
   });
 
   it("offers local Spotify setup when authorization is required", () => {
@@ -705,7 +749,9 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("volumeRequestSeqRef");
     expect(appSource).toContain("isLatestVolumeRequest(request.requestId, volumeRequestSeqRef.current)");
     expect(appSource).toContain("pendingVolumeRequestRef.current = queuedRequest");
-    expect(appSource).toContain("snapshotWithProtectedVolume(state, current, volumeInteractionActiveRef.current)");
+    expect(appSource).toContain("volumeLocalIntentGraceMs = 3000");
+    expect(appSource).toContain("latestVolumeIntentRef.current = target");
+    expect(appSource).toContain("snapshotWithProtectedVolume(state, current, {");
     expect(appSource).toContain('disabled={view.disabled}');
     expect(appSource).toContain('step="1"');
     expect(volumePanelRule).toContain("border: 0");

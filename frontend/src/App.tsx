@@ -87,6 +87,7 @@ import {
   normalizedVolumeTarget,
   snapshotWithProtectedVolume,
   type QueuedVolumePatch,
+  type VolumePatchTarget,
 } from "./volumeInteraction";
 
 type DataSource = "backend" | "local";
@@ -210,6 +211,7 @@ const speakerStateRefreshDelaysMs = [0, 500, 1500, 3000] as const;
 const bluetoothMutationSnapshotRefreshDelaysMs = [500, 1500, 3000, 6000, 10000] as const;
 const setupReadinessRefreshIntervalMs = 2500;
 const backendRecoveryRefreshIntervalMs = 2500;
+const volumeLocalIntentGraceMs = 3000;
 const pipzoImportMeta = import.meta as PipzoImportMeta;
 const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzoImportMeta.env?.VITE_PIPZO_SHOW_MOCK_CONTROLS === "true";
 
@@ -303,6 +305,8 @@ export function App() {
   const pendingVolumeRequestRef = useRef<QueuedVolumePatch | null>(null);
   const volumeInteractionActiveRef = useRef(false);
   const volumeInteractionIdleTimeoutRef = useRef<number | null>(null);
+  const latestVolumeIntentRef = useRef<VolumePatchTarget | null>(null);
+  const latestVolumeIntentAtMsRef = useRef<number | undefined>(undefined);
 
   useExplicitDragScroll(appRef);
 
@@ -916,7 +920,13 @@ export function App() {
   }
 
   function applyBackendSnapshot(state: AppSnapshot) {
-    setSnapshot((current) => snapshotWithProtectedVolume(state, current, volumeInteractionActiveRef.current));
+    setSnapshot((current) => snapshotWithProtectedVolume(state, current, {
+      active: volumeInteractionActiveRef.current,
+      intendedVolume: latestVolumeIntentRef.current,
+      lastIntentAtMs: latestVolumeIntentAtMsRef.current,
+      nowMs: Date.now(),
+      graceMs: volumeLocalIntentGraceMs,
+    }));
   }
 
   function markVolumeInteractionActive() {
@@ -1670,6 +1680,8 @@ export function App() {
     const target = normalizedVolumeTarget(value, muted, deviceId);
     const requestId = volumeRequestSeqRef.current + 1;
     volumeRequestSeqRef.current = requestId;
+    latestVolumeIntentRef.current = target;
+    latestVolumeIntentAtMsRef.current = Date.now();
     markVolumeInteractionActive();
     setIdleActive(false);
     setLastActivityAt(Date.now());

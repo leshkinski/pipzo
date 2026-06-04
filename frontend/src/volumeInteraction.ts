@@ -10,6 +10,14 @@ export type QueuedVolumePatch = VolumePatchTarget & {
   requestId: number;
 };
 
+export type VolumeSnapshotProtection = {
+  active: boolean;
+  intendedVolume?: VolumePatchTarget | null;
+  lastIntentAtMs?: number;
+  nowMs: number;
+  graceMs: number;
+};
+
 export function normalizedVolumeTarget(value: number, muted: boolean, deviceId?: string): VolumePatchTarget {
   return {
     value: Math.max(0, Math.min(100, Math.round(value))),
@@ -21,8 +29,11 @@ export function normalizedVolumeTarget(value: number, muted: boolean, deviceId?:
 export function snapshotWithProtectedVolume<TSnapshot extends AppVolumeSnapshot>(
   incoming: TSnapshot,
   current: TSnapshot,
-  protectVolume: boolean,
+  protection: boolean | VolumeSnapshotProtection,
 ): TSnapshot {
+  const protectVolume = typeof protection === "boolean"
+    ? protection
+    : shouldProtectVolumeFromSnapshot(incoming.health.volume, protection);
   if (!protectVolume) {
     return incoming;
   }
@@ -33,6 +44,23 @@ export function snapshotWithProtectedVolume<TSnapshot extends AppVolumeSnapshot>
       volume: current.health.volume,
     },
   };
+}
+
+export function shouldProtectVolumeFromSnapshot(
+  incomingVolume: HealthState["volume"],
+  protection: VolumeSnapshotProtection,
+): boolean {
+  if (protection.active) {
+    return true;
+  }
+  if (!protection.intendedVolume || protection.lastIntentAtMs === undefined) {
+    return false;
+  }
+  if (protection.nowMs - protection.lastIntentAtMs > protection.graceMs) {
+    return false;
+  }
+  return incomingVolume.value !== protection.intendedVolume.value
+    || incomingVolume.muted !== protection.intendedVolume.muted;
 }
 
 export function isLatestVolumeRequest(requestId: number, latestRequestId: number): boolean {
