@@ -49,6 +49,7 @@ class FakeSpotifyClient:
         playback_failure: Optional[SpotifyPlaybackApiFailure] = None,
         catalog_payloads: Optional[dict[str, dict]] = None,
         catalog_failure: Optional[SpotifyCatalogApiFailure] = None,
+        current_playback_payload: Optional[dict] = None,
     ) -> None:
         self.token_response = token_response or SpotifyTokenResponse(
             access_token="backend-access-token",
@@ -76,12 +77,14 @@ class FakeSpotifyClient:
         self.playback_failure = playback_failure
         self.catalog_payloads = catalog_payloads or {}
         self.catalog_failure = catalog_failure
+        self.current_playback_payload = current_playback_payload
         self.exchange_calls: list[dict] = []
         self.profile_tokens: list[str] = []
         self.refresh_calls: list[dict] = []
         self.transfer_calls: list[dict] = []
         self.playback_calls: list[dict] = []
         self.volume_calls: list[dict] = []
+        self.save_tracks_calls: list[dict] = []
         self.catalog_calls: list[dict] = []
         self.start_playback_calls: list[dict] = []
         self.current_playback_calls: list[dict] = []
@@ -230,11 +233,28 @@ class FakeSpotifyClient:
         if self.playback_failure is not None:
             raise SpotifyPlaybackApiError(self.playback_failure)
 
+    def save_tracks(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> None:
+        self.save_tracks_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "track_ids": track_ids,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+
     def fetch_current_playback(self, *, api_base_url: str, access_token: str) -> Optional[dict]:
         self.current_playback_calls.append({"api_base_url": api_base_url, "access_token": access_token})
         if self.playback_failure is not None:
             raise SpotifyPlaybackApiError(self.playback_failure)
-        return None
+        return self.current_playback_payload
 
 
 class FakeVolumeAdapter:
@@ -1277,6 +1297,41 @@ def test_hardware_playback_queue_returns_track_rows(tmp_path):
     assert body["current"]["artworkUrl"] == "https://example.test/current.jpg"
     assert [item["title"] for item in body["items"]] == ["Next Song"]
     assert spotify_client.catalog_calls[-1]["path"] == "/v1/me/player/queue"
+
+
+def test_hardware_like_current_track_saves_current_spotify_track(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, scope="user-read-playback-state user-library-modify")
+    spotify_client = FakeSpotifyClient(
+        current_playback_payload={
+            "currently_playing_type": "track",
+            "item": {
+                "id": "current-track",
+                "type": "track",
+                "uri": "spotify:track:current-track",
+                "name": "Current Song",
+            },
+        }
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.post("/api/v1/library/like-current")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["action"] == "like_current"
+    assert spotify_client.current_playback_calls[-1]["access_token"] == "refreshed-access-token"
+    assert spotify_client.save_tracks_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "refreshed-access-token",
+            "track_ids": ["current-track"],
+        }
+    ]
+
+
+def test_default_spotify_scope_allows_saving_liked_tracks():
+    assert "user-library-modify" in Settings().spotify_scopes.split()
 
 
 def test_hardware_library_search_filters_only_library_results(tmp_path):

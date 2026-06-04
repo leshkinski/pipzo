@@ -16,6 +16,7 @@ import {
   fetchSpotifyAuthSession,
   forgetSpeaker,
   forgetNetwork,
+  likeCurrentTrack,
   logoutSpotifyAuth,
   patchDisplay,
   patchSettings,
@@ -152,6 +153,12 @@ type VolumeControls = {
   onChange: (value: number, muted?: boolean) => void;
 };
 
+type LikeControls = {
+  busy: boolean;
+  message: string;
+  onLike: () => void;
+};
+
 type SetupPlaybackControls = {
   busy: boolean;
   message: string;
@@ -259,6 +266,8 @@ export function App() {
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState("Tap the artwork to show the current queue.");
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [likeMessage, setLikeMessage] = useState("Save the current song.");
   const [playbackQueue, setPlaybackQueue] = useState<PlaybackQueueResponse>(() => ({
     current: null,
     items: [],
@@ -968,10 +977,9 @@ export function App() {
     }
   }
 
-  async function openPlaybackQueue() {
-    setQueueOpen(true);
+  async function loadPlaybackQueue(options: { automatic?: boolean } = {}) {
     setQueueBusy(true);
-    setQueueMessage("Loading current queue.");
+    setQueueMessage(options.automatic ? "Updating current queue." : "Loading current queue.");
     try {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
@@ -993,6 +1001,11 @@ export function App() {
     } finally {
       setQueueBusy(false);
     }
+  }
+
+  async function openPlaybackQueue() {
+    setQueueOpen(true);
+    await loadPlaybackQueue();
   }
 
   function closePlaybackQueue() {
@@ -1502,6 +1515,10 @@ export function App() {
         await refreshSnapshot().catch(() => undefined);
         if (result.state === "succeeded") {
           scheduleSnapshotRefreshes();
+          if (queueOpen) {
+            void loadPlaybackQueue({ automatic: true });
+            window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 900);
+          }
         }
         return;
       } catch {
@@ -1509,6 +1526,34 @@ export function App() {
       }
     }
     setStatusText("Local scenario playback controls do not call Spotify.");
+  }
+
+  async function likeCurrentPlayingTrack() {
+    if (!snapshot.nowPlaying) {
+      setLikeMessage("No song is playing.");
+      setStatusText("No song is playing.");
+      return;
+    }
+    setLikeBusy(true);
+    setLikeMessage(`Saving ${snapshot.nowPlaying.title}.`);
+    try {
+      if (dataSource === "backend") {
+        const result = await likeCurrentTrack();
+        setLikeMessage(result.state === "succeeded" ? "Saved to Liked Songs." : `Like blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        setStatusText(result.state === "succeeded" ? "Saved to Liked Songs." : "Like action was blocked.");
+        if (result.state === "succeeded") {
+          void refreshLibraryHome({ automatic: true });
+        }
+      } else {
+        setLikeMessage("Local fixture song saved.");
+        setStatusText("Local fixture song saved.");
+      }
+    } catch {
+      setLikeMessage("Like action could not be sent.");
+      setStatusText("Like action could not be sent.");
+    } finally {
+      setLikeBusy(false);
+    }
   }
 
   async function updateVolume(value: number, muted = snapshot.health.volume.muted ?? false) {
@@ -1620,6 +1665,11 @@ export function App() {
     busy: volumeBusy,
     message: volumeMessage,
     onChange: updateVolume,
+  };
+  const likeControls = {
+    busy: likeBusy,
+    message: likeMessage,
+    onLike: likeCurrentPlayingTrack,
   };
   const setupPlaybackControls = {
     busy: playbackTestBusy,
@@ -1793,6 +1843,7 @@ export function App() {
               repeatEnabled={repeatEnabled}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
+              like={likeControls}
               queue={queueControls}
               nowMs={nowMs}
             />
@@ -2233,6 +2284,7 @@ function NowPlayingSurface({
   repeatEnabled,
   sleepTimer,
   volume,
+  like,
   queue,
   nowMs,
 }: {
@@ -2244,6 +2296,7 @@ function NowPlayingSurface({
   repeatEnabled: boolean;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
+  like: LikeControls;
   queue: QueueControls;
   nowMs: number;
 }) {
@@ -2282,6 +2335,9 @@ function NowPlayingSurface({
           </button>
           <button className={repeatEnabled ? "mode-button active" : "mode-button"} disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("repeat")} aria-label={repeatEnabled ? "Turn repeat off" : "Turn repeat on"}>
             <RepeatIcon />
+          </button>
+          <button className="mode-button" disabled={!playing || like.busy} type="button" onClick={like.onLike} aria-label="Save current song to Liked Songs" title={like.message}>
+            <HeartIcon />
           </button>
           <button className="mode-button mode-button-wide unavailable" disabled type="button" aria-label="Radio is a follow-up feature">
             <RadioIcon />
@@ -2987,6 +3043,20 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
           <path d="M18.5 7a7 7 0 0 1 0 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </>
       )}
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path
+        d="M12 20s-7-4.4-9-9.2C1.5 7.2 3.8 4 7 4c1.9 0 3.4 1 4 2.3C11.6 5 13.1 4 15 4c3.2 0 5.5 3.2 4 6.8C17 15.6 12 20 12 20Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

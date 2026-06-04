@@ -147,6 +147,15 @@ class SpotifyClient(Protocol):
     ) -> None:
         ...
 
+    def save_tracks(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> None:
+        ...
+
     def fetch_current_playback(
         self,
         *,
@@ -404,6 +413,24 @@ class UrlLibSpotifyClient:
         request = Request(
             f"{api_base_url.rstrip('/')}/v1/me/player/volume?{urlencode(params)}",
             headers={"Authorization": f"Bearer {access_token}"},
+            method="PUT",
+        )
+        self._send_empty_spotify_api_request(request)
+
+    def save_tracks(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> None:
+        request = Request(
+            f"{api_base_url.rstrip('/')}/v1/me/tracks",
+            data=json.dumps({"ids": track_ids}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
             method="PUT",
         )
         self._send_empty_spotify_api_request(request)

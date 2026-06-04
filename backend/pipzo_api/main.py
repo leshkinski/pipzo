@@ -678,6 +678,20 @@ def create_app(
             )
         return result
 
+    @app.post("/api/v1/library/like-current", response_model=ActionResult)
+    def spotify_library_like_current(settings: Settings = Depends(get_settings)) -> ActionResult:
+        if settings.app_mode == "mock":
+            return ActionResult(
+                id="library-like-current-mock",
+                domain="library",
+                action="like_current",
+                state="succeeded",
+                mock=True,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+        return like_current_track(settings, spotify_client)
+
     @app.get("/api/v1/spotify/queue", response_model=PlaybackQueueResponse)
     def spotify_playback_queue(settings: Settings = Depends(get_settings)) -> PlaybackQueueResponse:
         if settings.app_mode == "mock":
@@ -1503,6 +1517,47 @@ def playback_queue(settings: Settings, spotify_client: SpotifyClient) -> Playbac
     raw_queue = payload.get("queue") if isinstance(payload.get("queue"), list) else []
     items = [item for item in (queue_track_item(raw_item) for raw_item in raw_queue) if item is not None]
     return PlaybackQueueResponse(current=current, items=items, generated_at=utc_now())
+
+
+def like_current_track(settings: Settings, spotify_client: SpotifyClient) -> ActionResult:
+    started_at = utc_now()
+    try:
+        token = issue_spotify_playback_token(settings, spotify_client)
+        payload = spotify_client.fetch_current_playback(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+        )
+        item = payload.get("item") if isinstance(payload, dict) and isinstance(payload.get("item"), dict) else None
+        track_id = item.get("id") if item and item.get("type") == "track" else None
+        if not isinstance(track_id, str) or not track_id:
+            return ActionResult(
+                id="library-like-current",
+                domain="library",
+                action="like_current",
+                state="blocked",
+                reason=PlaybackDeviceReason.UNKNOWN,
+                mock=False,
+                started_at=started_at,
+                completed_at=utc_now(),
+            )
+        spotify_client.save_tracks(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=token.access_token,
+            track_ids=[track_id],
+        )
+    except HTTPException as exc:
+        return _playback_action_result_from_http_error("like_current", started_at, exc)
+    except SpotifyPlaybackApiError as exc:
+        return _playback_action_result_from_api_error("like_current", started_at, exc)
+    return ActionResult(
+        id="library-like-current",
+        domain="library",
+        action="like_current",
+        state="succeeded",
+        mock=False,
+        started_at=started_at,
+        completed_at=utc_now(),
+    )
 
 
 def queue_track_item(item: object) -> Optional[LibraryItem]:

@@ -112,6 +112,10 @@ export function playLibraryItem(body: LibraryPlayRequest): Promise<ActionResult>
   return request<ActionResult>("/api/v1/library/play", { method: "POST", body: JSON.stringify(body) });
 }
 
+export function likeCurrentTrack(): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/library/like-current", { method: "POST" });
+}
+
 export function fetchPlaybackQueue(): Promise<PlaybackQueueResponse> {
   return request<PlaybackQueueResponse>("/api/v1/spotify/queue");
 }

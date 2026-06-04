@@ -654,14 +654,19 @@ describe("kiosk shell view model", () => {
     const utilityRowRule = utilityRowRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const volumeInputRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\],[^}]+\}/)?.[0] ?? "";
     const volumeThumbRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\]::-webkit-slider-thumb,[^}]+\}/)?.[0] ?? "";
+    const volumePanelRule = css.match(/\.volume-panel\s*\{[^}]+\}/)?.[0] ?? "";
+    const volumeButtonRule = css.match(/\.volume-controls button\s*\{[^}]+\}/)?.[0] ?? "";
     const queuePanelRule = css.match(/\.queue-panel\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
     expect(appSource).toContain("const railUtilityItems = railNavItems.filter((item) => item.priority === \"utility\")");
     expect(appSource).toContain('aria-label="Show current queue"');
+    expect(appSource).toContain('aria-label="Save current song to Liked Songs"');
+    expect(appSource).toContain("void loadPlaybackQueue({ automatic: true })");
     expect(appSource).toContain("function QueuePanel");
     expect(appSource).not.toContain('<span>{timerView.active ? timerView.label.replace("Stops in ", "") : "Timer"}</span>');
     expect(apiSource).toContain('"/api/v1/spotify/queue"');
+    expect(apiSource).toContain('"/api/v1/library/like-current"');
     expect(navBottomRule).toContain("align-content: end");
     expect(transportSecondaryRule).toContain("width: 86px");
     expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
@@ -670,8 +675,12 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("requestId !== volumeRequestSeqRef.current");
     expect(appSource).toContain('disabled={view.disabled}');
     expect(appSource).toContain('step="1"');
+    expect(volumePanelRule).toContain("border: 0");
+    expect(volumeButtonRule).toContain("border: 0");
     expect(volumeInputRule).toContain("min-height: 82px");
+    expect(volumeInputRule).toContain("border: 0");
     expect(volumeThumbRule).toContain("width: 54px");
+    expect(volumeThumbRule).toContain("border: 0");
     expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
   });
 

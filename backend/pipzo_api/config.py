@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         default=(
             "streaming user-read-playback-state user-modify-playback-state "
             "user-read-currently-playing playlist-read-private playlist-read-collaborative "
-            "user-library-read user-read-recently-played user-read-private"
+            "user-library-read user-library-modify user-read-recently-played user-read-private"
         ),
         validation_alias="SPOTIFY_SCOPES",
     )
