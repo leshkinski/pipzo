@@ -60,6 +60,7 @@ import {
   preferredSpeakerSelection,
   preferredSurface,
   playbackQueueAfterSelection,
+  playbackQueueAfterStableRefresh,
   playbackQueueViewModel,
   queueSelectionPlayback,
   shellNavigationItems,
@@ -315,6 +316,7 @@ export function App() {
   const volumeInteractionIdleTimeoutRef = useRef<number | null>(null);
   const latestVolumeIntentRef = useRef<VolumePatchTarget | null>(null);
   const latestVolumeIntentAtMsRef = useRef<number | undefined>(undefined);
+  const queueOptimisticRefreshUntilMsRef = useRef(0);
 
   useExplicitDragScroll(appRef);
 
@@ -1084,13 +1086,21 @@ export function App() {
   }
 
   async function loadPlaybackQueue(options: { automatic?: boolean } = {}) {
-    setQueueBusy(true);
-    setQueueMessage(options.automatic ? "Updating songs coming up." : "Loading songs coming up.");
+    const automatic = options.automatic === true;
+    if (!automatic) {
+      setQueueBusy(true);
+    }
+    setQueueMessage(automatic ? "Refreshing songs coming up." : "Loading songs coming up.");
     try {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
-        setPlaybackQueue(queue);
-        setQueueMessage(playbackQueueViewModel(queue).upcomingCount > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
+        setPlaybackQueue((current) => playbackQueueAfterStableRefresh(current, queue, {
+          preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
+        }));
+        const displayedQueue = playbackQueueAfterStableRefresh(playbackQueue, queue, {
+          preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
+        });
+        setQueueMessage(playbackQueueViewModel(displayedQueue).upcomingCount > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
       } else {
         const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
           .filter((item) => item.playbackKind === "track")
@@ -1105,7 +1115,9 @@ export function App() {
     } catch {
       setQueueMessage("Songs coming up are unavailable from Spotify right now.");
     } finally {
-      setQueueBusy(false);
+      if (!automatic) {
+        setQueueBusy(false);
+      }
     }
   }
 
@@ -1126,6 +1138,7 @@ export function App() {
       if (dataSource === "backend") {
         const result = await playQueueSelection({ ...selection, deviceId });
         if (result.state === "succeeded") {
+          queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000;
           setPlaybackQueue((current) => playbackQueueAfterSelection(current, item, new Date().toISOString()));
           setQueueMessage(`Starting ${item.title}. Songs after it stay lined up.`);
           await refreshSnapshot().catch(() => undefined);
@@ -1135,6 +1148,7 @@ export function App() {
           setQueueMessage(`Queue selection blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         }
       } else {
+        queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000;
         setPlaybackQueue((current) => playbackQueueAfterSelection(current, item, new Date().toISOString()));
         setQueueMessage(`Local queue jumped to ${item.title}.`);
       }
@@ -1152,6 +1166,7 @@ export function App() {
 
   function closePlaybackQueue() {
     setQueueOpen(false);
+    queueOptimisticRefreshUntilMsRef.current = 0;
     setQueueMessage("Tap the artwork to show songs coming up.");
   }
 

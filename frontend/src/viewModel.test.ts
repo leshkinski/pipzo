@@ -19,6 +19,7 @@ import {
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
   playbackQueueAfterSelection,
+  playbackQueueAfterStableRefresh,
   playbackQueueViewModel,
   preferredSpeakerSelection,
   preferredSurface,
@@ -832,6 +833,38 @@ describe("kiosk shell view model", () => {
       items: [{ uri: "spotify:track:fourth" }],
       generatedAt: "2026-06-04T10:01:00.000Z",
     });
+  });
+
+  it("keeps optimistic queue rows during transient automatic refresh collapse", () => {
+    const track = (id: string, title = id): LibraryItem => ({
+      id,
+      type: "track",
+      uri: `spotify:track:${id}`,
+      title,
+      source: "liked_songs",
+      playbackKind: "track",
+      playable: true,
+    });
+    const selected = track("third", "Third");
+    const optimistic = {
+      current: selected,
+      items: [track("fourth", "Fourth"), track("fifth", "Fifth")],
+      generatedAt: "2026-06-04T10:01:00.000Z",
+    };
+    const transientCurrentOnly = {
+      current: selected,
+      items: [],
+      generatedAt: "2026-06-04T10:01:01.000Z",
+    };
+    const reconciled = {
+      current: selected,
+      items: [track("fourth", "Fourth")],
+      generatedAt: "2026-06-04T10:01:03.000Z",
+    };
+
+    expect(playbackQueueAfterStableRefresh(optimistic, transientCurrentOnly, { preserveTransientCollapse: true })).toBe(optimistic);
+    expect(playbackQueueAfterStableRefresh(optimistic, transientCurrentOnly, { preserveTransientCollapse: false })).toBe(transientCurrentOnly);
+    expect(playbackQueueAfterStableRefresh(optimistic, reconciled, { preserveTransientCollapse: true })).toBe(reconciled);
   });
 
   it("keeps queue selection continuation consistent with display de-duping", () => {

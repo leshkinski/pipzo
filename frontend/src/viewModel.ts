@@ -135,6 +135,25 @@ export function playbackQueueAfterSelection(
   };
 }
 
+export function playbackQueueAfterStableRefresh(
+  current: PlaybackQueueResponse,
+  incoming: PlaybackQueueResponse,
+  options: { preserveTransientCollapse: boolean },
+): PlaybackQueueResponse {
+  if (!options.preserveTransientCollapse) {
+    return incoming;
+  }
+  const currentView = playbackQueueViewModel(current);
+  const incomingView = playbackQueueViewModel(incoming);
+  if (currentView.upcomingCount > 0 && incomingView.upcomingCount === 0) {
+    return current;
+  }
+  if (currentView.rows.length > 0 && incomingView.rows.length === 0) {
+    return current;
+  }
+  return incoming;
+}
+
 function queueItemIdentity(item: LibraryItem): string {
   return item.uri || item.id || `${item.type}:${item.title}:${item.subtitle ?? ""}`;
 }
