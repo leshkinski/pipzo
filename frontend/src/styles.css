@@ -1171,7 +1171,7 @@ label.touch-pressed {
 
 .queue-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
   width: 100%;
@@ -1394,7 +1394,7 @@ label.touch-pressed {
 
 .mode-row {
   display: grid;
-  grid-template-columns: repeat(2, 56px) repeat(2, minmax(82px, 1fr));
+  grid-template-columns: repeat(3, 56px) repeat(2, minmax(82px, 1fr));
   gap: 8px;
   margin-top: 8px;
 }

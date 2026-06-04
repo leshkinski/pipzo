@@ -538,6 +538,12 @@ class PlaybackQueueResponse(ContractModel):
     generated_at: datetime
 
 
+class CurrentTrackLikeStatus(ContractModel):
+    track_id: Optional[str] = None
+    liked: bool = False
+    generated_at: datetime
+
+
 class LibraryPlayRequest(ContractModel):
     uri: str
     playback_kind: LibraryPlaybackKind

@@ -50,6 +50,7 @@ class FakeSpotifyClient:
         catalog_payloads: Optional[dict[str, dict]] = None,
         catalog_failure: Optional[SpotifyCatalogApiFailure] = None,
         current_playback_payload: Optional[dict] = None,
+        saved_track_ids: Optional[set[str]] = None,
     ) -> None:
         self.token_response = token_response or SpotifyTokenResponse(
             access_token="backend-access-token",
@@ -78,6 +79,7 @@ class FakeSpotifyClient:
         self.catalog_payloads = catalog_payloads or {}
         self.catalog_failure = catalog_failure
         self.current_playback_payload = current_playback_payload
+        self.saved_track_ids = saved_track_ids or set()
         self.exchange_calls: list[dict] = []
         self.profile_tokens: list[str] = []
         self.refresh_calls: list[dict] = []
@@ -85,6 +87,7 @@ class FakeSpotifyClient:
         self.playback_calls: list[dict] = []
         self.volume_calls: list[dict] = []
         self.save_tracks_calls: list[dict] = []
+        self.check_tracks_saved_calls: list[dict] = []
         self.catalog_calls: list[dict] = []
         self.start_playback_calls: list[dict] = []
         self.current_playback_calls: list[dict] = []
@@ -249,6 +252,24 @@ class FakeSpotifyClient:
         )
         if self.playback_failure is not None:
             raise SpotifyPlaybackApiError(self.playback_failure)
+
+    def check_tracks_saved(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> list[bool]:
+        self.check_tracks_saved_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "track_ids": track_ids,
+            }
+        )
+        if self.catalog_failure is not None:
+            raise SpotifyCatalogApiError(self.catalog_failure)
+        return [track_id in self.saved_track_ids for track_id in track_ids]
 
     def fetch_current_playback(self, *, api_base_url: str, access_token: str) -> Optional[dict]:
         self.current_playback_calls.append({"api_base_url": api_base_url, "access_token": access_token})
@@ -1322,6 +1343,37 @@ def test_hardware_like_current_track_saves_current_spotify_track(tmp_path):
     assert response.json()["action"] == "like_current"
     assert spotify_client.current_playback_calls[-1]["access_token"] == "refreshed-access-token"
     assert spotify_client.save_tracks_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "refreshed-access-token",
+            "track_ids": ["current-track"],
+        }
+    ]
+
+
+def test_hardware_current_like_status_reports_saved_current_track(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, scope="user-read-playback-state user-library-read")
+    spotify_client = FakeSpotifyClient(
+        current_playback_payload={
+            "currently_playing_type": "track",
+            "item": {
+                "id": "current-track",
+                "type": "track",
+                "uri": "spotify:track:current-track",
+                "name": "Current Song",
+            },
+        },
+        saved_track_ids={"current-track"},
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.get("/api/v1/library/current-like")
+
+    assert response.status_code == 200
+    assert response.json()["trackId"] == "current-track"
+    assert response.json()["liked"] is True
+    assert spotify_client.check_tracks_saved_calls == [
         {
             "api_base_url": "https://api.spotify.com",
             "access_token": "refreshed-access-token",

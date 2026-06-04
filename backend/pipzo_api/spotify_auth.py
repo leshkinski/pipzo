@@ -156,6 +156,15 @@ class SpotifyClient(Protocol):
     ) -> None:
         ...
 
+    def check_tracks_saved(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> list[bool]:
+        ...
+
     def fetch_current_playback(
         self,
         *,
@@ -435,6 +444,20 @@ class UrlLibSpotifyClient:
         )
         self._send_empty_spotify_api_request(request)
 
+    def check_tracks_saved(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        track_ids: list[str],
+    ) -> list[bool]:
+        request = Request(
+            f"{api_base_url.rstrip('/')}/v1/me/tracks/contains?{urlencode({'ids': ','.join(track_ids)})}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            method="GET",
+        )
+        return self._send_json_array_spotify_api_request(request)
+
     def fetch_current_playback(
         self,
         *,
@@ -565,6 +588,32 @@ class UrlLibSpotifyClient:
             raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE) from exc
 
         if not isinstance(payload, dict):
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE)
+        return payload
+
+    def _send_json_array_spotify_api_request(self, request: Request) -> list:
+        try:
+            with urlopen(request, timeout=10) as response:
+                body = response.read()
+        except HTTPError as exc:
+            if exc.code == 401:
+                failure = SpotifyCatalogApiFailure.AUTH
+            elif exc.code == 403:
+                failure = SpotifyCatalogApiFailure.FORBIDDEN
+            elif exc.code == 429:
+                failure = SpotifyCatalogApiFailure.RATE_LIMITED
+            else:
+                failure = SpotifyCatalogApiFailure.INVALID_RESPONSE
+            raise SpotifyCatalogApiError(failure) from exc
+        except (URLError, TimeoutError) as exc:
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.NETWORK) from exc
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE) from exc
+
+        if not isinstance(payload, list):
             raise SpotifyCatalogApiError(SpotifyCatalogApiFailure.INVALID_RESPONSE)
         return payload
 

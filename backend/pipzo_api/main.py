@@ -27,6 +27,7 @@ from .contract import (
     AppSettings,
     AppSettingsPatch,
     AppSnapshot,
+    CurrentTrackLikeStatus,
     DisplayHealth,
     DisplayPatch,
     HealthResponse,
@@ -623,21 +624,6 @@ def create_app(
         except SpotifyCatalogApiError as exc:
             raise_catalog_http_error(exc)
 
-    @app.get("/api/v1/library/{category}", response_model=LibraryCategoryResponse)
-    def spotify_library_category(
-        category: LibraryCategoryId,
-        limit: int = 20,
-        settings: Settings = Depends(get_settings),
-    ) -> LibraryCategoryResponse:
-        if category == LibraryCategoryId.HOME:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Use /api/v1/library/home for home sections")
-        if settings.app_mode == "mock":
-            return mock_library_category(category, limit)
-        try:
-            return library_category(settings, spotify_client, category, limit)
-        except SpotifyCatalogApiError as exc:
-            raise_catalog_http_error(exc)
-
     @app.post("/api/v1/library/play", response_model=ActionResult)
     def spotify_library_play(body: LibraryPlayRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
         if settings.app_mode == "mock":
@@ -691,6 +677,34 @@ def create_app(
                 completed_at=utc_now(),
             )
         return like_current_track(settings, spotify_client)
+
+    @app.get("/api/v1/library/current-like", response_model=CurrentTrackLikeStatus)
+    def spotify_library_current_like(settings: Settings = Depends(get_settings)) -> CurrentTrackLikeStatus:
+        if settings.app_mode == "mock":
+            return CurrentTrackLikeStatus(track_id="mock-current-track", liked=False, generated_at=utc_now())
+        try:
+            return current_track_like_status(settings, spotify_client)
+        except HTTPException:
+            raise
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
+        except SpotifyPlaybackApiError as exc:
+            raise_playback_http_error(exc)
+
+    @app.get("/api/v1/library/{category}", response_model=LibraryCategoryResponse)
+    def spotify_library_category(
+        category: LibraryCategoryId,
+        limit: int = 20,
+        settings: Settings = Depends(get_settings),
+    ) -> LibraryCategoryResponse:
+        if category == LibraryCategoryId.HOME:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Use /api/v1/library/home for home sections")
+        if settings.app_mode == "mock":
+            return mock_library_category(category, limit)
+        try:
+            return library_category(settings, spotify_client, category, limit)
+        except SpotifyCatalogApiError as exc:
+            raise_catalog_http_error(exc)
 
     @app.get("/api/v1/spotify/queue", response_model=PlaybackQueueResponse)
     def spotify_playback_queue(settings: Settings = Depends(get_settings)) -> PlaybackQueueResponse:
@@ -911,6 +925,19 @@ def raise_catalog_http_error(exc: SpotifyCatalogApiError) -> None:
         SpotifyCatalogApiFailure.RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
         SpotifyCatalogApiFailure.NETWORK: status.HTTP_503_SERVICE_UNAVAILABLE,
         SpotifyCatalogApiFailure.INVALID_RESPONSE: status.HTTP_502_BAD_GATEWAY,
+    }
+    raise HTTPException(status_code=status_by_failure[exc.failure], detail=exc.failure.value) from exc
+
+
+def raise_playback_http_error(exc: SpotifyPlaybackApiError) -> None:
+    status_by_failure = {
+        SpotifyPlaybackApiFailure.AUTH: status.HTTP_401_UNAUTHORIZED,
+        SpotifyPlaybackApiFailure.PREMIUM_REQUIRED: status.HTTP_403_FORBIDDEN,
+        SpotifyPlaybackApiFailure.DEVICE_NOT_FOUND: status.HTTP_404_NOT_FOUND,
+        SpotifyPlaybackApiFailure.NO_ACTIVE_DEVICE: status.HTTP_404_NOT_FOUND,
+        SpotifyPlaybackApiFailure.RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
+        SpotifyPlaybackApiFailure.NETWORK: status.HTTP_503_SERVICE_UNAVAILABLE,
+        SpotifyPlaybackApiFailure.INVALID_RESPONSE: status.HTTP_502_BAD_GATEWAY,
     }
     raise HTTPException(status_code=status_by_failure[exc.failure], detail=exc.failure.value) from exc
 
@@ -1558,6 +1585,25 @@ def like_current_track(settings: Settings, spotify_client: SpotifyClient) -> Act
         started_at=started_at,
         completed_at=utc_now(),
     )
+
+
+def current_track_like_status(settings: Settings, spotify_client: SpotifyClient) -> CurrentTrackLikeStatus:
+    token = issue_spotify_playback_token(settings, spotify_client)
+    payload = spotify_client.fetch_current_playback(
+        api_base_url=settings.spotify_api_base_url,
+        access_token=token.access_token,
+    )
+    item = payload.get("item") if isinstance(payload, dict) and isinstance(payload.get("item"), dict) else None
+    track_id = item.get("id") if item and item.get("type") == "track" else None
+    if not isinstance(track_id, str) or not track_id:
+        return CurrentTrackLikeStatus(track_id=None, liked=False, generated_at=utc_now())
+
+    saved = spotify_client.check_tracks_saved(
+        api_base_url=settings.spotify_api_base_url,
+        access_token=token.access_token,
+        track_ids=[track_id],
+    )
+    return CurrentTrackLikeStatus(track_id=track_id, liked=bool(saved[0]) if saved else False, generated_at=utc_now())
 
 
 def queue_track_item(item: object) -> Optional[LibraryItem]:

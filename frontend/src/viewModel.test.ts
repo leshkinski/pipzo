@@ -650,6 +650,7 @@ describe("kiosk shell view model", () => {
     const navBottomRules: string[] = css.match(/\.nav-bottom\s*\{[^}]+\}/g) ?? [];
     const navBottomRule = navBottomRules.find((rule) => rule.includes("align-content: end")) ?? "";
     const transportSecondaryRule = css.match(/\.transport-secondary\s*\{[^}]+\}/)?.[0] ?? "";
+    const modeRowRule = css.match(/\.mode-row\s*\{[^}]+\}/)?.[0] ?? "";
     const utilityRowRules: string[] = css.match(/\.player-utility-row\s*\{[^}]+\}/g) ?? [];
     const utilityRowRule = utilityRowRules.find((rule) => rule.includes("grid-template-columns")) ?? "";
     const volumeInputRule = css.match(/\.volume-panel\.icon-volume input\[type="range"\],[^}]+\}/)?.[0] ?? "";
@@ -660,15 +661,20 @@ describe("kiosk shell view model", () => {
 
     expect(appSource).toContain("const railPrimaryItems = railNavItems.filter((item) => item.priority === \"primary\")");
     expect(appSource).toContain("const railUtilityItems = railNavItems.filter((item) => item.priority === \"utility\")");
-    expect(appSource).toContain('aria-label="Show current queue"');
-    expect(appSource).toContain('aria-label="Save current song to Liked Songs"');
+    expect(appSource).toContain('aria-label="Show songs coming up"');
+    expect(appSource).toContain('aria-label={like.liked ? "Current song is in Liked Songs" : "Save current song to Liked Songs"}');
+    expect(appSource).toContain('className={like.liked ? "mode-button active like-button" : "mode-button like-button"}');
     expect(appSource).toContain("void loadPlaybackQueue({ automatic: true })");
+    expect(appSource).toContain("Back to Now Playing");
     expect(appSource).toContain("function QueuePanel");
+    expect(appSource).not.toContain("Current queue loaded.");
     expect(appSource).not.toContain('<span>{timerView.active ? timerView.label.replace("Stops in ", "") : "Timer"}</span>');
     expect(apiSource).toContain('"/api/v1/spotify/queue"');
     expect(apiSource).toContain('"/api/v1/library/like-current"');
+    expect(apiSource).toContain('"/api/v1/library/current-like"');
     expect(navBottomRule).toContain("align-content: end");
     expect(transportSecondaryRule).toContain("width: 86px");
+    expect(modeRowRule).toContain("grid-template-columns: repeat(3, 56px) repeat(2, minmax(82px, 1fr))");
     expect(utilityRowRule).toContain("grid-template-columns: minmax(0, 1fr)");
     expect(appSource).not.toContain("player-utility-button");
     expect(appSource).toContain("volumeRequestSeqRef");
@@ -681,7 +687,7 @@ describe("kiosk shell view model", () => {
     expect(volumeInputRule).toContain("border: 0");
     expect(volumeThumbRule).toContain("width: 54px");
     expect(volumeThumbRule).toContain("border: 0");
-    expect(queuePanelRule).toContain("grid-template-rows: auto auto minmax(0, 1fr)");
+    expect(queuePanelRule).toContain("grid-template-rows: auto minmax(0, 1fr)");
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

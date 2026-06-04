@@ -10,6 +10,7 @@ import {
   fetchHealth,
   fetchLibraryCategory,
   fetchLibraryHome,
+  fetchCurrentTrackLikeStatus,
   fetchNetworkScanResults,
   fetchPlaybackQueue,
   fetchSpeakerScanResults,
@@ -155,6 +156,7 @@ type VolumeControls = {
 
 type LikeControls = {
   busy: boolean;
+  liked: boolean;
   message: string;
   onLike: () => void;
 };
@@ -265,9 +267,10 @@ export function App() {
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueBusy, setQueueBusy] = useState(false);
-  const [queueMessage, setQueueMessage] = useState("Tap the artwork to show the current queue.");
+  const [queueMessage, setQueueMessage] = useState("Tap the artwork to show songs coming up.");
   const [likeBusy, setLikeBusy] = useState(false);
   const [likeMessage, setLikeMessage] = useState("Save the current song.");
+  const [currentTrackLiked, setCurrentTrackLiked] = useState(false);
   const [playbackQueue, setPlaybackQueue] = useState<PlaybackQueueResponse>(() => ({
     current: null,
     items: [],
@@ -648,6 +651,36 @@ export function App() {
     () => scenarios.find((scenario) => scenario.id === selectedScenario),
     [scenarios, selectedScenario],
   );
+  const nowPlayingLikeKey = snapshot.nowPlaying
+    ? `${snapshot.nowPlaying.title}\n${snapshot.nowPlaying.artist}\n${snapshot.nowPlaying.album ?? ""}`
+    : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    setCurrentTrackLiked(false);
+    if (!snapshot.nowPlaying) {
+      setLikeMessage("No song is playing.");
+      return;
+    }
+    if (dataSource !== "backend") {
+      setLikeMessage("Save the current song.");
+      return;
+    }
+    setLikeMessage("Checking Liked Songs.");
+    void fetchCurrentTrackLikeStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setCurrentTrackLiked(status.liked);
+        setLikeMessage(status.liked ? "Already in Liked Songs." : "Save the current song.");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLikeMessage("Liked Songs status unavailable.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataSource, nowPlayingLikeKey]);
 
   useEffect(() => {
     if (!shouldRefreshHomeOnOpen(activeSurface, snapshot, dataSource)) {
@@ -979,12 +1012,12 @@ export function App() {
 
   async function loadPlaybackQueue(options: { automatic?: boolean } = {}) {
     setQueueBusy(true);
-    setQueueMessage(options.automatic ? "Updating current queue." : "Loading current queue.");
+    setQueueMessage(options.automatic ? "Updating songs coming up." : "Loading songs coming up.");
     try {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
         setPlaybackQueue(queue);
-        setQueueMessage(queue.items.length > 0 ? "Current queue loaded." : "Spotify has no upcoming queue items right now.");
+        setQueueMessage(queue.items.length > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
       } else {
         const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
           .filter((item) => item.playbackKind === "track")
@@ -997,7 +1030,7 @@ export function App() {
         setQueueMessage("Local queue preview loaded.");
       }
     } catch {
-      setQueueMessage("Current queue is unavailable from Spotify right now.");
+      setQueueMessage("Songs coming up are unavailable from Spotify right now.");
     } finally {
       setQueueBusy(false);
     }
@@ -1010,7 +1043,7 @@ export function App() {
 
   function closePlaybackQueue() {
     setQueueOpen(false);
-    setQueueMessage("Tap the artwork to show the current queue.");
+    setQueueMessage("Tap the artwork to show songs coming up.");
   }
 
   async function scanWifi() {
@@ -1542,9 +1575,11 @@ export function App() {
         setLikeMessage(result.state === "succeeded" ? "Saved to Liked Songs." : `Like blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         setStatusText(result.state === "succeeded" ? "Saved to Liked Songs." : "Like action was blocked.");
         if (result.state === "succeeded") {
+          setCurrentTrackLiked(true);
           void refreshLibraryHome({ automatic: true });
         }
       } else {
+        setCurrentTrackLiked(true);
         setLikeMessage("Local fixture song saved.");
         setStatusText("Local fixture song saved.");
       }
@@ -1668,6 +1703,7 @@ export function App() {
   };
   const likeControls = {
     busy: likeBusy,
+    liked: currentTrackLiked,
     message: likeMessage,
     onLike: likeCurrentPlayingTrack,
   };
@@ -2309,11 +2345,11 @@ function NowPlayingSurface({
   const timerView = sleepTimerViewModel(snapshot, sleepTimer.timer, sleepTimer.nowMs);
   return (
     <div className="player-surface">
-      <section className={queue.open ? "art-panel queue-open" : "art-panel"} aria-label={queue.open ? "Current queue" : "Artwork"}>
+      <section className={queue.open ? "art-panel queue-open" : "art-panel"} aria-label={queue.open ? "Songs coming up" : "Artwork"}>
         {queue.open ? (
           <QueuePanel queue={queue} />
         ) : (
-          <button className="artwork-queue-button" type="button" onClick={queue.onOpen} aria-label="Show current queue">
+          <button className="artwork-queue-button" type="button" onClick={queue.onOpen} aria-label="Show songs coming up">
             {playing?.artworkUrl ? <img src={playing.artworkUrl} alt="" draggable={false} /> : <div>{playing ? itemInitials(playing.title) : "P"}</div>}
           </button>
         )}
@@ -2336,7 +2372,15 @@ function NowPlayingSurface({
           <button className={repeatEnabled ? "mode-button active" : "mode-button"} disabled={!canSendControls} type="button" onClick={() => onPlaybackAction("repeat")} aria-label={repeatEnabled ? "Turn repeat off" : "Turn repeat on"}>
             <RepeatIcon />
           </button>
-          <button className="mode-button" disabled={!playing || like.busy} type="button" onClick={like.onLike} aria-label="Save current song to Liked Songs" title={like.message}>
+          <button
+            className={like.liked ? "mode-button active like-button" : "mode-button like-button"}
+            disabled={!playing || like.busy}
+            type="button"
+            onClick={like.onLike}
+            aria-label={like.liked ? "Current song is in Liked Songs" : "Save current song to Liked Songs"}
+            aria-pressed={like.liked}
+            title={like.message}
+          >
             <HeartIcon />
           </button>
           <button className="mode-button mode-button-wide unavailable" disabled type="button" aria-label="Radio is a follow-up feature">
@@ -2403,14 +2447,12 @@ function QueuePanel({ queue }: { queue: QueueControls }) {
     <div className="queue-panel">
       <div className="queue-heading">
         <div>
-          <p className="eyebrow">Current queue</p>
           <h2>Songs coming up</h2>
         </div>
-        <button type="button" onClick={queue.onClose} aria-label="Close queue">
-          Close
+        <button type="button" onClick={queue.onClose} aria-label="Back to Now Playing">
+          Back to Now Playing
         </button>
       </div>
-      <p className="subtle">{queue.message}</p>
       <div className="queue-list" data-drag-scroll>
         {rows.map(({ item, current }, index) => (
           <button

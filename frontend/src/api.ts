@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AppSettingsPatch,
   AppSnapshot,
+  CurrentTrackLikeStatus,
   DisplayPatch,
   HealthState,
   HealthResponse,
@@ -114,6 +115,10 @@ export function playLibraryItem(body: LibraryPlayRequest): Promise<ActionResult>
 
 export function likeCurrentTrack(): Promise<ActionResult> {
   return request<ActionResult>("/api/v1/library/like-current", { method: "POST" });
+}
+
+export function fetchCurrentTrackLikeStatus(): Promise<CurrentTrackLikeStatus> {
+  return request<CurrentTrackLikeStatus>("/api/v1/library/current-like");
 }
 
 export function fetchPlaybackQueue(): Promise<PlaybackQueueResponse> {

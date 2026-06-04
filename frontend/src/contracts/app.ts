@@ -355,6 +355,12 @@ export type PlaybackQueueResponse = {
   generatedAt: string;
 };
 
+export type CurrentTrackLikeStatus = {
+  trackId?: string | null;
+  liked: boolean;
+  generatedAt: string;
+};
+
 export type LibraryPlayRequest = {
   uri: string;
   playbackKind: LibraryPlaybackKind;
