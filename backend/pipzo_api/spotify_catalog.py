@@ -12,6 +12,7 @@ from .contract import (
     LibraryPlayRequest,
     LibraryPlaybackKind,
     LibrarySearchResponse,
+    QueuePlayRequest,
     LibrarySection,
     PlaybackDeviceReason,
     RecoveryActionState,
@@ -180,6 +181,34 @@ def start_library_playback(settings: Settings, spotify_client: SpotifyClient, bo
     except SpotifyPlaybackApiError as exc:
         return _playback_action_error("start", started_at, exc)
     return _library_action_result("start", started_at, RecoveryActionState.SUCCEEDED, None)
+
+
+def start_queue_playback(settings: Settings, spotify_client: SpotifyClient, body: QueuePlayRequest) -> ActionResult:
+    started_at = utc_now()
+    try:
+        access_token = _catalog_access_token(settings, spotify_client, require_premium=True)
+        spotify_client.start_playback_uris(
+            api_base_url=settings.spotify_api_base_url,
+            access_token=access_token,
+            uris=dedupe_track_uris([body.selected_uri, *body.continuation_uris]),
+            device_id=body.device_id,
+        )
+    except SpotifyCatalogApiError as exc:
+        return _catalog_action_error("queue_start", started_at, exc)
+    except SpotifyPlaybackApiError as exc:
+        return _playback_action_error("queue_start", started_at, exc)
+    return _library_action_result("queue_start", started_at, RecoveryActionState.SUCCEEDED, None)
+
+
+def dedupe_track_uris(uris: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for uri in uris:
+        if uri in seen:
+            continue
+        seen.add(uri)
+        deduped.append(uri)
+    return deduped
 
 
 def _catalog_access_token(settings: Settings, spotify_client: SpotifyClient, require_premium: bool = False) -> str:

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error Node types are intentionally not part of the browser app tsconfig.
 import { readFileSync } from "node:fs";
 import { localScenarios, localSingleSongPlaybackQueue } from "./localScenarios";
-import type { SpotifyAuthSession } from "./contracts";
+import type { LibraryItem, SpotifyAuthSession } from "./contracts";
 import {
   cancelSleepTimer,
   canPlayLibraryItem,
@@ -18,10 +18,12 @@ import {
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
+  playbackQueueAfterSelection,
   playbackQueueViewModel,
   preferredSpeakerSelection,
   preferredSurface,
   primarySurfaces,
+  queueSelectionPlayback,
   shouldRefreshNowPlaying,
   shouldPollAppStateForSetupReadiness,
   shouldRetryBackendRecovery,
@@ -802,6 +804,43 @@ describe("kiosk shell view model", () => {
     expect(queue.rows).toEqual([]);
     expect(queue.upcomingCount).toBe(0);
     expect(queue.emptyCopy).toBe("Spotify has no current or upcoming songs right now.");
+  });
+
+  it("builds queue selection playback from the selected row through following rows", () => {
+    const track = (id: string, title = id): LibraryItem => ({
+      id,
+      type: "track",
+      uri: `spotify:track:${id}`,
+      title,
+      source: "liked_songs",
+      playbackKind: "track",
+      playable: true,
+    });
+    const selected = track("third", "Third");
+    const queue = {
+      current: track("first", "First"),
+      items: [track("second", "Second"), selected, track("fourth", "Fourth")],
+      generatedAt: "2026-06-04T10:00:00.000Z",
+    };
+
+    expect(queueSelectionPlayback(queue, selected)).toEqual({
+      selectedUri: "spotify:track:third",
+      continuationUris: ["spotify:track:fourth"],
+    });
+    expect(playbackQueueAfterSelection(queue, selected, "2026-06-04T10:01:00.000Z")).toMatchObject({
+      current: selected,
+      items: [{ uri: "spotify:track:fourth" }],
+      generatedAt: "2026-06-04T10:01:00.000Z",
+    });
+  });
+
+  it("keeps queue selection continuation consistent with display de-duping", () => {
+    const queue = queueSelectionPlayback(localSingleSongPlaybackQueue, localSingleSongPlaybackQueue.current!);
+
+    expect(queue).toEqual({
+      selectedUri: "spotify:track:pipzo-bedtime-song",
+      continuationUris: [],
+    });
   });
 
   it("shows Spotify current-playback diagnostics instead of a plain empty state", () => {

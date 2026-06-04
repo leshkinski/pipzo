@@ -49,6 +49,7 @@ from .contract import (
     PlaybackQueueResponse,
     PlaybackDeviceReason,
     PlaybackDeviceStatus,
+    QueuePlayRequest,
     RecoveryAction,
     RecoveryActionKind,
     RecoveryActionState,
@@ -108,6 +109,7 @@ from .spotify_catalog import (
     mock_library_home,
     mock_library_search,
     start_library_playback,
+    start_queue_playback,
 )
 from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
 
@@ -723,6 +725,23 @@ def create_app(
             raise
         except SpotifyCatalogApiError as exc:
             raise_catalog_http_error(exc)
+
+    @app.post("/api/v1/spotify/queue/play", response_model=ActionResult)
+    def spotify_playback_queue_play(body: QueuePlayRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
+        if settings.app_mode == "mock":
+            result = ActionResult(
+                id="library-queue_start-mock",
+                domain="library",
+                action="queue_start",
+                state="succeeded",
+                mock=True,
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+        else:
+            result = start_queue_playback(settings, spotify_client, body)
+        event_hub.publish("playback.control_changed", result.model_dump(mode="json", by_alias=True))
+        return result
 
     @app.get("/api/v1/recovery/actions", response_model=list[RecoveryAction])
     def recovery_actions(settings: Settings = Depends(get_settings)) -> list[RecoveryAction]:

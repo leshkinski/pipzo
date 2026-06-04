@@ -90,6 +90,7 @@ class FakeSpotifyClient:
         self.check_tracks_saved_calls: list[dict] = []
         self.catalog_calls: list[dict] = []
         self.start_playback_calls: list[dict] = []
+        self.start_playback_uris_calls: list[dict] = []
         self.current_playback_calls: list[dict] = []
 
     def exchange_authorization_code(
@@ -192,6 +193,25 @@ class FakeSpotifyClient:
                 "access_token": access_token,
                 "playback_kind": playback_kind,
                 "uri": uri,
+                "device_id": device_id,
+            }
+        )
+        if self.playback_failure is not None:
+            raise SpotifyPlaybackApiError(self.playback_failure)
+
+    def start_playback_uris(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        uris: list[str],
+        device_id: Optional[str],
+    ) -> None:
+        self.start_playback_uris_calls.append(
+            {
+                "api_base_url": api_base_url,
+                "access_token": access_token,
+                "uris": uris,
                 "device_id": device_id,
             }
         )
@@ -1443,6 +1463,64 @@ def test_hardware_library_play_starts_context_or_track_without_exposing_tokens(t
         }
     ]
     assert "stored-refresh-token" not in str(response.json())
+
+
+def test_hardware_queue_play_starts_selected_track_with_following_queue_context(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    persist_auth_record(settings, access_token="stored-access-token")
+    spotify_client = FakeSpotifyClient(
+        refresh_response=SpotifyTokenResponse(
+            access_token="fresh-play-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="streaming user-modify-playback-state user-read-playback-state",
+            expires_in=3600,
+        )
+    )
+
+    with make_client(settings, spotify_client=spotify_client) as client:
+        response = client.post(
+            "/api/v1/spotify/queue/play",
+            json={
+                "selectedUri": "spotify:track:selected",
+                "continuationUris": [
+                    "spotify:track:next",
+                    "spotify:track:next",
+                    "spotify:track:later",
+                ],
+                "deviceId": "pipzo-device-id",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["action"] == "queue_start"
+    assert response.json()["mock"] is False
+    assert spotify_client.start_playback_uris_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "fresh-play-token",
+            "uris": ["spotify:track:selected", "spotify:track:next", "spotify:track:later"],
+            "device_id": "pipzo-device-id",
+        }
+    ]
+    assert "stored-refresh-token" not in str(response.json())
+
+
+def test_queue_play_rejects_non_track_continuation_uris(tmp_path):
+    settings = make_settings(tmp_path)
+
+    with make_client(settings) as client:
+        response = client.post(
+            "/api/v1/spotify/queue/play",
+            json={
+                "selectedUri": "spotify:track:selected",
+                "continuationUris": ["spotify:album:not-a-track"],
+            },
+        )
+
+    assert response.status_code == 422
+    assert "Spotify track URIs" in str(response.json())
 
 
 def test_library_play_rejects_non_spotify_playable_uris(tmp_path):

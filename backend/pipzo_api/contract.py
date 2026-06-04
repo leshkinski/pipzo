@@ -538,6 +538,21 @@ class PlaybackQueueResponse(ContractModel):
     generated_at: datetime
 
 
+class QueuePlayRequest(ContractModel):
+    selected_uri: str
+    continuation_uris: List[str] = Field(default_factory=list)
+    device_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_track_uris(self) -> "QueuePlayRequest":
+        if not self.selected_uri.startswith("spotify:track:"):
+            raise ValueError("queue selection requires a Spotify track URI")
+        for uri in self.continuation_uris:
+            if not uri.startswith("spotify:track:"):
+                raise ValueError("queue continuation requires Spotify track URIs")
+        return self
+
+
 class CurrentTrackLikeStatus(ContractModel):
     track_id: Optional[str] = None
     liked: bool = False

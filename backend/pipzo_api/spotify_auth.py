@@ -194,6 +194,16 @@ class SpotifyClient(Protocol):
     ) -> None:
         ...
 
+    def start_playback_uris(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        uris: list[str],
+        device_id: Optional[str],
+    ) -> None:
+        ...
+
 
 class SpotifyTokenExchangeError(Exception):
     pass
@@ -497,6 +507,29 @@ class UrlLibSpotifyClient:
         device_id: Optional[str],
     ) -> None:
         payload = {"uris": [uri]} if playback_kind == "track" else {"context_uri": uri}
+        url = f"{api_base_url.rstrip('/')}/v1/me/player/play"
+        if device_id:
+            url = f"{url}?{urlencode({'device_id': device_id})}"
+        request = Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            method="PUT",
+        )
+        self._send_empty_spotify_api_request(request)
+
+    def start_playback_uris(
+        self,
+        *,
+        api_base_url: str,
+        access_token: str,
+        uris: list[str],
+        device_id: Optional[str],
+    ) -> None:
+        payload = {"uris": uris}
         url = f"{api_base_url.rstrip('/')}/v1/me/player/play"
         if device_id:
             url = f"{url}?{urlencode({'device_id': device_id})}"

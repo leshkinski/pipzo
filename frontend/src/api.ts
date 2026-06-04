@@ -17,6 +17,7 @@ import type {
   NetworkForgetRequest,
   PlaybackControlRequest,
   RecoveryAction,
+  QueuePlayRequest,
   RunRecoveryActionRequest,
   ScenarioSummary,
   SpeakerForgetRequest,
@@ -123,6 +124,10 @@ export function fetchCurrentTrackLikeStatus(): Promise<CurrentTrackLikeStatus> {
 
 export function fetchPlaybackQueue(): Promise<PlaybackQueueResponse> {
   return request<PlaybackQueueResponse>("/api/v1/spotify/queue");
+}
+
+export function playQueueSelection(body: QueuePlayRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/spotify/queue/play", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function fetchNetworkStatus(): Promise<HealthState["network"]> {

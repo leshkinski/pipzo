@@ -64,6 +64,11 @@ export type PlaybackQueueViewModel = {
   emptyCopy: string | null;
 };
 
+export type QueueSelectionPlayback = {
+  selectedUri: string;
+  continuationUris: string[];
+};
+
 export function shellNavigationItems(): ShellNavigationItem[] {
   return [
     ...dailyPrimarySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "primary" as const })),
@@ -100,6 +105,34 @@ export function playbackQueueViewModel(queue: Pick<PlaybackQueueResponse, "curre
   }
 
   return { rows, upcomingCount, emptyCopy };
+}
+
+export function queueSelectionPlayback(
+  queue: Pick<PlaybackQueueResponse, "current" | "items">,
+  selected: LibraryItem,
+): QueueSelectionPlayback {
+  const rows = playbackQueueViewModel(queue).rows.map((row) => row.item);
+  const selectedIndex = rows.findIndex((item) => queueItemIdentity(item) === queueItemIdentity(selected));
+  const sequence = selectedIndex >= 0 ? rows.slice(selectedIndex) : [selected];
+  return {
+    selectedUri: selected.uri,
+    continuationUris: sequence.slice(1).map((item) => item.uri),
+  };
+}
+
+export function playbackQueueAfterSelection(
+  queue: Pick<PlaybackQueueResponse, "current" | "items" | "generatedAt">,
+  selected: LibraryItem,
+  generatedAt: string,
+): PlaybackQueueResponse {
+  const rows = playbackQueueViewModel(queue).rows.map((row) => row.item);
+  const selectedIndex = rows.findIndex((item) => queueItemIdentity(item) === queueItemIdentity(selected));
+  const sequence = selectedIndex >= 0 ? rows.slice(selectedIndex) : [selected];
+  return {
+    current: sequence[0] ?? selected,
+    items: sequence.slice(1),
+    generatedAt,
+  };
 }
 
 function queueItemIdentity(item: LibraryItem): string {

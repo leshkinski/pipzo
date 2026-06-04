@@ -24,6 +24,7 @@ import {
   patchVolume,
   pairSpeaker,
   playLibraryItem,
+  playQueueSelection,
   retryInternetProbe,
   reconnectSpeaker,
   runSetupPlaybackTest,
@@ -58,7 +59,9 @@ import {
   nowPlayingRefreshIntervalMs,
   preferredSpeakerSelection,
   preferredSurface,
+  playbackQueueAfterSelection,
   playbackQueueViewModel,
+  queueSelectionPlayback,
   shellNavigationItems,
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
@@ -1106,6 +1109,42 @@ export function App() {
     }
   }
 
+  async function startQueuedItem(item: LibraryItem) {
+    if (item.playbackKind !== "track") {
+      setQueueMessage("Only queued songs can be selected in V1.");
+      return;
+    }
+    if (!snapshot.capabilities.canStartPlayback) {
+      setQueueMessage("Playback is unavailable until recovery completes.");
+      return;
+    }
+    const deviceId = spotifySdkState.deviceId ?? snapshot.health.playbackDevice.deviceId;
+    const selection = queueSelectionPlayback(playbackQueue, item);
+    setQueueBusy(true);
+    setQueueMessage(`Starting ${item.title}.`);
+    try {
+      if (dataSource === "backend") {
+        const result = await playQueueSelection({ ...selection, deviceId });
+        if (result.state === "succeeded") {
+          setPlaybackQueue((current) => playbackQueueAfterSelection(current, item, new Date().toISOString()));
+          setQueueMessage(`Starting ${item.title}. Songs after it stay lined up.`);
+          await refreshSnapshot().catch(() => undefined);
+          window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 900);
+          window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 2_500);
+        } else {
+          setQueueMessage(`Queue selection blocked: ${labelFromId(result.reason ?? "unknown")}.`);
+        }
+      } else {
+        setPlaybackQueue((current) => playbackQueueAfterSelection(current, item, new Date().toISOString()));
+        setQueueMessage(`Local queue jumped to ${item.title}.`);
+      }
+    } catch {
+      setQueueMessage("Queue selection could not be sent.");
+    } finally {
+      setQueueBusy(false);
+    }
+  }
+
   async function openPlaybackQueue() {
     setQueueOpen(true);
     await loadPlaybackQueue();
@@ -1822,10 +1861,7 @@ export function App() {
     items: playbackQueue.items,
     onOpen: openPlaybackQueue,
     onClose: closePlaybackQueue,
-    onPlay: (item: LibraryItem) => {
-      setQueueOpen(false);
-      void startLibraryItem(item);
-    },
+    onPlay: startQueuedItem,
   };
 
   const appClassName = [
