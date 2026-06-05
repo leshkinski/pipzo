@@ -110,6 +110,16 @@ import {
   type QueuedVolumePatch,
   type VolumePatchTarget,
 } from "./volumeInteraction";
+import {
+  applyVirtualKeyboardCommand,
+  initialVirtualKeyboardState,
+  virtualKeyboardDisplayKey,
+  virtualKeyboardLetterRows,
+  virtualKeyboardSymbolRows,
+  wifiPasswordKeyboardEnabled,
+  type VirtualKeyboardCommand,
+  type VirtualKeyboardState,
+} from "./virtualKeyboard";
 
 type DataSource = "backend" | "local";
 type PipzoImportMeta = ImportMeta & {
@@ -121,8 +131,9 @@ type PipzoImportMeta = ImportMeta & {
 };
 
 type KeyboardState = {
-  active: boolean;
-  surface: SurfaceId | null;
+  focused: boolean;
+  focusSurface: SurfaceId | null;
+  virtualSurface: SurfaceId | null;
 };
 
 type TouchFeedback = {
@@ -148,9 +159,15 @@ type WifiControls = {
   password: string;
   busy: boolean;
   message: string;
+  keyboardOpen: boolean;
+  keyboardState: VirtualKeyboardState;
   onScan: () => void;
   onSelect: (ssid: string) => void;
   onPassword: (password: string) => void;
+  onKeyboardOpen: () => void;
+  onKeyboardCommand: (command: VirtualKeyboardCommand) => void;
+  onKeyboardCancel: () => void;
+  onKeyboardDone: () => void;
   onConnect: () => void;
   onRetry: () => void;
   onForget: () => void;
@@ -332,7 +349,8 @@ export function App() {
     items: [],
     generatedAt: new Date().toISOString(),
   }));
-  const [keyboardState, setKeyboardState] = useState<KeyboardState>({ active: false, surface: null });
+  const [keyboardState, setKeyboardState] = useState<KeyboardState>({ focused: false, focusSurface: null, virtualSurface: null });
+  const [wifiKeyboardState, setWifiKeyboardState] = useState<VirtualKeyboardState>(initialVirtualKeyboardState);
   const [touchFeedback, setTouchFeedback] = useState<TouchFeedback | null>(null);
   const [spotifySdkState, setSpotifySdkState] = useState<SpotifySdkState>({
     status: "disabled",
@@ -470,7 +488,11 @@ export function App() {
       const element = document.activeElement;
       const editable = element instanceof HTMLTextAreaElement
         || (element instanceof HTMLInputElement && !["range", "checkbox", "radio", "button", "submit", "reset"].includes(element.type));
-      setKeyboardState({ active: editable, surface: editable ? activeElementSurface(element) : null });
+      setKeyboardState((current) => ({
+        ...current,
+        focused: editable,
+        focusSurface: editable ? activeElementSurface(element) : null,
+      }));
     }
 
     updateVisualViewportVars();
@@ -1277,6 +1299,7 @@ export function App() {
       setWifiMessage("Select a Wi-Fi network first.");
       return;
     }
+    closeWifiKeyboard();
     setWifiBusy(true);
     setWifiMessage(`Connecting to ${selectedWifiSsid}.`);
     try {
@@ -1338,6 +1361,7 @@ export function App() {
       setWifiMessage("No Wi-Fi network is selected or connected.");
       return;
     }
+    closeWifiKeyboard();
     setWifiBusy(true);
     setWifiMessage(`Forgetting ${ssid}.`);
     try {
@@ -1920,6 +1944,31 @@ export function App() {
     setSelectedSurface("settings");
   }
 
+  function openWifiKeyboard() {
+    setKeyboardState((current) => ({ ...current, virtualSurface: selectedSurface === "setup" ? "setup" : "settings" }));
+  }
+
+  function closeWifiKeyboard() {
+    setKeyboardState((current) => ({ ...current, virtualSurface: null }));
+  }
+
+  function selectWifiNetwork(ssid: string) {
+    setSelectedWifiSsid(ssid);
+    const network = wifiNetworks.find((candidate) => candidate.ssid === ssid);
+    if (network?.security === "open") {
+      setWifiPassword("");
+      closeWifiKeyboard();
+    }
+  }
+
+  function runWifiKeyboardCommand(command: VirtualKeyboardCommand) {
+    setWifiPassword((current) => {
+      const result = applyVirtualKeyboardCommand(current, wifiKeyboardState, command);
+      setWifiKeyboardState(result.state);
+      return result.value;
+    });
+  }
+
   const spotifyAuthControls = {
     session: spotifyAuthSession,
     busy: spotifyAuthBusy,
@@ -1937,9 +1986,15 @@ export function App() {
     password: wifiPassword,
     busy: wifiBusy,
     message: wifiMessage,
+    keyboardOpen: keyboardState.virtualSurface !== null,
+    keyboardState: wifiKeyboardState,
     onScan: scanWifi,
-    onSelect: setSelectedWifiSsid,
+    onSelect: selectWifiNetwork,
     onPassword: setWifiPassword,
+    onKeyboardOpen: openWifiKeyboard,
+    onKeyboardCommand: runWifiKeyboardCommand,
+    onKeyboardCancel: closeWifiKeyboard,
+    onKeyboardDone: closeWifiKeyboard,
     onConnect: submitWifiConnect,
     onRetry: retryWifiProbe,
     onForget: forgetWifi,
@@ -2010,12 +2065,14 @@ export function App() {
     onPlay: startQueuedItem,
   };
 
+  const keyboardActive = keyboardState.focused || keyboardState.virtualSurface !== null;
+  const keyboardSurface = keyboardState.virtualSurface ?? keyboardState.focusSurface;
   const appClassName = [
     "app",
     `phase-${snapshot.appPhase}`,
     idleActive ? "idle-active" : "",
-    keyboardState.active ? "keyboard-active" : "",
-    keyboardState.surface ? `keyboard-surface-${keyboardState.surface}` : "",
+    keyboardActive ? "keyboard-active" : "",
+    keyboardSurface ? `keyboard-surface-${keyboardSurface}` : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -3239,6 +3296,7 @@ function WifiPanel({
   const view = wifiSetupViewModel(snapshot, controls.networks);
   const selectedNetwork = controls.networks.find((network) => network.ssid === controls.selectedSsid);
   const needsPassword = selectedNetwork ? selectedNetwork.security !== "open" : true;
+  const keyboardEnabled = wifiPasswordKeyboardEnabled(needsPassword);
 
   return (
     <section className={`wifi-panel wifi-${view.tone}`} aria-label="Wi-Fi setup">
@@ -3284,8 +3342,23 @@ function WifiPanel({
             type="password"
             value={controls.password}
             onChange={(event) => controls.onPassword(event.target.value)}
+            onFocus={() => {
+              if (keyboardEnabled) {
+                controls.onKeyboardOpen();
+              }
+            }}
+            onPointerDown={() => {
+              if (keyboardEnabled) {
+                controls.onKeyboardOpen();
+              }
+            }}
           />
         </label>
+        {keyboardEnabled && (
+          <button className="wifi-keyboard-toggle" disabled={controls.busy} type="button" onClick={controls.onKeyboardOpen}>
+            Keyboard
+          </button>
+        )}
         <div className="wifi-actions">
           <button disabled={controls.busy} type="button" onClick={controls.onScan}>
             Scan
@@ -3306,8 +3379,100 @@ function WifiPanel({
             </button>
           )}
         </div>
+        {keyboardEnabled && controls.keyboardOpen && (
+          <VirtualKeyboard
+            state={controls.keyboardState}
+            onCancel={controls.onKeyboardCancel}
+            onCommand={controls.onKeyboardCommand}
+            onDone={controls.onKeyboardDone}
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function VirtualKeyboard({
+  state,
+  onCommand,
+  onCancel,
+  onDone,
+}: {
+  state: VirtualKeyboardState;
+  onCommand: (command: VirtualKeyboardCommand) => void;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const rows = state.mode === "letters" ? virtualKeyboardLetterRows : virtualKeyboardSymbolRows;
+  const modeLabel = state.mode === "letters" ? "Symbols" : "Letters";
+  const nextMode = state.mode === "letters" ? "symbols" : "letters";
+
+  return (
+    <div className="virtual-keyboard" aria-label="Wi-Fi password keyboard">
+      <div className="virtual-keyboard-utility-row">
+        <button
+          className={state.shift === "shift" ? "active" : ""}
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onCommand({ kind: "shift" })}
+        >
+          Shift
+        </button>
+        <button
+          className={state.shift === "caps" ? "active" : ""}
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onCommand({ kind: "caps" })}
+        >
+          Caps
+        </button>
+        <button
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onCommand({ kind: "mode", mode: nextMode })}
+        >
+          {modeLabel}
+        </button>
+        <button
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => onCommand({ kind: "backspace" })}
+        >
+          Backspace
+        </button>
+      </div>
+      <div className="virtual-keyboard-keys">
+        {rows.map((row, rowIndex) => (
+          <div className="virtual-keyboard-row" key={`${state.mode}-${rowIndex}`}>
+            {row.map((key) => (
+              <button
+                className="virtual-key"
+                key={key}
+                type="button"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => onCommand({ kind: "text", value: key })}
+              >
+                {virtualKeyboardDisplayKey(key, state)}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="virtual-keyboard-command-row">
+        <button type="button" onPointerDown={(event) => event.preventDefault()} onClick={() => onCommand({ kind: "clear" })}>
+          Clear
+        </button>
+        <button type="button" onPointerDown={(event) => event.preventDefault()} onClick={() => onCommand({ kind: "space" })}>
+          Space
+        </button>
+        <button type="button" onPointerDown={(event) => event.preventDefault()} onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onPointerDown={(event) => event.preventDefault()} onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </div>
   );
 }
 

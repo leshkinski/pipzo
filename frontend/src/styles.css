@@ -528,6 +528,62 @@ label.touch-pressed {
   padding-right: 0;
 }
 
+.app.keyboard-active .surface-grid,
+.app.keyboard-active .settings-layout {
+  gap: 10px;
+}
+
+.app.keyboard-active .wifi-panel {
+  grid-template-columns: minmax(250px, 0.55fr) minmax(540px, 1.45fr);
+  gap: 10px;
+  padding: 10px;
+}
+
+.app.keyboard-active .wifi-heading {
+  align-content: start;
+  gap: 6px;
+}
+
+.app.keyboard-active .wifi-heading h2 {
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.app.keyboard-active .wifi-heading p {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.app.keyboard-active .wifi-status-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.app.keyboard-active .spotify-status {
+  min-height: 54px;
+  padding: 8px 10px;
+}
+
+.app.keyboard-active .wifi-form {
+  gap: 7px;
+}
+
+.app.keyboard-active .wifi-form select,
+.app.keyboard-active .wifi-form input {
+  min-height: 46px;
+}
+
+.app.keyboard-active .wifi-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.app.keyboard-active .wifi-actions button {
+  min-height: 46px;
+  padding: 0 10px;
+  text-align: center;
+}
+
 .surface-grid,
 .settings-layout {
   display: grid;
@@ -1902,6 +1958,8 @@ label.touch-pressed {
 .wifi-form,
 .wifi-form label,
 .wifi-actions,
+.virtual-keyboard,
+.virtual-keyboard-keys,
 .speaker-form,
 .speaker-form label,
 .speaker-actions,
@@ -1928,6 +1986,76 @@ label.touch-pressed {
 .volume-controls span {
   color: #65716b;
   font-weight: 700;
+}
+
+.wifi-keyboard-toggle {
+  min-height: 46px;
+  padding: 0 12px;
+  text-align: center;
+  font-weight: 850;
+}
+
+.virtual-keyboard {
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(246, 240, 223, 0.13);
+  border-radius: 8px;
+  background: rgba(9, 13, 13, 0.68);
+}
+
+.virtual-keyboard-utility-row,
+.virtual-keyboard-command-row,
+.virtual-keyboard-row {
+  display: grid;
+  gap: 6px;
+}
+
+.virtual-keyboard-utility-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.virtual-keyboard-command-row {
+  grid-template-columns: 0.9fr 1.4fr 0.9fr 0.9fr;
+}
+
+.virtual-keyboard-keys {
+  gap: 5px;
+}
+
+.virtual-keyboard-row {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
+.virtual-keyboard-row:nth-child(3) {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  padding: 0 5%;
+}
+
+.virtual-keyboard-row:nth-child(4) {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 0 15%;
+}
+
+.virtual-keyboard button {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 6px;
+  border-color: rgba(246, 240, 223, 0.16);
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1;
+  text-align: center;
+}
+
+.virtual-keyboard button.active,
+.virtual-keyboard .primary-action {
+  border-color: rgba(223, 232, 183, 0.68);
+  background: #dfe8b7;
+  color: #17211c;
+}
+
+.virtual-key {
+  aspect-ratio: 1.35 / 1;
 }
 
 .speaker-device-list {
