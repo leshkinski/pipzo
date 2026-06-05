@@ -58,7 +58,7 @@ export type ShellNavigationItem = {
 export type SettingsPageId = "overview" | "wifi" | "spotify" | "audio" | "device";
 export type SettingsStatusTone = "ready" | "warning" | "error" | "action_needed";
 export type SettingsStatusRow = {
-  id: Exclude<SettingsPageId, "overview"> | "internet" | "brightness";
+  id: Exclude<SettingsPageId, "overview"> | "internet";
   title: string;
   status: string;
   detail: string;
@@ -120,7 +120,6 @@ export function settingsStatusRows(snapshot: AppSnapshot, authSession?: SpotifyA
     internetSettingsStatusRow(snapshot),
     spotifySettingsStatusRow(snapshot, authSession),
     audioSettingsStatusRow(snapshot),
-    brightnessSettingsStatusRow(snapshot),
     deviceSettingsStatusRow(snapshot),
   ];
 }
@@ -326,7 +325,7 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
       id: "device",
       title: "Device",
       status: "Recovery tools available",
-      detail: "Use for reboot, power off, idle, and playback test tools",
+      detail: "Use for reboot, power off, brightness, and idle tools",
       tone: "error",
       targetPage: "device",
       actionLabel: "Open device",
@@ -336,33 +335,9 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
     id: "device",
     title: "Device",
     status: "Ready",
-    detail: "Brightness and idle settings available",
+    detail: "Brightness, idle, and power controls",
     tone: "ready",
     targetPage: "device",
-  };
-}
-
-function brightnessSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
-  const display = snapshot.health.display;
-  if (display.status === "unavailable") {
-    return {
-      id: "brightness",
-      title: "Brightness",
-      status: "Unavailable",
-      detail: "Display controls are still starting",
-      tone: "warning",
-      targetPage: "device",
-      actionLabel: "Open",
-    };
-  }
-  return {
-    id: "brightness",
-    title: "Brightness",
-    status: `${display.brightness}%`,
-    detail: labelFromId(display.status),
-    tone: display.status === "normal" ? "ready" : "warning",
-    targetPage: "device",
-    actionLabel: "Adjust",
   };
 }
 
@@ -372,9 +347,6 @@ export function devicePowerActionView(
   resultState?: RecoveryActionState,
 ): DevicePowerActionView {
   const title = action === "reboot" ? "Reboot Pipzo" : "Power off Pipzo";
-  const detail = action === "reboot"
-    ? "Restart the device when the touchscreen or playback stack needs a clean start."
-    : "Shut down the device before unplugging power.";
   const confirming = confirmation.action === action && confirmation.state === "confirming";
   const running = confirmation.action === action && confirmation.state === "running";
   const succeeded = confirmation.action === action && confirmation.state === "succeeded";
@@ -388,11 +360,11 @@ export function devicePowerActionView(
         ? `${title} could not be sent.`
         : confirming
           ? `Confirm ${action === "reboot" ? "reboot" : "power off"} now.`
-          : detail;
+          : "";
   return {
     action,
     title,
-    detail,
+    detail: "",
     confirmLabel: action === "reboot" ? "Confirm reboot" : "Confirm power off",
     requestLabel: action === "reboot" ? "Reboot" : "Power off",
     cancelLabel: "Cancel",

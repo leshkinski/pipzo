@@ -66,6 +66,7 @@ label,
 .wifi-panel,
 .speaker-panel,
 .volume-panel,
+.screen-brightness-panel,
 .device-power-panel,
 .sleep-timer,
 .idle-settings,
@@ -1695,6 +1696,14 @@ label.touch-pressed {
   padding: 14px;
 }
 
+.screen-brightness-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(360px, 1.2fr) minmax(190px, 0.5fr);
+  gap: 14px;
+  align-items: center;
+  padding: 20px;
+}
+
 .wifi-panel,
 .speaker-panel,
 .volume-panel,
@@ -1783,6 +1792,7 @@ label.touch-pressed {
 .wifi-panel h2,
 .speaker-panel h2,
 .volume-panel h2,
+.screen-brightness-panel h2,
 .sleep-timer h2 {
   margin: 4px 0 6px;
   font-size: 24px;
@@ -1793,10 +1803,30 @@ label.touch-pressed {
 .wifi-panel p,
 .speaker-panel p,
 .volume-panel p,
+.screen-brightness-panel p,
 .sleep-timer p {
   margin: 6px 0;
   color: #65716b;
   line-height: 1.35;
+}
+
+.screen-brightness-panel label {
+  display: grid;
+  gap: 10px;
+  font-weight: 900;
+}
+
+.screen-brightness-panel input[type="range"] {
+  width: 100%;
+  min-height: 72px;
+}
+
+.screen-brightness-panel select {
+  min-height: 58px;
+  border: 1px solid #aaa497;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fffdf7;
 }
 
 .sleep-presets {
@@ -1806,8 +1836,9 @@ label.touch-pressed {
 }
 
 .sleep-presets button {
-  min-height: 62px;
-  padding: 8px;
+  min-height: 78px;
+  padding: 10px;
+  font-size: 22px;
   font-weight: 900;
 }
 
@@ -2049,10 +2080,10 @@ label.touch-pressed {
 
 .idle-settings {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, 0.45fr)) minmax(190px, 0.55fr) minmax(220px, 0.7fr);
-  gap: 12px;
+  grid-template-columns: minmax(220px, 0.9fr) repeat(2, minmax(190px, 0.55fr)) minmax(210px, 0.55fr) minmax(260px, 0.8fr);
+  gap: 14px;
   align-items: center;
-  padding: 14px;
+  padding: 20px;
 }
 
 .idle-settings h2 {
@@ -2074,7 +2105,7 @@ label.touch-pressed {
 
 .idle-settings select,
 .idle-settings input[type="range"] {
-  min-height: 48px;
+  min-height: 58px;
 }
 
 .idle-settings select {
@@ -2086,13 +2117,13 @@ label.touch-pressed {
 }
 
 .idle-settings .checkbox-row {
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
 }
 
 .idle-settings .checkbox-row input {
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
 }
 
 .device-power-panel {
@@ -2229,6 +2260,7 @@ label.touch-pressed {
   .wifi-panel,
   .speaker-panel,
   .volume-panel,
+  .screen-brightness-panel,
   .device-power-panel,
   .settings-subpage-summary,
   .settings-status-row,

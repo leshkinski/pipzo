@@ -2179,6 +2179,7 @@ export function App() {
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
               onIdleSettingsChange={updateIdleSettings}
+              onDisplayChange={updateDisplay}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
               devicePower={devicePowerControls}
@@ -2780,6 +2781,7 @@ function SettingsSurface({
   playbackGateDetail,
   onActivateSpotify,
   onIdleSettingsChange,
+  onDisplayChange,
   sleepTimer,
   volume,
   devicePower,
@@ -2794,6 +2796,7 @@ function SettingsSurface({
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   onIdleSettingsChange: (patch: AppSettingsPatch) => void;
+  onDisplayChange: (brightness: number, status?: DisplayStatus) => void;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
   devicePower: DevicePowerControls;
@@ -2812,6 +2815,11 @@ function SettingsSurface({
       {page === "spotify" && (
         <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
+          <SpotifyPlaybackPanel
+            playbackGateDetail={playbackGateDetail}
+            spotifySdk={spotifySdk}
+            onActivateSpotify={onActivateSpotify}
+          />
         </SettingsSubPageSummary>
       )}
       {page === "audio" && (
@@ -2821,24 +2829,11 @@ function SettingsSurface({
         </SettingsSubPageSummary>
       )}
       {page === "device" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[5]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[4]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+          <ScreenBrightnessPanel display={snapshot.health.display} onChange={onDisplayChange} />
           <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
           <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
-          <SpotifyPlaybackPanel
-            playbackGateDetail={playbackGateDetail}
-            spotifySdk={spotifySdk}
-            onActivateSpotify={onActivateSpotify}
-          />
           <DevicePowerPanel controls={devicePower} />
-          <HealthRows snapshot={snapshot} />
-          <section className="actions">
-            {snapshot.recoveryActions.map((action) => (
-              <button key={action.id} type="button">
-                {labelFromId(action.kind)}
-                <span>{labelFromId(action.state)}</span>
-              </button>
-            ))}
-          </section>
         </SettingsSubPageSummary>
       )}
     </div>
@@ -2914,6 +2909,43 @@ function SettingsSubPageSummary({
   );
 }
 
+function ScreenBrightnessPanel({
+  display,
+  onChange,
+}: {
+  display: AppSnapshot["health"]["display"];
+  onChange: (brightness: number, status?: DisplayStatus) => void;
+}) {
+  return (
+    <section className={`screen-brightness-panel display-${display.status}`} aria-label="Screen brightness">
+      <div>
+        <p className="eyebrow">Screen brightness</p>
+        <h2>{display.brightness}%</h2>
+        <p>{display.reason ? labelFromId(display.reason) : labelFromId(display.status)}</p>
+      </div>
+      <label>
+        <span>Brightness</span>
+        <input
+          min="0"
+          max="100"
+          type="range"
+          value={display.brightness}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>Screen mode</span>
+        <select value={display.status} onChange={(event) => onChange(display.brightness, event.target.value as DisplayStatus)}>
+          <option value="normal">Normal</option>
+          <option value="dimmed">Dimmed</option>
+          <option value="off">Off</option>
+          <option value="unavailable">Unavailable</option>
+        </select>
+      </label>
+    </section>
+  );
+}
+
 function DevicePowerPanel({ controls }: { controls: DevicePowerControls }) {
   const reboot = devicePowerActionView("reboot", controls.confirmation);
   const poweroff = devicePowerActionView("poweroff", controls.confirmation);
@@ -2927,7 +2959,7 @@ function DevicePowerPanel({ controls }: { controls: DevicePowerControls }) {
         <div className={`device-power-action power-${view.action}`} key={view.action}>
           <div>
             <strong>{view.title}</strong>
-            <span>{view.message}</span>
+            {view.message && <span>{view.message}</span>}
           </div>
           {view.confirming ? (
             <div className="device-power-buttons">
@@ -3720,28 +3752,6 @@ function QueueIcon() {
     <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
       <path d="M5 7h14M5 12h14M5 17h9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
-  );
-}
-
-function HealthRows({ snapshot }: { snapshot: AppSnapshot }) {
-  const rows = [
-    ["Wi-Fi", snapshot.health.network.status, snapshot.health.network.reason ?? snapshot.health.network.ssid],
-    ["Spotify", snapshot.health.spotifyAuth.status, snapshot.health.spotifyAuth.reason ?? snapshot.health.spotifyAuth.accountDisplayName],
-    ["Speaker", snapshot.health.speaker.status, snapshot.health.speaker.reason ?? snapshot.health.speaker.primary?.displayName],
-    ["Playback", snapshot.health.playbackDevice.status, snapshot.health.playbackDevice.reason ?? snapshot.health.playbackDevice.deviceId],
-    ["Volume", snapshot.health.volume.status, snapshot.health.volume.reason ?? `${snapshot.health.volume.value ?? 0}%`],
-    ["Display", snapshot.health.display.status, snapshot.health.display.reason ?? `${snapshot.health.display.brightness}%`],
-  ];
-  return (
-    <section className="health-list">
-      {rows.map(([label, status, detail]) => (
-        <div className="health-row" key={label}>
-          <strong>{label}</strong>
-          <span>{labelFromId(status ?? "unknown")}</span>
-          <small>{detail ? labelFromId(detail) : "No detail"}</small>
-        </div>
-      ))}
-    </section>
   );
 }
 
