@@ -626,25 +626,26 @@ label.touch-pressed {
   gap: 12px;
 }
 
-.settings-overview-heading h2,
-.settings-row-group h3,
+.settings-overview h1,
 .settings-subpage-summary h2 {
   margin: 6px 0 8px;
 }
 
-.settings-row-group {
-  display: grid;
-  gap: 8px;
+.settings-overview {
+  gap: 16px;
+  align-content: start;
+  padding: 18px;
 }
 
-.settings-row-group h3 {
-  color: #dfe8b7;
-  font-size: 18px;
+.settings-overview h1 {
+  font-size: 44px;
+  line-height: 1;
 }
 
 .settings-status-list {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .settings-status-row {
@@ -661,6 +662,13 @@ label.touch-pressed {
   text-align: left;
 }
 
+.settings-overview .settings-status-row {
+  grid-template-columns: 20px minmax(0, 1fr) minmax(112px, auto);
+  gap: 16px;
+  min-height: 116px;
+  padding: 18px 20px;
+}
+
 .setup-status-links .settings-status-row {
   grid-template-columns: 14px minmax(0, 1fr) minmax(128px, auto);
 }
@@ -669,6 +677,10 @@ label.touch-pressed {
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+.settings-overview .settings-status-row span:not(.settings-status-dot) {
+  gap: 6px;
 }
 
 .settings-status-row strong,
@@ -682,8 +694,22 @@ label.touch-pressed {
   font-weight: 700;
 }
 
+.settings-overview .settings-status-row small {
+  font-size: 17px;
+}
+
+.settings-overview .settings-status-row strong {
+  font-size: 24px;
+  line-height: 1.05;
+}
+
 .settings-status-row b {
   justify-self: end;
+}
+
+.settings-overview .settings-status-row b {
+  font-size: 18px;
+  line-height: 1.1;
 }
 
 .settings-status-row em {
@@ -693,11 +719,20 @@ label.touch-pressed {
   font-weight: 900;
 }
 
+.settings-overview .settings-status-row em {
+  display: none;
+}
+
 .settings-status-dot {
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   background: #8dbb96;
+}
+
+.setup-status-links .settings-status-dot {
+  width: 12px;
+  height: 12px;
 }
 
 .status-warning .settings-status-dot {
@@ -2166,6 +2201,11 @@ label.touch-pressed {
   .tile-grid,
   .category-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-overview .settings-status-list,
+  .settings-overview .settings-status-row {
+    grid-template-columns: 1fr;
   }
 
   .sleep-presets {

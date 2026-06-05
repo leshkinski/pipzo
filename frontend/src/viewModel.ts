@@ -58,7 +58,7 @@ export type ShellNavigationItem = {
 export type SettingsPageId = "overview" | "wifi" | "spotify" | "audio" | "device";
 export type SettingsStatusTone = "ready" | "warning" | "error" | "action_needed";
 export type SettingsStatusRow = {
-  id: Exclude<SettingsPageId, "overview"> | "internet";
+  id: Exclude<SettingsPageId, "overview"> | "internet" | "brightness";
   title: string;
   status: string;
   detail: string;
@@ -120,6 +120,7 @@ export function settingsStatusRows(snapshot: AppSnapshot, authSession?: SpotifyA
     internetSettingsStatusRow(snapshot),
     spotifySettingsStatusRow(snapshot, authSession),
     audioSettingsStatusRow(snapshot),
+    brightnessSettingsStatusRow(snapshot),
     deviceSettingsStatusRow(snapshot),
   ];
 }
@@ -310,8 +311,7 @@ function audioSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
 
 function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
   const playback = snapshot.health.playbackDevice;
-  const display = snapshot.health.display;
-  if (playback.status === "starting" || playback.status === "registering" || display.status === "unavailable") {
+  if (playback.status === "starting" || playback.status === "registering") {
     return {
       id: "device",
       title: "Device",
@@ -339,6 +339,30 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
     detail: "Brightness and idle settings available",
     tone: "ready",
     targetPage: "device",
+  };
+}
+
+function brightnessSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+  const display = snapshot.health.display;
+  if (display.status === "unavailable") {
+    return {
+      id: "brightness",
+      title: "Brightness",
+      status: "Unavailable",
+      detail: "Display controls are still starting",
+      tone: "warning",
+      targetPage: "device",
+      actionLabel: "Open",
+    };
+  }
+  return {
+    id: "brightness",
+    title: "Brightness",
+    status: `${display.brightness}%`,
+    detail: labelFromId(display.status),
+    tone: display.status === "normal" ? "ready" : "warning",
+    targetPage: "device",
+    actionLabel: "Adjust",
   };
 }
 

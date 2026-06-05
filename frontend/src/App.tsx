@@ -2802,21 +2802,14 @@ function SettingsSurface({
   const activeTitle = page === "overview" ? "Settings" : settingsPageTitle(page);
   return (
     <div className="settings-layout">
-      <section className="hero-panel">
-        <p className="eyebrow">Settings and recovery</p>
-        <h1>{activeTitle}</h1>
-        <p>{page === "overview" ? "Open one focused area to recover Wi-Fi, Spotify, Bluetooth audio, or device utilities." : "Focused settings stay separate so recovery does not lock the whole app."}</p>
-        {page !== "overview" && (
+      {page !== "overview" && (
+        <section className="hero-panel">
+          <h1>{activeTitle}</h1>
           <button className="settings-back" type="button" onClick={() => onPageChange("overview")}>
             Back to status
           </button>
-        )}
-        <div className="display-summary">
-          <span>Display</span>
-          <strong>{snapshot.health.display.brightness}%</strong>
-          <small>{labelFromId(snapshot.health.display.status)}{snapshot.health.display.reason ? ` / ${labelFromId(snapshot.health.display.reason)}` : ""}</small>
-        </div>
-      </section>
+        </section>
+      )}
       {page === "overview" && (
         <SettingsOverview rows={rows} onOpen={onPageChange} />
       )}
@@ -2837,7 +2830,7 @@ function SettingsSurface({
         </SettingsSubPageSummary>
       )}
       {page === "device" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[4]}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[5]}>
           <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
           <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
           <SpotifyPlaybackPanel
@@ -2876,36 +2869,22 @@ function SettingsOverview({
   rows: SettingsStatusRow[];
   onOpen: (page: SettingsPageId) => void;
 }) {
-  const groups: { title: string; ids: SettingsStatusRow["id"][] }[] = [
-    { title: "Connectivity", ids: ["wifi", "internet"] },
-    { title: "Accounts", ids: ["spotify"] },
-    { title: "Audio output", ids: ["audio"] },
-    { title: "Device", ids: ["device"] },
-  ];
   return (
-    <section className="settings-overview" aria-label="Status overview">
-      <div className="settings-overview-heading">
-        <p className="eyebrow">Status overview</p>
-        <h2>Core status</h2>
+    <section className="settings-overview" aria-label="Settings">
+      <h1>Settings</h1>
+      <div className="settings-status-list">
+        {rows.map((row) => (
+          <button className={`settings-status-row status-${row.tone}`} type="button" key={row.id} onClick={() => onOpen(row.targetPage)}>
+            <span className="settings-status-dot" aria-hidden="true" />
+            <span>
+              <strong>{row.title}</strong>
+              <small>{row.detail}</small>
+            </span>
+            <b>{row.status}</b>
+            <em>{row.actionLabel ?? "Open"}</em>
+          </button>
+        ))}
       </div>
-      {groups.map((group) => (
-        <div className="settings-row-group" key={group.title}>
-          <h3>{group.title}</h3>
-          <div className="settings-status-list">
-            {rows.filter((row) => group.ids.includes(row.id)).map((row) => (
-              <button className={`settings-status-row status-${row.tone}`} type="button" key={row.id} onClick={() => onOpen(row.targetPage)}>
-                <span className="settings-status-dot" aria-hidden="true" />
-                <span>
-                  <strong>{row.title}</strong>
-                  <small>{row.detail}</small>
-                </span>
-                <b>{row.status}</b>
-                <em>{row.actionLabel ?? "Open"}</em>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
     </section>
   );
 }

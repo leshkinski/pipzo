@@ -267,8 +267,27 @@ describe("kiosk shell view model", () => {
       expect.objectContaining({ id: "internet", status: "Online", tone: "ready", targetPage: "wifi" }),
       expect.objectContaining({ id: "spotify", status: "Connected", tone: "ready", targetPage: "spotify" }),
       expect.objectContaining({ id: "audio", status: "Connected", tone: "ready", targetPage: "audio" }),
+      expect.objectContaining({ id: "brightness", title: "Brightness", status: "80%", tone: "ready", targetPage: "device", actionLabel: "Adjust" }),
       expect.objectContaining({ id: "device", status: "Ready", tone: "ready", targetPage: "device" }),
     ]);
+  });
+
+  it("models unavailable display brightness as its own Settings landing warning", () => {
+    const rows = settingsStatusRows(localScenarios.boot_probe_delayed.snapshot);
+
+    expect(rows.find((row) => row.id === "brightness")).toMatchObject({
+      title: "Brightness",
+      status: "Unavailable",
+      detail: "Display controls are still starting",
+      tone: "warning",
+      targetPage: "device",
+      actionLabel: "Open",
+    });
+    expect(rows.find((row) => row.id === "device")).toMatchObject({
+      status: "Needs attention",
+      tone: "warning",
+      targetPage: "device",
+    });
   });
 
   it("marks first-run setup dependencies as action needed on Settings landing", () => {
