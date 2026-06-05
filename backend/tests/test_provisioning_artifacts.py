@@ -23,6 +23,16 @@ def test_installer_preserves_explicit_legacy_service_user_override():
     assert 'sed "s|__PIPZO_SERVICE_USER__|$SERVICE_USER|g"' in installer
 
 
+def test_installer_embeds_source_commit_in_frontend_build():
+    installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
+    app_source = (REPO_ROOT / "frontend/src/App.tsx").read_text()
+
+    assert 'BUILD_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf \'unknown\')"' in installer
+    assert 'VITE_PIPZO_BUILD_COMMIT="$BUILD_COMMIT" npm --prefix "$APP_DIR/frontend" run build' in installer
+    assert "VITE_PIPZO_BUILD_COMMIT" in app_source
+    assert "data-build-commit={pipzoBuildCommit}" in app_source
+
+
 def test_backend_unit_keeps_state_directory_permissions_explicit():
     unit = (REPO_ROOT / "provisioning/systemd/pipzo-backend.service").read_text()
 

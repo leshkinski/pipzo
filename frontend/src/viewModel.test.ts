@@ -18,6 +18,7 @@ import {
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingSubviewAfterLibraryPlaybackStart,
   nowPlayingSubviewAfterSurfaceChange,
+  nowPlayingSubviewReducer,
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
   playbackQueueAfterSelection,
@@ -983,6 +984,23 @@ describe("kiosk shell view model", () => {
     expect(shouldRenderQueuePanel("now_playing", subview)).toBe(false);
   });
 
+  it("models the live Home playlist card flow as one Now Playing subview state machine", () => {
+    let subview: "artwork" | "queue" = "artwork";
+
+    subview = nowPlayingSubviewReducer(subview, { type: "open_queue" });
+    expect(shouldRenderQueuePanel("now_playing", subview)).toBe(true);
+
+    subview = nowPlayingSubviewReducer(subview, { type: "select_surface", surface: "home" });
+    expect(subview).toBe("artwork");
+    expect(shouldRenderQueuePanel("home", subview)).toBe(false);
+
+    subview = nowPlayingSubviewReducer(subview, { type: "library_playback_start_succeeded" });
+    expect(shouldRenderQueuePanel("now_playing", subview)).toBe(false);
+
+    subview = nowPlayingSubviewReducer("queue", { type: "queue_selection_succeeded" });
+    expect(shouldRenderQueuePanel("now_playing", subview)).toBe(true);
+  });
+
   it("closes an open queue panel after Home starts new playback without changing queue selection continuation", () => {
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -997,6 +1015,9 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("setQueueBusy(false)");
     expect(appSource).toContain('setQueueMessage("Tap the artwork to show songs coming up.")');
     expect(appSource).toContain('setSelectedSurface("now_playing")');
+    expect(appSource).toContain("data-build-commit={pipzoBuildCommit}");
+    expect(appSource).toContain("nowPlayingSubviewReducer(current, { type: \"open_queue\" })");
+    expect(appSource).toContain("nowPlayingSubviewReducer(current, { type: \"close_queue\" })");
     expect(appSource).toContain("requestVersion === queueRefreshVersionRef.current");
     expect(appSource).toContain("queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000");
     expect(appSource).toContain("playbackQueueAfterSelection(current, item, new Date().toISOString())");

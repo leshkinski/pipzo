@@ -56,6 +56,7 @@ import {
   nextNowPlayingBoundaryRefreshDelayMs,
   nowPlayingSubviewAfterLibraryPlaybackStart,
   nowPlayingSubviewAfterSurfaceChange,
+  nowPlayingSubviewReducer,
   nowPlayingEmptyState,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingRefreshIntervalMs,
@@ -108,6 +109,7 @@ type PipzoImportMeta = ImportMeta & {
   env?: {
     DEV?: boolean;
     VITE_PIPZO_SHOW_MOCK_CONTROLS?: string;
+    VITE_PIPZO_BUILD_COMMIT?: string;
   };
 };
 
@@ -228,6 +230,7 @@ const volumeLocalIntentGraceMs = 3000;
 const compactVolumeLiveCommitIntervalMs = 90;
 const pipzoImportMeta = import.meta as PipzoImportMeta;
 const localDeveloperControlsEnabled = pipzoImportMeta.env?.DEV === true || pipzoImportMeta.env?.VITE_PIPZO_SHOW_MOCK_CONTROLS === "true";
+const pipzoBuildCommit = pipzoImportMeta.env?.VITE_PIPZO_BUILD_COMMIT ?? "development";
 
 function isConfirmedSpeakerConnected(state: AppSnapshot) {
   return state.health.speaker.status === "connected" && Boolean(state.health.speaker.primary?.connected);
@@ -1203,12 +1206,12 @@ export function App() {
   }
 
   async function openPlaybackQueue() {
-    setNowPlayingSubview("queue");
+    setNowPlayingSubview((current) => nowPlayingSubviewReducer(current, { type: "open_queue" }));
     await loadPlaybackQueue();
   }
 
   function closePlaybackQueue() {
-    setNowPlayingSubview("artwork");
+    setNowPlayingSubview((current) => nowPlayingSubviewReducer(current, { type: "close_queue" }));
     queueOptimisticRefreshUntilMsRef.current = 0;
     setQueueMessage("Tap the artwork to show songs coming up.");
   }
@@ -1931,7 +1934,7 @@ export function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div className={appClassName} data-drag-scroll ref={appRef}>
+    <div className={appClassName} data-build-commit={pipzoBuildCommit} data-drag-scroll ref={appRef}>
       {idleActive ? (
         <IdleSurface snapshot={snapshot} sleepTimer={sleepTimerControls} active />
       ) : (

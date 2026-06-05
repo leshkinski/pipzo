@@ -62,6 +62,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COPIED_APP="no"
+BUILD_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf 'unknown')"
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home-dir "$STATE_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
@@ -114,7 +115,7 @@ if [[ -f "$APP_DIR/frontend/package-lock.json" ]]; then
 else
   npm --prefix "$APP_DIR/frontend" install
 fi
-npm --prefix "$APP_DIR/frontend" run build
+VITE_PIPZO_BUILD_COMMIT="$BUILD_COMMIT" npm --prefix "$APP_DIR/frontend" run build
 
 if [[ "$COPIED_APP" == "yes" || "$APP_DIR" == /opt/pipzo/* ]]; then
   chown -R root:root "$APP_DIR"

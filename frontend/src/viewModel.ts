@@ -15,6 +15,12 @@ export const homeLibraryCategoryOrder: Exclude<LibraryCategoryId, "home">[] = [
 export type SleepTimerPresetMinutes = (typeof sleepTimerPresets)[number];
 export type AppSurfaceId = SurfaceId | "sleep_timer";
 export type NowPlayingSubview = "artwork" | "queue";
+export type NowPlayingSubviewEvent =
+  | { type: "open_queue" }
+  | { type: "close_queue" }
+  | { type: "select_surface"; surface: AppSurfaceId }
+  | { type: "library_playback_start_succeeded" }
+  | { type: "queue_selection_succeeded" };
 
 export type SleepTimerState = {
   status: "idle" | "active" | "expired" | "blocked" | "failed";
@@ -301,11 +307,25 @@ export function shouldRefreshHomeOnOpen(
 }
 
 export function nowPlayingSubviewAfterSurfaceChange(current: NowPlayingSubview, surface: AppSurfaceId): NowPlayingSubview {
-  return surface === "now_playing" ? current : "artwork";
+  return nowPlayingSubviewReducer(current, { type: "select_surface", surface });
 }
 
 export function nowPlayingSubviewAfterLibraryPlaybackStart(): NowPlayingSubview {
-  return "artwork";
+  return nowPlayingSubviewReducer("queue", { type: "library_playback_start_succeeded" });
+}
+
+export function nowPlayingSubviewReducer(current: NowPlayingSubview, event: NowPlayingSubviewEvent): NowPlayingSubview {
+  switch (event.type) {
+    case "open_queue":
+      return "queue";
+    case "close_queue":
+    case "library_playback_start_succeeded":
+      return "artwork";
+    case "select_surface":
+      return event.surface === "now_playing" ? current : "artwork";
+    case "queue_selection_succeeded":
+      return current;
+  }
 }
 
 export function shouldRenderQueuePanel(surface: AppSurfaceId, subview: NowPlayingSubview): boolean {
