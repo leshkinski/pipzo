@@ -7,7 +7,7 @@
   const LETTER_ROWS = [
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
     ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
-    ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+    [{ label: "Shift", kind: "shift" }, "a", "s", "d", "f", "g", "h", "j", "k", "l", { label: "Backspace", kind: "backspace" }],
     ["z", "x", "c", "v", "b", "n", "m"],
   ];
   const SYMBOL_ROWS = [
@@ -44,15 +44,66 @@
     return currentState.shift || currentState.caps ? key.toUpperCase() : key;
   }
 
+  function commandLabel(command, currentState) {
+    if (command.kind === "shift" && currentState.caps) return "CAPS";
+    if (command.kind === "mode") return currentState.mode === "letters" ? "Symbols" : "Letters";
+    return command.label;
+  }
+
+  function commandForKey(key) {
+    return typeof key === "string" ? { label: key, kind: "text", value: key } : key;
+  }
+
+  function commandRows(currentState) {
+    const commandRow = [
+      { label: "Clear", kind: "clear" },
+      { label: currentState.mode === "letters" ? "Symbols" : "Letters", kind: "mode" },
+      { label: "Space", kind: "space" },
+      { label: "Cancel", kind: "cancel" },
+      { label: "Done", kind: "done", primary: true },
+    ];
+    if (currentState.mode === "letters") return [...LETTER_ROWS, commandRow];
+    return [
+      ...SYMBOL_ROWS,
+      [
+        { label: "Clear", kind: "clear" },
+        { label: "Letters", kind: "mode" },
+        { label: "Backspace", kind: "backspace" },
+        { label: "Space", kind: "space" },
+        { label: "Cancel", kind: "cancel" },
+        { label: "Done", kind: "done", primary: true },
+      ],
+    ];
+  }
+
+  function rowLabels(currentState) {
+    return commandRows(currentState).map((row) =>
+      row.map((key) => {
+        const command = commandForKey(key);
+        if (command.kind === "text") return displayKey(command.value, currentState);
+        return commandLabel(command, currentState);
+      }),
+    );
+  }
+
   function nextState(currentState, command) {
     const updated = { ...currentState };
-    if (command.kind === "shift") updated.shift = !updated.shift;
-    if (command.kind === "caps") updated.caps = !updated.caps;
+    if (command.kind === "shift") {
+      if (updated.caps) {
+        updated.caps = false;
+        updated.shift = false;
+      } else if (updated.shift) {
+        updated.caps = true;
+        updated.shift = false;
+      } else {
+        updated.shift = true;
+      }
+    }
     if (command.kind === "mode") {
       updated.mode = updated.mode === "letters" ? "symbols" : "letters";
       updated.shift = false;
     }
-    if ((command.kind === "text" || command.kind === "space") && updated.shift) {
+    if ((command.kind === "text" || command.kind === "space") && updated.shift && !updated.caps) {
       updated.shift = false;
     }
     return updated;
@@ -110,13 +161,23 @@
     return button;
   }
 
-  function buildRow(documentRef, keys, columns) {
+  function buildRow(documentRef, keys, role) {
     const row = documentRef.createElement("div");
     row.className = "pipzo-keyboard-row";
-    row.dataset.columns = String(columns);
-    row.style.setProperty("--pipzo-keyboard-columns", String(columns));
+    if (role) row.dataset.role = role;
+    row.dataset.columns = String(keys.length);
+    row.style.setProperty("--pipzo-keyboard-columns", String(keys.length));
     keys.forEach((key) => {
-      row.appendChild(buildButton(documentRef, displayKey(key, state), { kind: "text", value: key }));
+      const command = commandForKey(key);
+      const options = {
+        active: (command.kind === "shift" && (state.shift || state.caps)) || Boolean(command.active),
+        primary: Boolean(command.primary),
+      };
+      if (command.kind === "text") {
+        row.appendChild(buildButton(documentRef, displayKey(command.value, state), command, options));
+      } else {
+        row.appendChild(buildButton(documentRef, commandLabel(command, state), command, options));
+      }
     });
     return row;
   }
@@ -133,27 +194,9 @@
   function renderKeyboard(root) {
     const documentRef = root.ownerDocument;
     root.replaceChildren();
-
-    const utility = documentRef.createElement("div");
-    utility.className = "pipzo-keyboard-row";
-    utility.dataset.role = "utility";
-    utility.appendChild(buildButton(documentRef, "Shift", { kind: "shift" }, { active: state.shift }));
-    utility.appendChild(buildButton(documentRef, "Caps", { kind: "caps" }, { active: state.caps }));
-    utility.appendChild(buildButton(documentRef, state.mode === "letters" ? "Symbols" : "Letters", { kind: "mode" }));
-    utility.appendChild(buildButton(documentRef, "Backspace", { kind: "backspace" }));
-    root.appendChild(utility);
-
-    const rows = state.mode === "letters" ? LETTER_ROWS : SYMBOL_ROWS;
-    rows.forEach((row, index) => root.appendChild(buildRow(documentRef, row, index === 0 ? 10 : row.length)));
-
-    const commands = documentRef.createElement("div");
-    commands.className = "pipzo-keyboard-row";
-    commands.dataset.role = "commands";
-    commands.appendChild(buildButton(documentRef, "Clear", { kind: "clear" }));
-    commands.appendChild(buildButton(documentRef, "Space", { kind: "space" }));
-    commands.appendChild(buildButton(documentRef, "Cancel", { kind: "cancel" }));
-    commands.appendChild(buildButton(documentRef, "Done", { kind: "done" }, { primary: true }));
-    root.appendChild(commands);
+    commandRows(state).forEach((row, index, rows) => {
+      root.appendChild(buildRow(documentRef, row, index === rows.length - 1 ? "commands" : undefined));
+    });
   }
 
   function showKeyboard(documentRef, target) {
@@ -270,6 +313,7 @@
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
     nextState,
+    rowLabels,
   };
 
   if (globalScope.document?.readyState === "loading") {

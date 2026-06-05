@@ -21,6 +21,7 @@ type KeyboardTestApi = {
     state: { mode: string; shift: boolean; caps: boolean },
     command: { kind: string },
   ) => { mode: string; shift: boolean; caps: boolean };
+  rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
 };
 
 class FakeInput {
@@ -74,6 +75,21 @@ describe("Chromium extension keyboard", () => {
       shift: false,
       caps: false,
     });
+    expect(keyboard.nextState({ mode: "letters", shift: false, caps: false }, { kind: "shift" })).toEqual({
+      mode: "letters",
+      shift: true,
+      caps: false,
+    });
+    expect(keyboard.nextState({ mode: "letters", shift: true, caps: false }, { kind: "shift" })).toEqual({
+      mode: "letters",
+      shift: false,
+      caps: true,
+    });
+    expect(keyboard.nextState({ mode: "letters", shift: false, caps: true }, { kind: "shift" })).toEqual({
+      mode: "letters",
+      shift: false,
+      caps: false,
+    });
     expect(keyboard.nextState({ mode: "letters", shift: false, caps: false }, { kind: "mode" })).toEqual({
       mode: "symbols",
       shift: false,
@@ -82,6 +98,27 @@ describe("Chromium extension keyboard", () => {
     expect(["text", "password", "email", "search"].every((type) => keyboard.isEditableInputType(type))).toBe(true);
     expect(keyboard.isEditableInputType("checkbox")).toBe(false);
     expect(keyboard.isEditableInputType("number")).toBe(false);
+  });
+
+  it("lays out ergonomic letter rows with inline shift, backspace, and symbols near clear", () => {
+    const keyboard = loadKeyboardApi();
+    const rows = keyboard.rowLabels({ mode: "letters", shift: false, caps: false });
+
+    expect(rows).toEqual([
+      ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+      ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+      ["Shift", "a", "s", "d", "f", "g", "h", "j", "k", "l", "Backspace"],
+      ["z", "x", "c", "v", "b", "n", "m"],
+      ["Clear", "Symbols", "Space", "Cancel", "Done"],
+    ]);
+  });
+
+  it("labels locked shift as CAPS in the letter layout", () => {
+    const keyboard = loadKeyboardApi();
+    const rows = keyboard.rowLabels({ mode: "letters", shift: false, caps: true });
+
+    expect(rows[2][0]).toBe("CAPS");
+    expect(rows[2].slice(1, 10)).toEqual(["A", "S", "D", "F", "G", "H", "J", "K", "L"]);
   });
 
   it("recognizes the actual Wi-Fi password field shape from touch/pointer events", () => {
@@ -101,7 +138,7 @@ describe("Chromium extension keyboard", () => {
     const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
     const stylesheet = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.css", "utf8");
 
-    expect(script).toContain('row.style.setProperty("--pipzo-keyboard-columns", String(columns))');
+    expect(script).toContain('row.style.setProperty("--pipzo-keyboard-columns", String(keys.length))');
     expect(stylesheet).toContain("grid-template-columns: repeat(var(--pipzo-keyboard-columns), minmax(0, 1fr))");
     expect(stylesheet).not.toContain('.pipzo-keyboard-row[data-columns="10"]');
   });
