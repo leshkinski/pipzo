@@ -627,7 +627,7 @@ label.touch-pressed {
 }
 
 .settings-overview h1,
-.settings-subpage-summary h2 {
+.settings-subpage-summary h1 {
   margin: 6px 0 8px;
 }
 
@@ -755,14 +755,58 @@ label.touch-pressed {
 
 .settings-subpage-summary {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr) minmax(260px, 0.55fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 72px;
+  padding: 10px 12px;
 }
 
-.settings-subpage-summary p {
+.settings-subpage-summary p,
+.settings-subpage-summary h1 {
   margin: 0;
+}
+
+.settings-subpage-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-subpage-title h1 {
+  color: #fffdf7;
+  font-size: 28px;
+  line-height: 1.05;
+}
+
+.settings-subpage-status {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  justify-self: end;
+  width: min(340px, 100%);
+  min-height: 52px;
+  border: 1px solid rgba(246, 240, 223, 0.12);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(10, 13, 11, 0.16);
+}
+
+.settings-subpage-status span:not(.settings-status-dot) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-subpage-status strong,
+.settings-subpage-status small {
+  overflow-wrap: anywhere;
+}
+
+.settings-subpage-status small {
   color: #bfc9c2;
+  font-weight: 700;
 }
 
 .settings-back {
@@ -1647,8 +1691,8 @@ label.touch-pressed {
 .spotify-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(210px, 0.45fr);
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
 }
 
 .wifi-panel,
@@ -1657,8 +1701,8 @@ label.touch-pressed {
 .sleep-timer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
 }
 
 .spotify-ready {
@@ -1740,8 +1784,8 @@ label.touch-pressed {
 .speaker-panel h2,
 .volume-panel h2,
 .sleep-timer h2 {
-  margin: 6px 0 8px;
-  font-size: 28px;
+  margin: 4px 0 6px;
+  font-size: 24px;
   line-height: 1.08;
 }
 
@@ -1750,7 +1794,7 @@ label.touch-pressed {
 .speaker-panel p,
 .volume-panel p,
 .sleep-timer p {
-  margin: 8px 0;
+  margin: 6px 0;
   color: #65716b;
   line-height: 1.35;
 }
@@ -2008,12 +2052,12 @@ label.touch-pressed {
   grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, 0.45fr)) minmax(190px, 0.55fr) minmax(220px, 0.7fr);
   gap: 12px;
   align-items: center;
-  padding: 18px;
+  padding: 14px;
 }
 
 .idle-settings h2 {
-  margin: 6px 0 8px;
-  font-size: 28px;
+  margin: 4px 0 6px;
+  font-size: 24px;
   line-height: 1.08;
 }
 
@@ -2056,12 +2100,12 @@ label.touch-pressed {
   grid-template-columns: minmax(220px, 0.75fr) repeat(2, minmax(220px, 1fr));
   gap: 12px;
   align-items: stretch;
-  padding: 18px;
+  padding: 14px;
 }
 
 .device-power-panel h2 {
-  margin: 6px 0 8px;
-  font-size: 28px;
+  margin: 4px 0 6px;
+  font-size: 24px;
   line-height: 1.08;
 }
 
@@ -2070,10 +2114,10 @@ label.touch-pressed {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  min-height: 112px;
+  min-height: 96px;
   border: 1px solid rgba(246, 240, 223, 0.12);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
   background: rgba(10, 13, 11, 0.16);
 }
 
@@ -2186,6 +2230,7 @@ label.touch-pressed {
   .speaker-panel,
   .volume-panel,
   .device-power-panel,
+  .settings-subpage-summary,
   .settings-status-row,
   .setup-status-links .settings-status-row,
   .sleep-timer,

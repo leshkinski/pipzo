@@ -2799,38 +2799,29 @@ function SettingsSurface({
   devicePower: DevicePowerControls;
 }) {
   const rows = settingsStatusRows(snapshot, spotifyAuth.session);
-  const activeTitle = page === "overview" ? "Settings" : settingsPageTitle(page);
   return (
     <div className="settings-layout">
-      {page !== "overview" && (
-        <section className="hero-panel">
-          <h1>{activeTitle}</h1>
-          <button className="settings-back" type="button" onClick={() => onPageChange("overview")}>
-            Back to status
-          </button>
-        </section>
-      )}
       {page === "overview" && (
         <SettingsOverview rows={rows} onOpen={onPageChange} />
       )}
       {page === "wifi" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "wifi") ?? rows[0]}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "wifi") ?? rows[0]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
         </SettingsSubPageSummary>
       )}
       {page === "spotify" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
         </SettingsSubPageSummary>
       )}
       {page === "audio" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "audio") ?? rows[3]}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "audio") ?? rows[3]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
           <VolumeControlPanel snapshot={snapshot} controls={volume} />
         </SettingsSubPageSummary>
       )}
       {page === "device" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[5]}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[5]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
           <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
           <SpotifyPlaybackPanel
@@ -2891,19 +2882,31 @@ function SettingsOverview({
 
 function SettingsSubPageSummary({
   row,
+  title,
+  onBack,
   children,
 }: {
   row: SettingsStatusRow;
+  title: string;
+  onBack: () => void;
   children: ReactNode;
 }) {
   return (
     <>
-      <section className={`settings-subpage-summary status-${row.tone}`} aria-label={`${row.title} status`}>
-        <span className="settings-status-dot" aria-hidden="true" />
-        <div>
-          <p className="eyebrow">{row.title}</p>
-          <h2>{row.status}</h2>
-          <p>{row.detail}</p>
+      <section className={`settings-subpage-summary status-${row.tone}`} aria-label={`${row.title} settings`}>
+        <button className="settings-back" type="button" onClick={onBack}>
+          Back
+        </button>
+        <div className="settings-subpage-title">
+          <p className="eyebrow">Settings</p>
+          <h1>{title}</h1>
+        </div>
+        <div className="settings-subpage-status" aria-label={`${row.title} status`}>
+          <span className="settings-status-dot" aria-hidden="true" />
+          <span>
+            <strong>{row.status}</strong>
+            <small>{row.detail}</small>
+          </span>
         </div>
       </section>
       {children}
