@@ -162,6 +162,19 @@ export function playbackQueueAfterStableRefresh(
   return incoming;
 }
 
+export function playbackQueueAfterRefreshRequest(
+  current: PlaybackQueueResponse,
+  incoming: PlaybackQueueResponse,
+  options: { preserveTransientCollapse: boolean; requestVersion: number; activeVersion: number },
+): PlaybackQueueResponse {
+  if (options.requestVersion !== options.activeVersion) {
+    return current;
+  }
+  return playbackQueueAfterStableRefresh(current, incoming, {
+    preserveTransientCollapse: options.preserveTransientCollapse,
+  });
+}
+
 function queueItemIdentity(item: LibraryItem): string {
   return item.uri || item.id || `${item.type}:${item.title}:${item.subtitle ?? ""}`;
 }

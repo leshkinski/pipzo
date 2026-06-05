@@ -20,6 +20,7 @@ import {
   nowPlayingRefreshIntervalMs,
   playbackQueueAfterSelection,
   playbackQueueAfterNewPlaybackIntent,
+  playbackQueueAfterRefreshRequest,
   playbackQueueAfterStableRefresh,
   playbackQueueViewModel,
   preferredSpeakerSelection,
@@ -883,6 +884,49 @@ describe("kiosk shell view model", () => {
     });
   });
 
+  it("keeps an already-open queue panel empty until the active Home playback refresh arrives", () => {
+    const track = (id: string, title = id): LibraryItem => ({
+      id,
+      type: "track",
+      uri: `spotify:track:${id}`,
+      title,
+      source: "playlists",
+      playbackKind: "track",
+      playable: true,
+    });
+    const previousPlaylistQueue = {
+      current: track("old-1", "Old first"),
+      items: [track("old-2", "Old second")],
+      generatedAt: "2026-06-04T10:00:00.000Z",
+    };
+    const invalidated = playbackQueueAfterNewPlaybackIntent("2026-06-04T10:05:00.000Z");
+    const staleRefresh = {
+      ...previousPlaylistQueue,
+      generatedAt: "2026-06-04T10:05:01.000Z",
+    };
+    const newPlaylistQueue = {
+      current: track("new-1", "New first"),
+      items: [track("new-2", "New second")],
+      generatedAt: "2026-06-04T10:05:02.000Z",
+    };
+
+    expect(playbackQueueViewModel(previousPlaylistQueue).rows.map((row) => row.item.title)).toEqual(["Old first", "Old second"]);
+    const afterStaleRefresh = playbackQueueAfterRefreshRequest(invalidated, staleRefresh, {
+      preserveTransientCollapse: false,
+      requestVersion: 1,
+      activeVersion: 2,
+    });
+    expect(afterStaleRefresh).toBe(invalidated);
+    expect(playbackQueueViewModel(afterStaleRefresh).rows).toEqual([]);
+
+    const afterActiveRefresh = playbackQueueAfterRefreshRequest(afterStaleRefresh, newPlaylistQueue, {
+      preserveTransientCollapse: false,
+      requestVersion: 2,
+      activeVersion: 2,
+    });
+    expect(playbackQueueViewModel(afterActiveRefresh).rows.map((row) => row.item.title)).toEqual(["New first", "New second"]);
+  });
+
   it("keeps queue selection continuation consistent with display de-duping", () => {
     const queue = queueSelectionPlayback(localSingleSongPlaybackQueue, localSingleSongPlaybackQueue.current!);
 
@@ -927,8 +971,10 @@ describe("kiosk shell view model", () => {
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
     expect(appSource).toContain("const queueWasOpen = queueOpen");
+    expect(appSource).toContain("queueRefreshVersionRef.current += 1");
     expect(appSource).toContain("setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()))");
     expect(appSource).toContain("await loadPlaybackQueue().catch(() => undefined)");
+    expect(appSource).toContain("requestVersion === queueRefreshVersionRef.current");
     expect(appSource).toContain("queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000");
     expect(appSource).toContain("playbackQueueAfterSelection(current, item, new Date().toISOString())");
     expect(appSource).toContain("const showRefreshing = queue.busy && view.rows.length === 0");

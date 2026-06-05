@@ -61,7 +61,7 @@ import {
   preferredSurface,
   playbackQueueAfterSelection,
   playbackQueueAfterNewPlaybackIntent,
-  playbackQueueAfterStableRefresh,
+  playbackQueueAfterRefreshRequest,
   playbackQueueViewModel,
   queueSelectionPlayback,
   shellNavigationItems,
@@ -318,6 +318,7 @@ export function App() {
   const latestVolumeIntentRef = useRef<VolumePatchTarget | null>(null);
   const latestVolumeIntentAtMsRef = useRef<number | undefined>(undefined);
   const queueOptimisticRefreshUntilMsRef = useRef(0);
+  const queueRefreshVersionRef = useRef(0);
 
   useExplicitDragScroll(appRef);
 
@@ -1064,17 +1065,18 @@ export function App() {
     setLibraryBusy(true);
     setLibraryMessage(`Starting ${item.title}.`);
     const queueWasOpen = queueOpen;
+    if (queueWasOpen) {
+      queueRefreshVersionRef.current += 1;
+      queueOptimisticRefreshUntilMsRef.current = 0;
+      setQueueBusy(true);
+      setQueueMessage(`Refreshing songs coming up for ${item.title}.`);
+      setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
+    }
     try {
       if (dataSource === "backend") {
         const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         if (result.state === "succeeded") {
-          if (queueWasOpen) {
-            queueOptimisticRefreshUntilMsRef.current = 0;
-            setQueueBusy(true);
-            setQueueMessage(`Refreshing songs coming up for ${item.title}.`);
-            setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
-          }
           await refreshSnapshot().catch(() => undefined);
           scheduleSnapshotRefreshes();
           if (queueWasOpen) {
@@ -1086,11 +1088,13 @@ export function App() {
             setPlaybackTestMessage("Playback worked, so setup can finish.");
             setStatusText("Playback worked. Setup is finishing.");
           }
+        } else if (queueWasOpen) {
+          setQueueBusy(false);
+          setQueueMessage("Songs coming up were not changed.");
         }
       } else {
         if (queueWasOpen) {
-          queueOptimisticRefreshUntilMsRef.current = 0;
-          setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
+          setQueueBusy(false);
           setQueueMessage(`Local queue will refresh after ${item.title}.`);
         }
         setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
@@ -1098,6 +1102,10 @@ export function App() {
       setSelectedSurface("now_playing");
     } catch {
       setLibraryMessage("Playback start could not be sent.");
+      if (queueWasOpen) {
+        setQueueBusy(false);
+        setQueueMessage("Songs coming up were not changed.");
+      }
     } finally {
       setLibraryBusy(false);
     }
@@ -1105,6 +1113,7 @@ export function App() {
 
   async function loadPlaybackQueue(options: { automatic?: boolean } = {}) {
     const automatic = options.automatic === true;
+    const requestVersion = queueRefreshVersionRef.current;
     if (!automatic) {
       setQueueBusy(true);
     }
@@ -1113,12 +1122,17 @@ export function App() {
       if (dataSource === "backend") {
         const queue = await fetchPlaybackQueue();
         let displayedQueue = queue;
+        let accepted = requestVersion === queueRefreshVersionRef.current;
         setPlaybackQueue((current) => {
-          displayedQueue = playbackQueueAfterStableRefresh(current, queue, {
+          displayedQueue = playbackQueueAfterRefreshRequest(current, queue, {
             preserveTransientCollapse: automatic && Date.now() < queueOptimisticRefreshUntilMsRef.current,
+            requestVersion,
+            activeVersion: queueRefreshVersionRef.current,
           });
+          accepted = displayedQueue !== current || requestVersion === queueRefreshVersionRef.current;
           return displayedQueue;
         });
+        if (!accepted) return;
         setQueueMessage(playbackQueueViewModel(displayedQueue).upcomingCount > 0 ? "Songs coming up loaded." : "Spotify has no upcoming songs right now.");
       } else {
         const fallbackItems = uniqueLibraryItems(localLibraryHome().sections.flatMap((section) => section.items))
@@ -1133,9 +1147,10 @@ export function App() {
         setQueueMessage("Local queue preview loaded.");
       }
     } catch {
+      if (requestVersion !== queueRefreshVersionRef.current) return;
       setQueueMessage("Songs coming up are unavailable from Spotify right now.");
     } finally {
-      if (!automatic) {
+      if (!automatic && requestVersion === queueRefreshVersionRef.current) {
         setQueueBusy(false);
       }
     }
