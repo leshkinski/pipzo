@@ -4,6 +4,18 @@
   const ROOT_ID = "pipzo-extension-keyboard";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
   const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
+  const SHIFTED_NUMBER_KEYS = {
+    "1": "!",
+    "2": "@",
+    "3": "#",
+    "4": "$",
+    "5": "%",
+    "6": "^",
+    "7": "&",
+    "8": "*",
+    "9": "(",
+    "0": ")",
+  };
   const LETTER_ROWS = [
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
     ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
@@ -40,7 +52,11 @@
   }
 
   function displayKey(key, currentState) {
-    if (currentState.mode !== "letters" || !/^[a-z]$/.test(key)) return key;
+    if (currentState.mode !== "letters") return key;
+    if (currentState.shift && Object.prototype.hasOwnProperty.call(SHIFTED_NUMBER_KEYS, key)) {
+      return SHIFTED_NUMBER_KEYS[key];
+    }
+    if (!/^[a-z]$/.test(key)) return key;
     return currentState.shift || currentState.caps ? key.toUpperCase() : key;
   }
 

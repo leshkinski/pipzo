@@ -1910,6 +1910,12 @@ label.touch-pressed {
   gap: 8px;
 }
 
+.wifi-password-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+  gap: 8px;
+}
+
 .wifi-form select,
 .wifi-form input,
 .speaker-form select,
@@ -1921,6 +1927,20 @@ label.touch-pressed {
   padding: 0 12px;
   background: #fffdf7;
   color: #17211c;
+}
+
+.wifi-password-control button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #dfe8b7;
+  color: #17211c;
+  font-weight: 850;
+}
+
+.wifi-password-control button:disabled {
+  opacity: 0.45;
 }
 
 .wifi-form span,

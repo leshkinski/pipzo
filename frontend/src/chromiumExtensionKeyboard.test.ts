@@ -69,6 +69,10 @@ describe("Chromium extension keyboard", () => {
 
     expect(keyboard.displayKey("a", { mode: "letters", shift: true, caps: false })).toBe("A");
     expect(keyboard.displayKey("a", { mode: "letters", shift: false, caps: true })).toBe("A");
+    expect(keyboard.displayKey("1", { mode: "letters", shift: true, caps: false })).toBe("!");
+    expect(keyboard.displayKey("2", { mode: "letters", shift: true, caps: false })).toBe("@");
+    expect(keyboard.displayKey("0", { mode: "letters", shift: true, caps: false })).toBe(")");
+    expect(keyboard.displayKey("1", { mode: "letters", shift: false, caps: true })).toBe("1");
     expect(keyboard.displayKey("!", { mode: "symbols", shift: true, caps: true })).toBe("!");
     expect(keyboard.nextState({ mode: "letters", shift: true, caps: false }, { kind: "text" })).toEqual({
       mode: "letters",
@@ -119,6 +123,17 @@ describe("Chromium extension keyboard", () => {
 
     expect(rows[2][0]).toBe("CAPS");
     expect(rows[2].slice(1, 10)).toEqual(["A", "S", "D", "F", "G", "H", "J", "K", "L"]);
+    expect(rows[0]).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+  });
+
+  it("shows common symbols on the number row while temporary Shift is active", () => {
+    const keyboard = loadKeyboardApi();
+    const rows = keyboard.rowLabels({ mode: "letters", shift: true, caps: false });
+
+    expect(rows[0]).toEqual(["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]);
+    expect(
+      keyboard.applyCommandValue("pin", 3, 3, { kind: "text", value: "1" }, { mode: "letters", shift: true, caps: false }),
+    ).toEqual({ value: "pin!", caret: 4 });
   });
 
   it("recognizes the actual Wi-Fi password field shape from touch/pointer events", () => {
@@ -148,5 +163,21 @@ describe("Chromium extension keyboard", () => {
 
     expect(script).toContain('style.setProperty("--pipzo-keyboard-inset", `${height}px`)');
     expect(script).toContain('style.setProperty("--pipzo-keyboard-inset", "0px")');
+  });
+
+  it("keeps the extension keyboard hit targets large for the 1280x720 touchscreen", () => {
+    const stylesheet = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.css", "utf8");
+
+    expect(stylesheet).toContain("min-height: 48px");
+    expect(stylesheet).toContain("max-height: 44vh");
+  });
+
+  it("keeps Wi-Fi password reveal local to the Pipzo app field", () => {
+    const source = readFileSync("src/App.tsx", "utf8");
+
+    expect(source).toContain("wifiPasswordVisible");
+    expect(source).toContain('aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}');
+    expect(source).toContain('type={controls.passwordVisible ? "text" : "password"}');
+    expect(source).toContain("onTogglePasswordVisibility");
   });
 });

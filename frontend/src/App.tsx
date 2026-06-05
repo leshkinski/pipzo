@@ -146,11 +146,13 @@ type WifiControls = {
   networks: WifiNetwork[];
   selectedSsid: string;
   password: string;
+  passwordVisible: boolean;
   busy: boolean;
   message: string;
   onScan: () => void;
   onSelect: (ssid: string) => void;
   onPassword: (password: string) => void;
+  onTogglePasswordVisibility: () => void;
   onConnect: () => void;
   onRetry: () => void;
   onForget: () => void;
@@ -299,6 +301,7 @@ export function App() {
   const [wifiNetworks, setWifiNetworks] = useState<WifiNetwork[]>([]);
   const [selectedWifiSsid, setSelectedWifiSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
+  const [wifiPasswordVisible, setWifiPasswordVisible] = useState(false);
   const [wifiBusy, setWifiBusy] = useState(false);
   const [wifiMessage, setWifiMessage] = useState("Scan for Wi-Fi networks to start.");
   const [speakerDevices, setSpeakerDevices] = useState<SpeakerDevice[]>([]);
@@ -1925,6 +1928,7 @@ export function App() {
     const network = wifiNetworks.find((candidate) => candidate.ssid === ssid);
     if (network?.security === "open") {
       setWifiPassword("");
+      setWifiPasswordVisible(false);
     }
   }
 
@@ -1943,11 +1947,13 @@ export function App() {
     networks: wifiNetworks,
     selectedSsid: selectedWifiSsid,
     password: wifiPassword,
+    passwordVisible: wifiPasswordVisible,
     busy: wifiBusy,
     message: wifiMessage,
     onScan: scanWifi,
     onSelect: selectWifiNetwork,
     onPassword: setWifiPassword,
+    onTogglePasswordVisibility: () => setWifiPasswordVisible((visible) => !visible),
     onConnect: submitWifiConnect,
     onRetry: retryWifiProbe,
     onForget: forgetWifi,
@@ -3284,15 +3290,25 @@ function WifiPanel({
         </label>
         <label>
           <span>Password</span>
-          <input
-            autoComplete="current-password"
-            disabled={!needsPassword}
-            inputMode="text"
-            placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
-            type="password"
-            value={controls.password}
-            onChange={(event) => controls.onPassword(event.target.value)}
-          />
+          <div className="wifi-password-control">
+            <input
+              autoComplete="current-password"
+              disabled={!needsPassword}
+              inputMode="text"
+              placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
+              type={controls.passwordVisible ? "text" : "password"}
+              value={controls.password}
+              onChange={(event) => controls.onPassword(event.target.value)}
+            />
+            <button
+              aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+              disabled={!needsPassword}
+              type="button"
+              onClick={controls.onTogglePasswordVisibility}
+            >
+              {controls.passwordVisible ? "Hide" : "Show"}
+            </button>
+          </div>
         </label>
         <div className="wifi-actions">
           <button disabled={controls.busy} type="button" onClick={controls.onScan}>

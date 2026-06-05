@@ -6,9 +6,9 @@
   z-index: 2147483647;
   box-sizing: border-box;
   display: grid;
-  gap: 6px;
-  max-height: 38vh;
-  padding: 8px 10px 10px;
+  gap: 8px;
+  max-height: 44vh;
+  padding: 10px 12px 12px;
   border-top: 1px solid rgba(246, 240, 223, 0.2);
   background: rgba(9, 13, 13, 0.97);
   color: #f6f0df;
@@ -29,7 +29,7 @@
 
 .pipzo-keyboard-row {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .pipzo-keyboard-row[data-columns] {
@@ -58,14 +58,14 @@
 
 #pipzo-extension-keyboard button {
   min-width: 0;
-  min-height: 40px;
+  min-height: 48px;
   border: 1px solid rgba(246, 240, 223, 0.16);
   border-radius: 8px;
-  padding: 0 6px;
+  padding: 0 8px;
   background: #1a211e;
   color: #f6f0df;
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 850;
   line-height: 1;
   text-align: center;
