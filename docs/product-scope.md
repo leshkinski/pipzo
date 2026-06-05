@@ -11,7 +11,7 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 - Spotify login using OAuth Authorization Code with PKCE.
 - Local Pi/Chromium Spotify OAuth setup using the loopback callback registered in the Spotify developer dashboard.
 - Single Spotify Premium user account.
-- True fullscreen kiosk interface for daily use.
+- Appliance-like kiosk interface for daily use. V1 favors the Chromium app-maximized path when setup/recovery text entry needs the Raspberry Pi OS on-screen keyboard; true fullscreen remains an explicit override for no-text-entry operation.
 - Auto-start on boot.
 - Touch-first UI.
 - Browse user Spotify content from Home:

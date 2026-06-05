@@ -104,6 +104,9 @@ fi
 
 if [[ ! -f "$ENV_DIR/kiosk.env" ]]; then
   install -m 0644 "$APP_DIR/provisioning/env/pipzo-kiosk.env.example" "$ENV_DIR/kiosk.env"
+elif grep -q '^PIPZO_CHROMIUM_MODE=kiosk$' "$ENV_DIR/kiosk.env"; then
+  echo "Existing $ENV_DIR/kiosk.env keeps PIPZO_CHROMIUM_MODE=kiosk." >&2
+  echo "For V1 touchscreen setup/recovery keyboard support, set PIPZO_CHROMIUM_MODE=app-maximized and restart pipzo-kiosk.service." >&2
 fi
 
 python3 -m venv "$VENV_DIR"

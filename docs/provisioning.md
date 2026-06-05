@@ -71,7 +71,7 @@ sudo sed -i "s/^PIPZO_AUDIO_USER=.*/PIPZO_AUDIO_USER=$USER/" /etc/pipzo/pipzo.en
 
 Use `--service-user pipzo` only as an explicit legacy/debug override. That mode can still report `permission_denied` for OS volume because the isolated user does not own the kiosk PipeWire session.
 
-The kiosk keyring and Chromium launch-mode fixes are delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install the launcher changes even when an existing `/etc/pipzo/kiosk.env` is preserved. Existing `/etc/pipzo/kiosk.env` files may need `PIPZO_CHROMIUM_MODE=kiosk` set explicitly to adopt the current fullscreen default; use `app-maximized` only as the on-screen keyboard fallback.
+The kiosk keyring and Chromium launch-mode fixes are delivered in `/usr/local/bin/pipzo-kiosk`, so rerunning `install-app.sh` is enough to install launcher changes. Existing `/etc/pipzo/kiosk.env` files are preserved as local overrides. For V1 touchscreen setup and recovery, `PIPZO_CHROMIUM_MODE=app-maximized` is the supported default because Wi-Fi passwords and Spotify sign-in can require Squeekboard. Use `PIPZO_CHROMIUM_MODE=kiosk` only when strict fullscreen is more important than touch text entry, or when a physical keyboard is available.
 
 ## Service Operations
 
@@ -113,9 +113,9 @@ Both services are supervised by systemd. The backend restarts on failure after f
 
 `/usr/local/bin/pipzo-kiosk` launches Chromium at `PIPZO_KIOSK_URL`, defaulting to `http://127.0.0.1:8000/`.
 
-The launcher uses a dedicated Chromium profile directory and defaults to `PIPZO_CHROMIUM_MODE=kiosk`. This is the normal appliance runtime: Chromium launches with true `--kiosk`, hiding the Raspberry Pi OS panel and window chrome so the touch display presents Pipzo as a dedicated device UI.
+The launcher uses a dedicated Chromium profile directory and defaults to `PIPZO_CHROMIUM_MODE=app-maximized`. This is the V1 supported setup/recovery runtime because Chromium launches with `--app="$PIPZO_KIOSK_URL"` and `--start-maximized`, which keeps the app-only browser window path that has allowed Squeekboard to appear above Chromium under Raspberry Pi OS labwc. The tradeoff is that labwc panel/window chrome may remain visible.
 
-`PIPZO_CHROMIUM_MODE=app-maximized` remains the documented fallback when touch text input is more important than strict fullscreen. In that mode Chromium launches with `--app="$PIPZO_KIOSK_URL"` and `--start-maximized`, which keeps the app-only browser window path that has allowed Squeekboard to appear above Chromium under Raspberry Pi OS labwc. The tradeoff is that labwc panel/window chrome may remain visible.
+`PIPZO_CHROMIUM_MODE=kiosk` remains supported for appliance fullscreen when no touch text entry is expected. In that mode Chromium launches with true `--kiosk`, hiding the Raspberry Pi OS panel and window chrome, but Squeekboard may be hidden behind Chromium on Raspberry Pi OS Desktop/labwc.
 
 The launcher passes conservative Chromium flags:
 
@@ -133,22 +133,22 @@ The launcher passes conservative Chromium flags:
 
 `PIPZO_CHROMIUM_EXTRA_FLAGS` is a diagnostic-only escape hatch for Raspberry Pi validation. Leave it empty for normal runtime. Chromium documents command-line switches as temporary controls that may change, so use this only to isolate platform/browser behavior and then remove the flags after testing.
 
-If `/etc/pipzo/kiosk.env` already exists from an older install, rerunning `install-app.sh` preserves that local file. Confirm or change the normal appliance setting explicitly:
+If `/etc/pipzo/kiosk.env` already exists from an older install, rerunning `install-app.sh` preserves that local file. Confirm or change the V1 keyboard-compatible setting explicitly:
 
 ```bash
 grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env || true
 if grep -q '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env; then
-  sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=kiosk/' /etc/pipzo/kiosk.env
+  sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
 else
-  echo 'PIPZO_CHROMIUM_MODE=kiosk' | sudo tee -a /etc/pipzo/kiosk.env
+  echo 'PIPZO_CHROMIUM_MODE=app-maximized' | sudo tee -a /etc/pipzo/kiosk.env
 fi
 systemctl --user restart pipzo-kiosk.service
 ```
 
-If Squeekboard does not appear over true kiosk fullscreen during setup or later text-entry flows, switch back to the OSK-compatible fallback:
+To temporarily restore strict appliance fullscreen, switch to true kiosk mode:
 
 ```bash
-sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
+sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=kiosk/' /etc/pipzo/kiosk.env
 systemctl --user restart pipzo-kiosk.service
 ```
 
@@ -201,14 +201,14 @@ systemctl --user restart pipzo-kiosk.service
 
 Raspberry Pi OS Desktop with labwc uses Squeekboard for touch text input. `setup-packages.sh` installs `squeekboard` and `wfplug-squeek` when those packages exist in apt. After package installation, reboot the Pi so the panel plugin and input-method pieces are loaded.
 
-If the keyboard still does not appear when tapping Pipzo text fields, confirm Raspberry Pi Configuration has the on-screen keyboard enabled or always enabled. The manual panel keyboard toggle is expected to work in normal desktop windows. Under true fullscreen Chromium kiosk mode, labwc may hide Squeekboard behind Chromium; use `PIPZO_CHROMIUM_MODE=app-maximized` as the supported fallback while validating whether a future Raspberry Pi OS update improves this behavior.
+If the keyboard still does not appear when tapping Pipzo text fields, confirm Raspberry Pi Configuration has the on-screen keyboard enabled or always enabled. The manual panel keyboard toggle is expected to work in normal desktop windows. Under true fullscreen Chromium kiosk mode, labwc may hide Squeekboard behind Chromium; use `PIPZO_CHROMIUM_MODE=app-maximized` as the supported V1 setup/recovery mode while validating whether a future Raspberry Pi OS update improves this behavior.
 
 Current upstream evidence indicates this is a compositor layer ordering limit rather than a Pipzo text-input problem. In labwc, fullscreen application surfaces are above normal `top` layer surfaces; the Raspberry Pi OS Squeekboard path currently behaves like a `top` layer surface, so true Chromium `--kiosk` or `--start-fullscreen` can cover it. A locally rebuilt Squeekboard using the `overlay` layer has been reported to appear over fullscreen Chromium, but Pipzo does not ship or recommend that as V1 provisioning because it replaces Raspberry Pi OS packaging and can diverge from downstream Squeekboard patches.
 
 Keep these expectations explicit:
 
 - `PIPZO_CHROMIUM_MODE=kiosk`: supported appliance fullscreen; OS chrome hidden; Squeekboard may be hidden behind Chromium.
-- `PIPZO_CHROMIUM_MODE=app-maximized`: supported V1 keyboard fallback; Squeekboard appears; Raspberry Pi OS panel/window chrome may remain visible.
+- `PIPZO_CHROMIUM_MODE=app-maximized`: V1 default for touchscreen setup/recovery; Squeekboard appears; Raspberry Pi OS panel/window chrome may remain visible.
 - `PIPZO_CHROMIUM_EXTRA_FLAGS=--start-fullscreen` with `app-maximized`: diagnostic only; expected to reproduce the fullscreen layering problem if Chromium asks labwc for fullscreen.
 - Rebuilt or patched Squeekboard on the `overlay` layer: research-only; validate only on a disposable Pi image or after recording package versions and rollback steps.
 
@@ -222,10 +222,10 @@ journalctl --user -u pipzo-kiosk.service -n 80 --no-pager
 grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env || true
 ```
 
-If `/etc/pipzo/kiosk.env` predates this setting, either leave it unset to use the launcher default or add the normal appliance setting:
+If `/etc/pipzo/kiosk.env` predates this setting, either leave it unset to use the launcher default or add the V1 keyboard-compatible setting:
 
 ```bash
-PIPZO_CHROMIUM_MODE=kiosk
+PIPZO_CHROMIUM_MODE=app-maximized
 ```
 
 Then restart:
@@ -244,7 +244,37 @@ chromium --version || chromium-browser --version
 dpkg -l squeekboard wfplug-squeek labwc chromium chromium-browser | sed -n '/^ii/p'
 ```
 
-Then test the safe launcher modes:
+Then set the V1 keyboard-compatible launcher mode:
+
+```bash
+sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
+sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc/pipzo/kiosk.env
+systemctl --user restart pipzo-kiosk.service
+```
+
+Verify mode and process flags:
+
+```bash
+grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env
+pgrep -a chromium | tr ' ' '\n' | grep -E '^--app=|^--start-maximized$|^--kiosk$' || true
+```
+
+Wi-Fi password entry validation:
+
+1. Open Settings, then Wi-Fi.
+2. Select a secured network that is not currently connected.
+3. Tap the password field and confirm Squeekboard appears above Chromium.
+4. Enter the password using touch only, submit the connection, and confirm Pipzo reports Wi-Fi/internet online.
+5. If using a test network, switch back to the normal network before leaving the bench.
+
+Spotify sign-in/authorization validation:
+
+1. Open Settings, then Spotify, then reconnect/sign in.
+2. Tap Spotify email/username and password fields and confirm Squeekboard appears above Chromium for each field.
+3. Confirm the Spotify authorization page can be scrolled far enough to reach the authorize button; if not, keep issue `#65` open for app/browser flow follow-up.
+4. Complete authorization and confirm Pipzo returns to the local app with Spotify connected.
+
+Test true kiosk only as a rollback/override path:
 
 ```bash
 sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=kiosk/' /etc/pipzo/kiosk.env
@@ -252,7 +282,7 @@ sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc
 systemctl --user restart pipzo-kiosk.service
 ```
 
-Tap setup or Spotify OAuth text fields. Record whether Chromium is true fullscreen, whether the panel is hidden, and whether Squeekboard appears above the page.
+Tap the same text fields. Expected current behavior is true fullscreen with hidden OS chrome and unreliable or hidden Squeekboard. Roll back to the V1 supported setup/recovery mode:
 
 ```bash
 sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
@@ -260,7 +290,7 @@ sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=/' /etc
 systemctl --user restart pipzo-kiosk.service
 ```
 
-Repeat the same input checks. This is the V1 fallback if text entry is required.
+Optional diagnostic only:
 
 ```bash
 sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=app-maximized/' /etc/pipzo/kiosk.env
@@ -268,7 +298,7 @@ sudo sed -i 's/^PIPZO_CHROMIUM_EXTRA_FLAGS=.*/PIPZO_CHROMIUM_EXTRA_FLAGS=--start
 systemctl --user restart pipzo-kiosk.service
 ```
 
-Use this only to confirm whether `--start-fullscreen` has the same OSK failure as `--kiosk` on the current Raspberry Pi OS image. Restore either `kiosk` or `app-maximized` and clear `PIPZO_CHROMIUM_EXTRA_FLAGS` after testing.
+Use this only to confirm whether `--start-fullscreen` has the same OSK failure as `--kiosk` on the current Raspberry Pi OS image. Restore `app-maximized` and clear `PIPZO_CHROMIUM_EXTRA_FLAGS` after testing.
 
 ## Network Diagnostics
 
