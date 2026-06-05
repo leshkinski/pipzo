@@ -884,7 +884,7 @@ describe("kiosk shell view model", () => {
     });
   });
 
-  it("keeps an already-open queue panel empty until the active Home playback refresh arrives", () => {
+  it("ignores stale in-flight queue refreshes after Home playback invalidates the panel", () => {
     const track = (id: string, title = id): LibraryItem => ({
       id,
       type: "track",
@@ -967,13 +967,14 @@ describe("kiosk shell view model", () => {
     expect(shouldRefreshNowPlaying(offline, "backend")).toBe(false);
   });
 
-  it("clears an open queue panel after Home starts new playback without changing queue selection continuation", () => {
+  it("closes an open queue panel after Home starts new playback without changing queue selection continuation", () => {
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
     expect(appSource).toContain("const queueWasOpen = queueOpen");
     expect(appSource).toContain("queueRefreshVersionRef.current += 1");
     expect(appSource).toContain("setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()))");
-    expect(appSource).toContain("await loadPlaybackQueue().catch(() => undefined)");
+    expect(appSource).toContain("setQueueOpen(false)");
+    expect(appSource).toContain('setQueueMessage("Tap the artwork to show songs coming up.")');
     expect(appSource).toContain("requestVersion === queueRefreshVersionRef.current");
     expect(appSource).toContain("queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000");
     expect(appSource).toContain("playbackQueueAfterSelection(current, item, new Date().toISOString())");

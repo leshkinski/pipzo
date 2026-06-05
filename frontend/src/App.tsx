@@ -1080,9 +1080,9 @@ export function App() {
           await refreshSnapshot().catch(() => undefined);
           scheduleSnapshotRefreshes();
           if (queueWasOpen) {
-            await loadPlaybackQueue().catch(() => undefined);
-            window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 900);
-            window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 2_500);
+            setQueueOpen(false);
+            setQueueBusy(false);
+            setQueueMessage("Tap the artwork to show songs coming up.");
           }
           if (snapshot.setup.blockingStep === "playback_test") {
             setPlaybackTestMessage("Playback worked, so setup can finish.");
