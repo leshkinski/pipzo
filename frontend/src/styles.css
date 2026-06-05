@@ -511,21 +511,10 @@ label.touch-pressed {
   display: none;
 }
 
-.app.keyboard-active .shell {
-  grid-template-columns: 1fr;
-  height: calc(var(--pipzo-viewport-height) - 36px);
-  margin-top: 0;
-}
-
-.app.keyboard-active .nav {
-  display: none;
-}
-
 .app.keyboard-active .surface {
   min-height: 0;
   max-height: none;
   height: 100%;
-  padding-right: 0;
 }
 
 .surface-grid,

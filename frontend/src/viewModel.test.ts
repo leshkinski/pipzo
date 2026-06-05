@@ -680,19 +680,25 @@ describe("kiosk shell view model", () => {
     expect(artPanelRule).toContain("min-height: 0");
   });
 
-  it("uses the visual viewport for the kiosk shell while an OSK is open", () => {
+  it("keeps the kiosk rail stable while an OSK is open", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
     const rootRule = css.match(/:root\s*\{[^}]+\}/)?.[0] ?? "";
     const appRule = css.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
+    const shellRule = (css.match(/\.shell\s*\{[^}]+\}/g) ?? []).find((rule: string) => rule.includes("grid-template-columns")) ?? "";
     const keyboardShellRule = css.match(/\.app\.keyboard-active \.shell\s*\{[^}]+\}/)?.[0] ?? "";
+    const keyboardNavRule = css.match(/\.app\.keyboard-active \.nav\s*\{[^}]+\}/)?.[0] ?? "";
+    const surfaceRule = css.match(/\.surface\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(rootRule).toContain("--pipzo-viewport-height: 100dvh");
     expect(rootRule).toContain("--pipzo-keyboard-inset: 0px");
     expect(appRule).toContain("height: var(--pipzo-viewport-height)");
     expect(appRule).toContain("overflow: hidden");
     expect(appRule).toContain("padding-bottom: max(16px, calc(var(--pipzo-keyboard-inset) + 16px))");
-    expect(keyboardShellRule).toContain("height: calc(var(--pipzo-viewport-height) - 36px)");
+    expect(shellRule).toContain("grid-template-columns: 76px minmax(0, 1fr)");
+    expect(keyboardShellRule).not.toContain("grid-template-columns");
+    expect(keyboardNavRule).not.toContain("display: none");
+    expect(surfaceRule).toContain("padding-bottom: max(8px, var(--pipzo-keyboard-inset))");
     expect(appSource).toContain('!["range", "checkbox", "radio", "button", "submit", "reset"].includes(element.type)');
   });
 
