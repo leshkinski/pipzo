@@ -56,6 +56,21 @@
     return isEditableTarget(event.target) ? event.target : null;
   }
 
+  function dismissTargetFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const candidate of path) {
+      if (candidate?.dataset?.pipzoDismissKeyboard === "true") return candidate;
+      if (typeof candidate?.closest === "function") {
+        const target = candidate.closest("[data-pipzo-dismiss-keyboard='true']");
+        if (target) return target;
+      }
+    }
+    const target = event.target;
+    if (target?.dataset?.pipzoDismissKeyboard === "true") return target;
+    if (typeof target?.closest === "function") return target.closest("[data-pipzo-dismiss-keyboard='true']");
+    return null;
+  }
+
   function displayKey(key, currentState) {
     if (currentState.mode !== "letters") return key;
     if (currentState.shift && Object.prototype.hasOwnProperty.call(SHIFTED_NUMBER_KEYS, key)) {
@@ -329,7 +344,10 @@
     ensureRoot(documentRef);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
-      if (!target) return;
+      if (!target) {
+        if (dismissTargetFromEvent(event)) hideKeyboard();
+        return;
+      }
       showKeyboardForTarget(documentRef, target);
       globalScope.setTimeout(() => showKeyboardForTarget(documentRef, target), 0);
     };
@@ -370,6 +388,7 @@
   globalScope.__pipzoKeyboardTestApi = {
     applyCommandValue,
     commandTarget,
+    dismissTargetFromEvent,
     editableTargetFromEvent,
     displayKey,
     hideIfTargetLeftPage,

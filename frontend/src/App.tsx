@@ -2903,7 +2903,7 @@ function SettingsSubPageSummary({
   return (
     <>
       <section className={`settings-subpage-summary status-${row.tone}`} aria-label={`${row.title} settings`}>
-        <button className="settings-back" type="button" onClick={onBack}>
+        <button className="settings-back" data-pipzo-dismiss-keyboard="true" type="button" onClick={onBack}>
           Back
         </button>
         <div className="settings-subpage-title">

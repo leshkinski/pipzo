@@ -14,6 +14,7 @@ type KeyboardTestApi = {
     state: { mode: string; shift: boolean; caps: boolean },
   ) => { value: string; caret: number };
   commandTarget: (documentRef: { activeElement?: unknown } | null) => unknown | null;
+  dismissTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
   editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
   hideIfTargetLeftPage: (documentRef: unknown) => void;
@@ -38,6 +39,17 @@ class FakeTextArea {
   disabled = false;
   isConnected = true;
   readOnly = false;
+}
+
+class FakeButton {
+  dataset: Record<string, string> = {};
+  parent: FakeButton | null = null;
+
+  closest(selector: string): FakeButton | null {
+    if (selector !== "[data-pipzo-dismiss-keyboard='true']") return null;
+    if (this.dataset.pipzoDismissKeyboard === "true") return this;
+    return this.parent?.closest(selector) ?? null;
+  }
 }
 
 function loadKeyboardApi(): KeyboardTestApi {
@@ -179,6 +191,7 @@ describe("Chromium extension keyboard", () => {
 
   it("keeps the keyboard persistent until explicit Done or page navigation", () => {
     const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+    const source = readFileSync("src/App.tsx", "utf8");
 
     expect(script).not.toContain('documentRef.addEventListener("focusout"');
     expect(script).toContain('if (command.kind === "done")');
@@ -190,6 +203,21 @@ describe("Chromium extension keyboard", () => {
     expect(script).toContain("MutationObserver");
     expect(script).toContain("hideIfTargetLeftPage");
     expect(script).toContain("STALE_TARGET_CHECK_DELAY_MS");
+    expect(script).toContain("dismissTargetFromEvent");
+    expect(source).toContain('data-pipzo-dismiss-keyboard="true"');
+  });
+
+  it("treats explicit page-navigation controls as immediate keyboard dismissal targets", () => {
+    const keyboard = loadKeyboardApi();
+    const backButton = new FakeButton();
+    backButton.dataset.pipzoDismissKeyboard = "true";
+    const label = new FakeButton();
+    label.parent = backButton;
+    const normalButton = new FakeButton();
+
+    expect(keyboard.dismissTargetFromEvent({ target: backButton })).toBe(backButton);
+    expect(keyboard.dismissTargetFromEvent({ composedPath: () => [label], target: label })).toBe(backButton);
+    expect(keyboard.dismissTargetFromEvent({ target: normalButton })).toBeNull();
   });
 
   it("can rebind typing to the active editable field after a React input re-render", () => {
