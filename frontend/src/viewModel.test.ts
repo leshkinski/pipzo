@@ -1024,6 +1024,17 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("const showRefreshing = queue.busy && view.rows.length === 0");
   });
 
+  it("keeps post-playback snapshot hydration out of the first-play tap path", () => {
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    const libraryStart = appSource.slice(appSource.indexOf("async function startLibraryItem"), appSource.indexOf("function resetNowPlayingQueueAfterLibraryStart"));
+    const queueStart = appSource.slice(appSource.indexOf("async function startQueuedItem"), appSource.indexOf("async function openPlaybackQueue"));
+
+    expect(libraryStart).toContain("void refreshSnapshot().catch(() => undefined)");
+    expect(libraryStart).not.toContain("await refreshSnapshot().catch(() => undefined)");
+    expect(queueStart).toContain("void refreshSnapshot().catch(() => undefined)");
+    expect(queueStart).not.toContain("await refreshSnapshot().catch(() => undefined)");
+  });
+
   it("schedules a bounded Now Playing refresh near the expected track boundary", () => {
     const snapshot = {
       ...localScenarios.ready_healthy.snapshot,

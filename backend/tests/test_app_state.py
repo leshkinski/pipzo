@@ -26,6 +26,7 @@ from pipzo_api.contract import (
 from pipzo_api.database import initialize_database
 from pipzo_api.adapters.volume import VolumeUnavailable
 from pipzo_api.main import create_app
+from pipzo_api.setup_store import SetupStateStore
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
 
 
@@ -1286,6 +1287,57 @@ def test_hardware_library_play_success_marks_playback_test_passed_with_real_devi
         "deviceId": "pipzo-sdk-device",
     }
     assert "stored-refresh-token" not in str(play_response.json())
+
+
+def test_hardware_library_play_does_not_block_on_post_playback_snapshot_hydration(tmp_path):
+    settings = Settings(
+        app_mode="hardware",
+        db_path=str(tmp_path / "hardware-library-play-priority.sqlite3"),
+        pipzo_token_key_path=str(tmp_path / "spotify-token.key"),
+        spotify_client_id="spotify-client-id",
+    )
+    persist_connected_spotify(settings)
+    spotify_client = FakeSpotifyPlaybackClient()
+
+    class BlockingNetworkAdapter(FakeNetworkAdapter):
+        def status(self) -> NetworkHealth:
+            raise AssertionError("library play should not hydrate network state after playback starts")
+
+    class BlockingBluetoothAdapter(FakeBluetoothAdapter):
+        def status(self) -> SpeakerHealth:
+            raise AssertionError("library play should not hydrate speaker state after playback starts")
+
+    class BlockingVolumeAdapter(FakeVolumeAdapter):
+        def status(self) -> VolumeHealth:
+            raise AssertionError("library play should not hydrate volume state after playback starts")
+
+    with make_client(
+        settings,
+        spotify_client_override=spotify_client,
+        network_adapter_override=BlockingNetworkAdapter(),
+        bluetooth_adapter_override=BlockingBluetoothAdapter(),
+        volume_adapter_override=BlockingVolumeAdapter(),
+    ) as client:
+        play_response = client.post(
+            "/api/v1/library/play",
+            json={"uri": "spotify:track:real-track", "playbackKind": "track", "deviceId": "pipzo-sdk-device"},
+        )
+
+    assert play_response.status_code == 200
+    assert play_response.json()["state"] == "succeeded"
+    assert spotify_client.start_playback_calls == [
+        {
+            "api_base_url": "https://api.spotify.com",
+            "access_token": "stored-access-token",
+            "playback_kind": "track",
+            "uri": "spotify:track:real-track",
+            "device_id": "pipzo-sdk-device",
+        }
+    ]
+    assert SpotifyAuthStore.from_settings(settings).get_auth_record() is not None
+    setup_state = SetupStateStore(settings.db_path).get_state()
+    assert setup_state.playback_test_passed is True
+    assert setup_state.playback_device_id == "pipzo-sdk-device"
 
 
 def test_mock_library_play_does_not_mark_playback_test_passed(tmp_path):

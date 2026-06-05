@@ -1087,7 +1087,7 @@ export function App() {
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         if (result.state === "succeeded") {
           resetNowPlayingQueueAfterLibraryStart();
-          await refreshSnapshot().catch(() => undefined);
+          void refreshSnapshot().catch(() => undefined);
           scheduleSnapshotRefreshes();
           if (snapshot.setup.blockingStep === "playback_test") {
             setPlaybackTestMessage("Playback worked, so setup can finish.");
@@ -1187,7 +1187,7 @@ export function App() {
           queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000;
           setPlaybackQueue((current) => playbackQueueAfterSelection(current, item, new Date().toISOString()));
           setQueueMessage(`Starting ${item.title}. Songs after it stay lined up.`);
-          await refreshSnapshot().catch(() => undefined);
+          void refreshSnapshot().catch(() => undefined);
           window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 900);
           window.setTimeout(() => void loadPlaybackQueue({ automatic: true }), 2_500);
         } else {
