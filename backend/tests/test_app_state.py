@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from pipzo_api.adapters.bluez import BluetoothCommandResult
 from pipzo_api.config import Settings, get_settings
 from pipzo_api.contract import (
+    ActionResult,
     NetworkHealth,
     RecoveryAction,
     RecoveryActionKind,
@@ -169,6 +170,35 @@ class FakeVolumeAdapter:
         return self.health
 
 
+class FakeDevicePowerAdapter:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def probe(self) -> None:
+        return None
+
+    def reboot(self) -> ActionResult:
+        self.calls.append("reboot")
+        return action_result("device-reboot", "reboot", mock=False)
+
+    def poweroff(self) -> ActionResult:
+        self.calls.append("poweroff")
+        return action_result("device-poweroff", "poweroff", mock=False)
+
+
+def action_result(action_id: str, action: str, mock: bool) -> ActionResult:
+    now = utc_now()
+    return ActionResult(
+        id=action_id,
+        domain="settings",
+        action=action,
+        state=RecoveryActionState.SUCCEEDED,
+        mock=mock,
+        started_at=now,
+        completed_at=now,
+    )
+
+
 def test_health_reports_mock_mode_by_default(tmp_path):
     with make_client(Settings(db_path=str(tmp_path / "health.sqlite3"))) as client:
         response = client.get("/api/v1/health")
@@ -178,6 +208,44 @@ def test_health_reports_mock_mode_by_default(tmp_path):
     assert body["status"] == "ok"
     assert body["mode"] == "mock"
     assert body["schemaVersion"] == "v1"
+
+
+def test_mock_device_power_actions_simulate_without_hardware(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "device-power-mock.sqlite3"))) as client:
+        reboot = client.post("/api/v1/device/reboot", json={"confirm": True})
+        poweroff = client.post("/api/v1/device/poweroff", json={"confirm": True})
+
+    assert reboot.status_code == 200
+    assert reboot.json()["id"] == "device-reboot-mock"
+    assert reboot.json()["domain"] == "settings"
+    assert reboot.json()["action"] == "reboot"
+    assert reboot.json()["state"] == "succeeded"
+    assert reboot.json()["mock"] is True
+    assert poweroff.status_code == 200
+    assert poweroff.json()["action"] == "poweroff"
+    assert poweroff.json()["mock"] is True
+
+
+def test_device_power_actions_require_confirmation(tmp_path):
+    with make_client(Settings(db_path=str(tmp_path / "device-power-confirm.sqlite3"))) as client:
+        response = client.post("/api/v1/device/reboot", json={"confirm": False})
+
+    assert response.status_code == 422
+
+
+def test_hardware_device_power_actions_use_bounded_adapter(tmp_path):
+    adapter = FakeDevicePowerAdapter()
+    settings = Settings(app_mode="hardware", db_path=str(tmp_path / "device-power-hardware.sqlite3"))
+
+    with make_client(settings, device_power_adapter_override=adapter) as client:
+        reboot = client.post("/api/v1/device/reboot", json={"confirm": True})
+        poweroff = client.post("/api/v1/device/poweroff", json={"confirm": True})
+
+    assert reboot.status_code == 200
+    assert poweroff.status_code == 200
+    assert adapter.calls == ["reboot", "poweroff"]
+    assert reboot.json()["mock"] is False
+    assert poweroff.json()["action"] == "poweroff"
 
 
 def test_app_state_returns_first_boot_snapshot_contract(tmp_path):

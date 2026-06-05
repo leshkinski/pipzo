@@ -849,6 +849,20 @@ class MockScenarioStore:
         self._snapshot.updated_at = utc_now()
         return updated
 
+    def run_device_power_action(self, action: str) -> ActionResult:
+        if action not in {"reboot", "poweroff"}:
+            raise ValueError("unsupported device power action")
+        now = utc_now()
+        return ActionResult(
+            id=f"device-{action}-mock",
+            domain="settings",
+            action=action,
+            state=RecoveryActionState.SUCCEEDED,
+            mock=True,
+            started_at=now,
+            completed_at=now,
+        )
+
     def list_recovery_actions(self) -> List[RecoveryAction]:
         return self.get_snapshot().recovery_actions
 

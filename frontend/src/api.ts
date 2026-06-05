@@ -4,6 +4,7 @@ import type {
   AppSettingsPatch,
   AppSnapshot,
   CurrentTrackLikeStatus,
+  DevicePowerActionRequest,
   DisplayPatch,
   HealthState,
   HealthResponse,
@@ -88,6 +89,14 @@ export function controlPlayback(body: PlaybackControlRequest): Promise<ActionRes
 
 export function patchVolume(body: VolumePatch): Promise<HealthState["volume"]> {
   return request<HealthState["volume"]>("/api/v1/volume", { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function rebootDevice(body: DevicePowerActionRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/device/reboot", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function powerOffDevice(body: DevicePowerActionRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/device/poweroff", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function fetchSpotifyPlaybackToken(): Promise<SpotifyPlaybackToken> {

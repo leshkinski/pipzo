@@ -1,0 +1,18 @@
+// Allow the Pipzo backend service user to request confirmed device power actions
+// through systemd-logind. The install script replaces __PIPZO_SERVICE_USER__.
+polkit.addRule(function(action, subject) {
+  if (subject.user !== "__PIPZO_SERVICE_USER__") {
+    return polkit.Result.NOT_HANDLED;
+  }
+
+  if (
+    action.id === "org.freedesktop.login1.reboot" ||
+    action.id === "org.freedesktop.login1.reboot-multiple-sessions" ||
+    action.id === "org.freedesktop.login1.power-off" ||
+    action.id === "org.freedesktop.login1.power-off-multiple-sessions"
+  ) {
+    return polkit.Result.YES;
+  }
+
+  return polkit.Result.NOT_HANDLED;
+});

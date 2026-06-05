@@ -10,9 +10,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .adapters import create_app_state_adapter
 from .adapters.bluez import BlueZCommandError, BlueZUnavailable, BluetoothctlAdapter
+from .adapters.device_power import DevicePowerCommandError, DevicePowerUnavailable, SystemdDevicePowerAdapter
 from .adapters.network_manager import NetworkCommandError, NetworkManagerUnavailable, NmcliNetworkAdapter
 from .adapters.production import (
     BlueZAdapter,
+    DevicePowerAdapter,
     NetworkManagerAdapter,
     ProductionAdapterNotImplemented,
     ProductionAdapters,
@@ -28,6 +30,7 @@ from .contract import (
     AppSettingsPatch,
     AppSnapshot,
     CurrentTrackLikeStatus,
+    DevicePowerActionRequest,
     DisplayHealth,
     DisplayPatch,
     HealthResponse,
@@ -123,6 +126,7 @@ def create_app(
     network_adapter_override: Optional[NetworkManagerAdapter] = None,
     bluetooth_adapter_override: Optional[BlueZAdapter] = None,
     volume_adapter_override: Optional[VolumeAdapter] = None,
+    device_power_adapter_override: Optional[DevicePowerAdapter] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
@@ -145,6 +149,9 @@ def create_app(
 
     def volume_adapter(settings: Settings) -> VolumeAdapter:
         return volume_adapter_override or PipeWireVolumeAdapter(audio_user=settings.pipzo_audio_user or None)
+
+    def device_power_adapter() -> DevicePowerAdapter:
+        return device_power_adapter_override or SystemdDevicePowerAdapter()
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)
@@ -327,6 +334,41 @@ def create_app(
         if settings.app_mode == "mock":
             event_hub.publish("app.snapshot", mock_store.get_snapshot().model_dump(mode="json", by_alias=True))
         return updated
+
+    @app.post("/api/v1/device/reboot", response_model=ActionResult)
+    def device_reboot(body: DevicePowerActionRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
+        return run_device_power_action("reboot", body, settings)
+
+    @app.post("/api/v1/device/poweroff", response_model=ActionResult)
+    def device_poweroff(body: DevicePowerActionRequest, settings: Settings = Depends(get_settings)) -> ActionResult:
+        return run_device_power_action("poweroff", body, settings)
+
+    def run_device_power_action(action: str, body: DevicePowerActionRequest, settings: Settings) -> ActionResult:
+        if body.confirm is not True:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Device power action requires confirmation")
+        if settings.app_mode == "mock":
+            result = mock_store.run_device_power_action(action)
+        else:
+            try:
+                adapter = device_power_adapter()
+                result = adapter.reboot() if action == "reboot" else adapter.poweroff()
+            except DevicePowerUnavailable as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                    detail="Device power control is unavailable because systemctl is not installed or not accessible.",
+                ) from exc
+            except DevicePowerCommandError as exc:
+                result = ActionResult(
+                    id=f"device-{action}",
+                    domain="settings",
+                    action=action,
+                    state=RecoveryActionState.FAILED,
+                    mock=False,
+                    started_at=utc_now(),
+                    completed_at=utc_now(),
+                )
+        event_hub.publish("settings.device_power_changed", result.model_dump(mode="json", by_alias=True))
+        return result
 
     @app.get("/api/v1/network/status", response_model=NetworkHealth)
     def network_status(settings: Settings = Depends(get_settings)) -> NetworkHealth:

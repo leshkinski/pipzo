@@ -10,6 +10,7 @@ import {
   canOpenSurface,
   canUseSleepTimer,
   degradedModeViewModel,
+  devicePowerActionView,
   idlePresentation,
   isSetupGated,
   libraryAvailability,
@@ -178,6 +179,42 @@ describe("kiosk shell view model", () => {
     expect(canOpenSurface(snapshot, "now_playing")).toBe(true);
     expect(degraded.available).toEqual(["Settings", "Wi-Fi recovery", "Bluetooth recovery", "App reset"]);
     expect(degraded.unavailable).toEqual(["live library browsing", "music playback"]);
+  });
+
+  it("models separate confirmed Settings reboot and power-off controls", () => {
+    const idle = { action: null, state: "idle" } as const;
+    const confirmingReboot = { action: "reboot", state: "confirming" } as const;
+    const runningPoweroff = { action: "poweroff", state: "running" } as const;
+    const succeededPoweroff = { action: "poweroff", state: "succeeded" } as const;
+
+    expect(devicePowerActionView("reboot", idle)).toMatchObject({
+      action: "reboot",
+      title: "Reboot Pipzo",
+      requestLabel: "Reboot",
+      confirming: false,
+      busy: false,
+    });
+    expect(devicePowerActionView("poweroff", idle)).toMatchObject({
+      action: "poweroff",
+      title: "Power off Pipzo",
+      requestLabel: "Power off",
+      confirming: false,
+      busy: false,
+    });
+    expect(devicePowerActionView("reboot", confirmingReboot)).toMatchObject({
+      confirming: true,
+      confirmLabel: "Confirm reboot",
+      cancelLabel: "Cancel",
+      message: "Confirm reboot now.",
+    });
+    expect(devicePowerActionView("poweroff", runningPoweroff)).toMatchObject({
+      busy: true,
+      message: "Power-off request sent. The screen may disconnect as Pipzo shuts down.",
+    });
+    expect(devicePowerActionView("poweroff", succeededPoweroff)).toMatchObject({
+      terminal: true,
+      message: "Power off accepted. It is safe to wait for shutdown.",
+    });
   });
 
   it("models library availability from app capabilities while search remains deferred", () => {

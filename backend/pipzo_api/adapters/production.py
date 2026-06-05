@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from pipzo_api.contract import NetworkHealth, RecoveryAction, SpeakerHealth, SpeakerScanResults, VolumeHealth, WifiScanResults
+from pipzo_api.contract import ActionResult, NetworkHealth, RecoveryAction, SpeakerHealth, SpeakerScanResults, VolumeHealth, WifiScanResults
 
 
 class ProductionAdapterNotImplemented(NotImplementedError):
@@ -65,6 +65,17 @@ class VolumeAdapter(Protocol):
         raise ProductionAdapterNotImplemented("Volume adapter is not implemented")
 
 
+class DevicePowerAdapter(Protocol):
+    def probe(self) -> None:
+        raise ProductionAdapterNotImplemented("Device power adapter is not implemented")
+
+    def reboot(self) -> ActionResult:
+        raise ProductionAdapterNotImplemented("Device power adapter is not implemented")
+
+    def poweroff(self) -> ActionResult:
+        raise ProductionAdapterNotImplemented("Device power adapter is not implemented")
+
+
 class PlaybackAdapter(Protocol):
     def probe(self) -> None:
         raise ProductionAdapterNotImplemented("Playback adapter is not implemented")
@@ -90,6 +101,11 @@ class MissingVolumeAdapter:
         raise ProductionAdapterNotImplemented("Volume adapter is not implemented")
 
 
+class MissingDevicePowerAdapter:
+    def probe(self) -> None:
+        raise ProductionAdapterNotImplemented("Device power adapter is not implemented")
+
+
 class MissingPlaybackAdapter:
     def probe(self) -> None:
         raise ProductionAdapterNotImplemented("Playback adapter is not implemented")
@@ -105,6 +121,7 @@ class ProductionAdapters:
     network: NetworkManagerAdapter = MissingNetworkManagerAdapter()
     bluetooth: BlueZAdapter = MissingBlueZAdapter()
     volume: VolumeAdapter = MissingVolumeAdapter()
+    device_power: DevicePowerAdapter = MissingDevicePowerAdapter()
     playback: PlaybackAdapter = MissingPlaybackAdapter()
     kiosk: KioskAdapter = MissingKioskAdapter()
 
@@ -112,5 +129,6 @@ class ProductionAdapters:
         self.network.probe()
         self.bluetooth.probe()
         self.volume.probe()
+        self.device_power.probe()
         self.playback.probe()
         self.kiosk.probe()

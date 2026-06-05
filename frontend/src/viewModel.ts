@@ -1,4 +1,4 @@
-import type { AppSnapshot, IdleMode, LibraryCategoryId, LibraryItem, PlaybackQueueResponse, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSnapshot, DevicePowerAction, IdleMode, LibraryCategoryId, LibraryItem, PlaybackQueueResponse, RecoveryActionState, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 
 export const primarySurfaces: SurfaceId[] = ["home", "now_playing", "settings"];
 export const dailyPrimarySurfaces: SurfaceId[] = ["home", "now_playing"];
@@ -55,6 +55,24 @@ export type ShellNavigationItem = {
   priority: "primary" | "utility";
 };
 
+export type DevicePowerConfirmation = {
+  action: DevicePowerAction | null;
+  state: "idle" | "confirming" | "running" | "succeeded" | "failed";
+};
+
+export type DevicePowerActionView = {
+  action: DevicePowerAction;
+  title: string;
+  detail: string;
+  confirmLabel: string;
+  requestLabel: string;
+  cancelLabel: string;
+  busy: boolean;
+  confirming: boolean;
+  terminal: boolean;
+  message: string;
+};
+
 export type NowPlayingEmptyState = {
   title: string;
   detail: string;
@@ -82,6 +100,43 @@ export function shellNavigationItems(): ShellNavigationItem[] {
     ...dailyPrimarySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "primary" as const })),
     ...demotedUtilitySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "utility" as const })),
   ];
+}
+
+export function devicePowerActionView(
+  action: DevicePowerAction,
+  confirmation: DevicePowerConfirmation,
+  resultState?: RecoveryActionState,
+): DevicePowerActionView {
+  const title = action === "reboot" ? "Reboot Pipzo" : "Power off Pipzo";
+  const detail = action === "reboot"
+    ? "Restart the device when the touchscreen or playback stack needs a clean start."
+    : "Shut down the device before unplugging power.";
+  const confirming = confirmation.action === action && confirmation.state === "confirming";
+  const running = confirmation.action === action && confirmation.state === "running";
+  const succeeded = confirmation.action === action && confirmation.state === "succeeded";
+  const failed = confirmation.action === action && confirmation.state === "failed";
+  const terminal = succeeded || failed || resultState === "succeeded" || resultState === "failed";
+  const message = running
+    ? action === "reboot" ? "Reboot request sent. The screen may disconnect while Pipzo restarts." : "Power-off request sent. The screen may disconnect as Pipzo shuts down."
+    : succeeded || resultState === "succeeded"
+      ? action === "reboot" ? "Reboot accepted. Pipzo will come back after startup." : "Power off accepted. It is safe to wait for shutdown."
+      : failed || resultState === "failed"
+        ? `${title} could not be sent.`
+        : confirming
+          ? `Confirm ${action === "reboot" ? "reboot" : "power off"} now.`
+          : detail;
+  return {
+    action,
+    title,
+    detail,
+    confirmLabel: action === "reboot" ? "Confirm reboot" : "Confirm power off",
+    requestLabel: action === "reboot" ? "Reboot" : "Power off",
+    cancelLabel: "Cancel",
+    busy: running,
+    confirming,
+    terminal,
+    message,
+  };
 }
 
 export function playbackQueueViewModel(queue: Pick<PlaybackQueueResponse, "current" | "items">): PlaybackQueueViewModel {

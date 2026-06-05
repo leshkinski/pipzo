@@ -80,6 +80,8 @@ Useful endpoints:
 - `PATCH http://127.0.0.1:8000/api/v1/display`
 - `POST http://127.0.0.1:8000/api/v1/playback/control`
 - `PATCH http://127.0.0.1:8000/api/v1/volume`
+- `POST http://127.0.0.1:8000/api/v1/device/reboot`
+- `POST http://127.0.0.1:8000/api/v1/device/poweroff`
 - `GET http://127.0.0.1:8000/api/v1/network/status`
 - `POST http://127.0.0.1:8000/api/v1/network/scan`
 - `GET http://127.0.0.1:8000/api/v1/network/scan-results`
@@ -129,7 +131,7 @@ This SDK slice registers and selects the browser playback device only. Bluetooth
 
 WebSocket clients receive an initial `app.snapshot` event followed by mock/action events such as `settings.changed`, `display.changed`, `playback.control_changed`, `recovery.action_changed`, `spotify.auth_session_changed`, and `spotify.auth_changed`. Clients should still refetch `GET /api/v1/app/state` after reconnect because events are not durable state.
 
-App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings updates are app-owned preferences; hardware actions such as display brightness writes, playback control, and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
+App settings are persisted in SQLite through `GET/PATCH /api/v1/settings` in both mock and hardware modes. Bedtime idle mode uses `idleTimeoutSeconds`, `idleMode`, `artworkInIdle`, and `bedtimeBrightness`: after inactivity, the frontend switches to a dim clock-first view and wakes on touch, pointer, or key activity. Settings also exposes confirmed Reboot and Power off actions through bounded `/api/v1/device/reboot` and `/api/v1/device/poweroff` endpoints. Mock mode simulates those actions; hardware mode uses fixed-argument `systemctl reboot` and `systemctl poweroff` adapter calls and relies on local-only backend binding plus minimal logind/polkit privilege for the service user. Settings updates are app-owned preferences; hardware actions such as display brightness writes and app reset still require concrete platform adapters before they can succeed outside mock-specific endpoints.
 
 Sleep timer V1 is frontend-local and offers 15, 30, 45, and 60 minute presets plus Clear from a Now Playing timer action. While the browser session stays alive, the runtime UI and idle clock show the active countdown; when it expires the frontend sends `{"action":"stop"}` through `POST /api/v1/playback/control`, which maps to Spotify pause in hardware mode. If playback control is degraded or the app is using local fallback scenarios, the UI reports that the stop could not be sent. Active timers are not persisted across page reloads, Chromium restarts, or backend/service restarts.
 

@@ -66,6 +66,7 @@ label,
 .wifi-panel,
 .speaker-panel,
 .volume-panel,
+.device-power-panel,
 .sleep-timer,
 .idle-settings,
 .library-section-heading,
@@ -1884,6 +1885,51 @@ label.touch-pressed {
   height: 22px;
 }
 
+.device-power-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  padding: 18px;
+}
+
+.device-power-panel h2 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.device-power-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 112px;
+  border: 1px solid rgba(246, 240, 223, 0.12);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(10, 13, 11, 0.16);
+}
+
+.device-power-action div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.device-power-action strong {
+  font-size: 20px;
+}
+
+.device-power-action span {
+  color: #65716b;
+  line-height: 1.35;
+}
+
+.device-power-buttons {
+  display: grid;
+  gap: 8px;
+}
+
 .idle-surface {
   display: grid;
   place-items: center;
@@ -1973,6 +2019,7 @@ label.touch-pressed {
   .wifi-panel,
   .speaker-panel,
   .volume-panel,
+  .device-power-panel,
   .sleep-timer,
   .idle-settings {
     grid-template-columns: 1fr;

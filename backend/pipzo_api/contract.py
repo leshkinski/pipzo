@@ -343,6 +343,10 @@ class SpeakerForgetRequest(ContractModel):
     confirm: Literal[True]
 
 
+class DevicePowerActionRequest(ContractModel):
+    confirm: Literal[True]
+
+
 class PlaybackDeviceHealth(ContractModel):
     status: PlaybackDeviceStatus
     reason: Optional[PlaybackDeviceReason] = None

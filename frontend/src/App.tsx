@@ -25,6 +25,8 @@ import {
   pairSpeaker,
   playLibraryItem,
   playQueueSelection,
+  powerOffDevice,
+  rebootDevice,
   retryInternetProbe,
   reconnectSpeaker,
   runSetupPlaybackTest,
@@ -33,7 +35,7 @@ import {
   connectNetwork,
   transferSpotifyPlayback,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DevicePowerAction, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
 import { localLibraryHome, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -47,6 +49,7 @@ import {
   canOpenSurface,
   canPlayLibraryItem,
   degradedModeViewModel,
+  devicePowerActionView,
   formatMs,
   homeLibraryCategoryOrder,
   idlePresentation,
@@ -87,6 +90,7 @@ import {
   type SleepTimerPresetMinutes,
   type SleepTimerState,
   type AppSurfaceId,
+  type DevicePowerConfirmation,
   type NowPlayingSubview,
 } from "./viewModel";
 import {
@@ -183,6 +187,13 @@ type LikeControls = {
   liked: boolean;
   message: string;
   onLike: () => void;
+};
+
+type DevicePowerControls = {
+  confirmation: DevicePowerConfirmation;
+  onRequest: (action: DevicePowerAction) => void;
+  onCancel: () => void;
+  onConfirm: (action: DevicePowerAction) => void;
 };
 
 type SetupPlaybackControls = {
@@ -298,6 +309,7 @@ export function App() {
   const [likeBusy, setLikeBusy] = useState(false);
   const [likeMessage, setLikeMessage] = useState("Save the current song.");
   const [currentTrackLiked, setCurrentTrackLiked] = useState(false);
+  const [devicePowerConfirmation, setDevicePowerConfirmation] = useState<DevicePowerConfirmation>({ action: null, state: "idle" });
   const [playbackQueue, setPlaybackQueue] = useState<PlaybackQueueResponse>(() => ({
     current: null,
     items: [],
@@ -1761,6 +1773,49 @@ export function App() {
     }
   }
 
+  function requestDevicePowerAction(action: DevicePowerAction) {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    setDevicePowerConfirmation({ action, state: "confirming" });
+    setStatusText(`${action === "reboot" ? "Reboot" : "Power off"} confirmation required.`);
+  }
+
+  function cancelDevicePowerAction() {
+    setDevicePowerConfirmation({ action: null, state: "idle" });
+    setStatusText("Device power action cancelled.");
+  }
+
+  async function confirmDevicePowerAction(action: DevicePowerAction) {
+    setDevicePowerConfirmation({ action, state: "running" });
+    setStatusText(action === "reboot" ? "Sending reboot request." : "Sending power-off request.");
+    try {
+      const result = dataSource === "backend"
+        ? action === "reboot"
+          ? await rebootDevice({ confirm: true })
+          : await powerOffDevice({ confirm: true })
+        : {
+            id: `device-${action}-local`,
+            domain: "settings" as const,
+            action,
+            state: "succeeded" as const,
+            mock: true,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          };
+      setDevicePowerConfirmation({ action, state: result.state === "succeeded" ? "succeeded" : "failed" });
+      setStatusText(
+        result.state === "succeeded"
+          ? action === "reboot"
+            ? "Reboot accepted. Pipzo may disconnect while restarting."
+            : "Power off accepted. Pipzo may disconnect while shutting down."
+          : `${action === "reboot" ? "Reboot" : "Power off"} was not accepted.`,
+      );
+    } catch {
+      setDevicePowerConfirmation({ action, state: "failed" });
+      setStatusText(`${action === "reboot" ? "Reboot" : "Power off"} request could not be sent.`);
+    }
+  }
+
   async function drainVolumeRequests(initialRequest: QueuedVolumePatch) {
     volumeInFlightRef.current = true;
     let nextRequest: QueuedVolumePatch | null = initialRequest;
@@ -1901,6 +1956,12 @@ export function App() {
     busy: playbackTestBusy,
     message: playbackTestMessage,
     onConfirm: confirmSetupPlaybackTest,
+  };
+  const devicePowerControls = {
+    confirmation: devicePowerConfirmation,
+    onRequest: requestDevicePowerAction,
+    onCancel: cancelDevicePowerAction,
+    onConfirm: confirmDevicePowerAction,
   };
   const libraryControls = {
     home: libraryHome,
@@ -2090,6 +2151,7 @@ export function App() {
               onIdleSettingsChange={updateIdleSettings}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
+              devicePower={devicePowerControls}
             />
           )}
         </section>
@@ -2673,6 +2735,7 @@ function SettingsSurface({
   onIdleSettingsChange,
   sleepTimer,
   volume,
+  devicePower,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
@@ -2684,6 +2747,7 @@ function SettingsSurface({
   onIdleSettingsChange: (patch: AppSettingsPatch) => void;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
+  devicePower: DevicePowerControls;
 }) {
   return (
     <div className="settings-layout">
@@ -2700,6 +2764,7 @@ function SettingsSurface({
       <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
       <VolumeControlPanel snapshot={snapshot} controls={volume} />
       <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
+      <DevicePowerPanel controls={devicePower} />
       <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
       <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
       <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
@@ -2718,6 +2783,45 @@ function SettingsSurface({
         ))}
       </section>
     </div>
+  );
+}
+
+function DevicePowerPanel({ controls }: { controls: DevicePowerControls }) {
+  const reboot = devicePowerActionView("reboot", controls.confirmation);
+  const poweroff = devicePowerActionView("poweroff", controls.confirmation);
+  return (
+    <section className="device-power-panel" aria-label="Device power controls">
+      <div>
+        <p className="eyebrow">Device power</p>
+        <h2>Restart or shut down</h2>
+      </div>
+      {[reboot, poweroff].map((view) => (
+        <div className={`device-power-action power-${view.action}`} key={view.action}>
+          <div>
+            <strong>{view.title}</strong>
+            <span>{view.message}</span>
+          </div>
+          {view.confirming ? (
+            <div className="device-power-buttons">
+              <button disabled={view.busy} type="button" onClick={() => controls.onConfirm(view.action)}>
+                {view.confirmLabel}
+              </button>
+              <button disabled={view.busy} type="button" onClick={controls.onCancel}>
+                {view.cancelLabel}
+              </button>
+            </div>
+          ) : (
+            <button
+              disabled={controls.confirmation.state === "running"}
+              type="button"
+              onClick={() => controls.onRequest(view.action)}
+            >
+              {view.requestLabel}
+            </button>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
 

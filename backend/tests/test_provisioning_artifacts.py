@@ -23,6 +23,20 @@ def test_installer_preserves_explicit_legacy_service_user_override():
     assert 'sed "s|__PIPZO_SERVICE_USER__|$SERVICE_USER|g"' in installer
 
 
+def test_installer_installs_bounded_power_polkit_rule():
+    installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
+    rule = (REPO_ROOT / "provisioning/polkit/50-pipzo-power.rules").read_text()
+
+    assert "50-pipzo-power.rules" in installer
+    assert 'subject.user !== "__PIPZO_SERVICE_USER__"' in rule
+    assert "org.freedesktop.login1.reboot" in rule
+    assert "org.freedesktop.login1.reboot-multiple-sessions" in rule
+    assert "org.freedesktop.login1.power-off" in rule
+    assert "org.freedesktop.login1.power-off-multiple-sessions" in rule
+    assert "ignore-inhibit" not in rule
+    assert "suspend" not in rule
+
+
 def test_installer_embeds_source_commit_in_frontend_build():
     installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
     app_source = (REPO_ROOT / "frontend/src/App.tsx").read_text()

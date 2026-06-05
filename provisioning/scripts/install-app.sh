@@ -129,8 +129,12 @@ if [[ -d /etc/polkit-1/rules.d ]]; then
     "$APP_DIR/provisioning/polkit/50-pipzo-networkmanager.rules" > /tmp/50-pipzo-networkmanager.rules
   install -m 0644 -o root -g root /tmp/50-pipzo-networkmanager.rules /etc/polkit-1/rules.d/50-pipzo-networkmanager.rules
   rm -f /tmp/50-pipzo-networkmanager.rules
+  sed "s|__PIPZO_SERVICE_USER__|$SERVICE_USER|g" \
+    "$APP_DIR/provisioning/polkit/50-pipzo-power.rules" > /tmp/50-pipzo-power.rules
+  install -m 0644 -o root -g root /tmp/50-pipzo-power.rules /etc/polkit-1/rules.d/50-pipzo-power.rules
+  rm -f /tmp/50-pipzo-power.rules
 else
-  echo "polkit rules directory not found; hardware Wi-Fi actions may require manual NetworkManager permissions for $SERVICE_USER." >&2
+  echo "polkit rules directory not found; hardware Wi-Fi and power actions may require manual permissions for $SERVICE_USER." >&2
 fi
 sed \
   -e "s|User=pipzo|User=$SERVICE_USER|" \

@@ -282,6 +282,12 @@ export type DisplayPatch = {
   status?: DisplayStatus;
 };
 
+export type DevicePowerAction = "reboot" | "poweroff";
+
+export type DevicePowerActionRequest = {
+  confirm: true;
+};
+
 export type PlaybackControlRequest = {
   action: "play" | "pause" | "next" | "previous" | "stop" | "seek_start" | "shuffle_on" | "shuffle_off" | "repeat_context" | "repeat_off";
   deviceId?: string;
@@ -445,6 +451,7 @@ export type AppEvent =
   | { type: "settings.changed"; payload: AppSettings; emittedAt: string; schemaVersion: "v1" }
   | { type: "display.changed"; payload: HealthState["display"]; emittedAt: string; schemaVersion: "v1" }
   | { type: "volume.changed"; payload: HealthState["volume"]; emittedAt: string; schemaVersion: "v1" }
+  | { type: "settings.device_power_changed"; payload: ActionResult; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.step_changed"; payload: SetupState; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.completed"; payload: AppSnapshot; emittedAt: string; schemaVersion: "v1" }
   | { type: "setup.playback_test_changed"; payload: RecoveryAction; emittedAt: string; schemaVersion: "v1" }
