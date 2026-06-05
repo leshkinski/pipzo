@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Pipzo Touch Keyboard",
+  "version": "0.1.0",
+  "description": "First-party Pipzo touch keyboard for true kiosk setup input.",
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*",
+        "https://accounts.spotify.com/*"
+      ],
+      "js": ["pipzo-keyboard.js"],
+      "css": ["pipzo-keyboard.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

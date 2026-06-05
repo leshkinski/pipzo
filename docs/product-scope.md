@@ -27,7 +27,7 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 - Next/previous.
 - One volume control for Spotify and Pi/Bluetooth output where reliable.
 - Bluetooth speaker output.
-- In-app Wi-Fi setup with a Pipzo-owned virtual keyboard for Pipzo-controlled password fields in true kiosk mode.
+- In-app Wi-Fi setup with first-party local Chromium extension keyboard support in true kiosk mode.
 - In-app single-speaker Bluetooth pairing, forget, status, display name, and auto-reconnect.
 - Settings page.
 - App-level reset.
@@ -52,4 +52,3 @@ The user should be able to walk up to the device, use the touchscreen, browse he
 - Parent lock system.
 - Battery operation.
 - Phone QR/short-link OAuth and HTTPS callback relay.
-- Spotify external authorization-page text entry. Pipzo's in-app keyboard only controls Pipzo-rendered fields; Spotify auth recovery remains tracked separately.

@@ -129,18 +129,32 @@ The launcher passes conservative Chromium flags:
 - `--overscroll-history-navigation=0`
 - `--check-for-update-interval=31536000`
 
+`PIPZO_CHROMIUM_EXTENSION_DIR` points Chromium at Pipzo's first-party local keyboard extension. New installs seed it to `/opt/pipzo/app/provisioning/chromium-extension/virtual-keyboard`, and rerunning `install-app.sh` appends it to older `/etc/pipzo/kiosk.env` files if the key is absent. The launcher adds `--load-extension="$PIPZO_CHROMIUM_EXTENSION_DIR"` only when that directory exists. This keeps extension loading explicit and separate from diagnostic `PIPZO_CHROMIUM_EXTRA_FLAGS`.
+
+The extension is static first-party code with narrow content-script matches:
+
+- `http://127.0.0.1:8000/*`
+- `http://localhost:8000/*`
+- `https://accounts.spotify.com/*`
+
+It has no extension permissions, host permissions, background service worker, storage, network fetch, external messaging, remote code, or analytics. It only renders a touch keyboard overlay for focused editable text/password/email/search inputs, mutates that focused field, and dispatches DOM `input`/`change` events. Because it can touch Spotify login fields, keep the extension files root-owned and not writable by the kiosk user. On normal `/opt/pipzo/app` installs, `install-app.sh` leaves the app tree root-owned.
+
 `--password-store=basic` keeps the dedicated Pipzo Chromium profile from asking the desktop Secret Service/keyring to unlock before the kiosk is usable. This is intended only for the local kiosk profile; Spotify OAuth tokens remain backend-owned and encrypted in Pipzo storage, and Chromium still handles the local Spotify PKCE web flow and Spotify Web Playback SDK runtime.
 
 `PIPZO_CHROMIUM_EXTRA_FLAGS` is a diagnostic-only escape hatch for Raspberry Pi validation. Leave it empty for normal runtime. Chromium documents command-line switches as temporary controls that may change, so use this only to isolate platform/browser behavior and then remove the flags after testing.
 
-If `/etc/pipzo/kiosk.env` already exists from an older install, rerunning `install-app.sh` preserves that local file. Confirm or restore the V1 product setting explicitly:
+If `/etc/pipzo/kiosk.env` already exists from an older install, rerunning `install-app.sh` preserves existing local settings and appends the extension directory key if it is absent. Confirm or restore the V1 product setting explicitly:
 
 ```bash
 grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env || true
+grep '^PIPZO_CHROMIUM_EXTENSION_DIR=' /etc/pipzo/kiosk.env || true
 if grep -q '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env; then
   sudo sed -i 's/^PIPZO_CHROMIUM_MODE=.*/PIPZO_CHROMIUM_MODE=kiosk/' /etc/pipzo/kiosk.env
 else
   echo 'PIPZO_CHROMIUM_MODE=kiosk' | sudo tee -a /etc/pipzo/kiosk.env
+fi
+if ! grep -q '^PIPZO_CHROMIUM_EXTENSION_DIR=' /etc/pipzo/kiosk.env; then
+  echo 'PIPZO_CHROMIUM_EXTENSION_DIR=/opt/pipzo/app/provisioning/chromium-extension/virtual-keyboard' | sudo tee -a /etc/pipzo/kiosk.env
 fi
 systemctl --user restart pipzo-kiosk.service
 ```
@@ -220,8 +234,9 @@ The V1 platform contract is true kiosk first. Current upstream and Pi-side evide
 - Overlay-layer Squeekboard or equivalent: technically plausible because overlay surfaces can appear above fullscreen application surfaces, but this requires a rebuilt or alternate OSK package and must prove automatic text-field activation, input focus, package provenance, update behavior, and rollback before it can become provisioning.
 - labwc configuration with a maximized undecorated window: can approximate fullscreen by hiding decorations and panel, and it can let Squeekboard resize/overlay a normal window. This is still not true Chromium kiosk/fullscreen and should not be treated as the Pipzo V1 runtime unless the product requirement changes.
 - Chromium mode changes: `--kiosk` preserves the appliance requirement but currently conflicts with stock OSK layering; `--start-fullscreen` is expected to have the same layer problem; `--app --start-maximized` is diagnostic-only because it can expose OS chrome.
-- App-integrated virtual keyboard: preferred V1 direction for Pipzo-controlled inputs such as Wi-Fi password entry and any future in-app search because it runs inside the fullscreen web app and does not depend on compositor OSK layering.
-- Spotify OAuth/input strategy: the external Spotify authorization page cannot use an app-integrated Pipzo keyboard. If local Pi OAuth must stay V1, Dane should implement a kiosk-preserving handoff path, such as a Settings status flow that displays a generated authorization URL/QR for completion on another device and then returns through the existing backend PKCE callback/token boundary, or another explicit input strategy that avoids visible OS chrome.
+- First-party Chromium extension keyboard: current preferred prototype because it runs inside true Chromium kiosk, injects only on narrow approved origins, covers Pipzo-controlled inputs, and may cover Spotify account fields without switching to `app-maximized`.
+- App-integrated virtual keyboard: fallback only if Chromium extension loading proves impractical or unsafe on the Pi. It can cover Pipzo-controlled fields but cannot type into Spotify's external page.
+- Spotify OAuth/input strategy: if the extension cannot safely support `https://accounts.spotify.com/*`, keep Spotify auth recovery under issue `#65`/`#66` and use a kiosk-preserving handoff path rather than visible OS chrome.
 
 Do not ship a local Squeekboard rebuild, compositor replacement, X11 migration, or app-maximized product default without a separate decision record and Pi rollback plan.
 
@@ -269,23 +284,25 @@ Verify mode and process flags:
 
 ```bash
 grep '^PIPZO_CHROMIUM_MODE=' /etc/pipzo/kiosk.env
-pgrep -a chromium | tr ' ' '\n' | grep -E '^--app=|^--start-maximized$|^--kiosk$' || true
+grep '^PIPZO_CHROMIUM_EXTENSION_DIR=' /etc/pipzo/kiosk.env
+pgrep -a chromium | tr ' ' '\n' | grep -E '^--app=|^--start-maximized$|^--kiosk$|^--load-extension=' || true
 ```
 
-Wi-Fi password entry validation for the app-integrated path:
+Wi-Fi password entry validation for the Chromium extension keyboard:
 
 1. Open Settings, then Wi-Fi.
 2. Select a secured network that is not currently connected.
-3. Tap the password field and confirm the app-provided keyboard appears inside Pipzo while Chromium remains in true kiosk mode.
+3. Tap the password field and confirm the Pipzo extension keyboard appears while Chromium remains in true kiosk mode.
 4. Enter the password using touch only, submit the connection, and confirm Pipzo reports Wi-Fi/internet online.
 5. If using a test network, switch back to the normal network before leaving the bench.
 
-Spotify sign-in/authorization validation for a kiosk-preserving handoff:
+Spotify sign-in/authorization validation for the Chromium extension keyboard:
 
 1. Open Settings, then Spotify, then reconnect/sign in.
-2. Start the handoff flow and confirm the touchscreen remains in true kiosk mode with no OS panel/window chrome.
-3. Complete Spotify login/authorization through the selected handoff path.
-4. Complete authorization and confirm Pipzo returns to the local app with Spotify connected.
+2. Confirm the touchscreen remains in true kiosk mode with no OS panel/window chrome.
+3. On `https://accounts.spotify.com/*`, tap each required text/password/email field and confirm the Pipzo extension keyboard appears.
+4. Complete Spotify login/authorization using touch input only.
+5. Complete authorization and confirm Pipzo returns to the local app with Spotify connected.
 
 Test app-maximized only as a diagnostic fallback:
 

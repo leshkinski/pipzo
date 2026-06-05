@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -85,3 +86,52 @@ def test_kiosk_launcher_supports_opt_in_chromium_diagnostic_flags():
     assert "--touch-events=enabled" in docs
     assert "pointermove" in probe
     assert "touchmove" in probe
+
+
+def test_kiosk_launcher_loads_first_party_keyboard_extension_without_changing_true_kiosk():
+    launcher = (REPO_ROOT / "provisioning/scripts/kiosk-launcher.sh").read_text()
+    kiosk_env = (REPO_ROOT / "provisioning/env/pipzo-kiosk.env.example").read_text()
+    installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
+
+    assert 'CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"' in launcher
+    assert 'CHROMIUM_EXTENSION_DIR="${PIPZO_CHROMIUM_EXTENSION_DIR:-}"' in launcher
+    assert 'EXTENSION_FLAGS=(--load-extension="$CHROMIUM_EXTENSION_DIR")' in launcher
+    assert '"${EXTENSION_FLAGS[@]}"' in launcher
+    assert "PIPZO_CHROMIUM_MODE=kiosk" in kiosk_env
+    assert "PIPZO_CHROMIUM_EXTENSION_DIR=/opt/pipzo/app/provisioning/chromium-extension/virtual-keyboard" in kiosk_env
+    assert "PIPZO_CHROMIUM_EXTRA_FLAGS=" in kiosk_env
+    assert "PIPZO_CHROMIUM_EXTENSION_DIR=$APP_DIR/provisioning/chromium-extension/virtual-keyboard" in installer
+    assert 'chown -R root:root "$APP_DIR"' in installer
+
+
+def test_keyboard_extension_manifest_is_narrow_and_static():
+    extension_dir = REPO_ROOT / "provisioning/chromium-extension/virtual-keyboard"
+    manifest = json.loads((extension_dir / "manifest.json").read_text())
+    content_script = (extension_dir / "pipzo-keyboard.js").read_text()
+    stylesheet = (extension_dir / "pipzo-keyboard.css").read_text()
+
+    assert manifest["manifest_version"] == 3
+    assert set(manifest) == {"manifest_version", "name", "version", "description", "content_scripts"}
+    assert "permissions" not in manifest
+    assert "host_permissions" not in manifest
+    assert "background" not in manifest
+    assert "externally_connectable" not in manifest
+
+    scripts = manifest["content_scripts"]
+    assert len(scripts) == 1
+    script = scripts[0]
+    assert script["matches"] == [
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*",
+        "https://accounts.spotify.com/*",
+    ]
+    assert script["js"] == ["pipzo-keyboard.js"]
+    assert script["css"] == ["pipzo-keyboard.css"]
+    assert script["run_at"] == "document_idle"
+    assert script["all_frames"] is True
+
+    forbidden_tokens = ["fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "chrome.runtime", "sendMessage", "analytics"]
+    for token in forbidden_tokens:
+        assert token not in content_script
+    assert "https://accounts.spotify.com/*" not in content_script
+    assert "#pipzo-extension-keyboard" in stylesheet

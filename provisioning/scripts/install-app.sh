@@ -103,10 +103,17 @@ else
 fi
 
 if [[ ! -f "$ENV_DIR/kiosk.env" ]]; then
-  install -m 0644 "$APP_DIR/provisioning/env/pipzo-kiosk.env.example" "$ENV_DIR/kiosk.env"
+  sed \
+    -e "s|PIPZO_CHROMIUM_EXTENSION_DIR=/opt/pipzo/app/provisioning/chromium-extension/virtual-keyboard|PIPZO_CHROMIUM_EXTENSION_DIR=$APP_DIR/provisioning/chromium-extension/virtual-keyboard|" \
+    "$APP_DIR/provisioning/env/pipzo-kiosk.env.example" > /tmp/pipzo-kiosk.env
+  install -m 0644 /tmp/pipzo-kiosk.env "$ENV_DIR/kiosk.env"
+  rm -f /tmp/pipzo-kiosk.env
 elif grep -q '^PIPZO_CHROMIUM_MODE=app-maximized$' "$ENV_DIR/kiosk.env"; then
   echo "Existing $ENV_DIR/kiosk.env keeps diagnostic PIPZO_CHROMIUM_MODE=app-maximized." >&2
   echo "For the V1 product runtime, set PIPZO_CHROMIUM_MODE=kiosk and restart pipzo-kiosk.service." >&2
+fi
+if ! grep -q '^PIPZO_CHROMIUM_EXTENSION_DIR=' "$ENV_DIR/kiosk.env"; then
+  printf '\n# First-party local extension keyboard for true-kiosk setup input.\nPIPZO_CHROMIUM_EXTENSION_DIR=%s/provisioning/chromium-extension/virtual-keyboard\n' "$APP_DIR" >> "$ENV_DIR/kiosk.env"
 fi
 
 python3 -m venv "$VENV_DIR"

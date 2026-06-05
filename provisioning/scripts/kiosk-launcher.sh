@@ -4,6 +4,7 @@ set -euo pipefail
 KIOSK_URL="${PIPZO_KIOSK_URL:-http://127.0.0.1:8000/}"
 PROFILE_PATH="${PIPZO_CHROMIUM_PROFILE:-$HOME/.local/share/pipzo/chromium-profile}"
 CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"
+CHROMIUM_EXTENSION_DIR="${PIPZO_CHROMIUM_EXTENSION_DIR:-}"
 CHROMIUM_EXTRA_FLAGS="${PIPZO_CHROMIUM_EXTRA_FLAGS:-}"
 
 if [[ "$PROFILE_PATH" != /* ]]; then
@@ -47,18 +48,32 @@ if [[ -n "$CHROMIUM_EXTRA_FLAGS" ]]; then
   EXTRA_FLAGS=($CHROMIUM_EXTRA_FLAGS)
 fi
 
+EXTENSION_FLAGS=()
+if [[ -n "$CHROMIUM_EXTENSION_DIR" ]]; then
+  if [[ "$CHROMIUM_EXTENSION_DIR" != /* ]]; then
+    CHROMIUM_EXTENSION_DIR="$HOME/$CHROMIUM_EXTENSION_DIR"
+  fi
+  if [[ -d "$CHROMIUM_EXTENSION_DIR" ]]; then
+    EXTENSION_FLAGS=(--load-extension="$CHROMIUM_EXTENSION_DIR")
+  else
+    echo "Pipzo Chromium extension directory not found: $CHROMIUM_EXTENSION_DIR" >&2
+  fi
+fi
+
 case "$CHROMIUM_MODE" in
   app-maximized)
     exec "$CHROMIUM_BIN" \
       --app="$KIOSK_URL" \
       --start-maximized \
       "${COMMON_FLAGS[@]}" \
+      "${EXTENSION_FLAGS[@]}" \
       "${EXTRA_FLAGS[@]}"
     ;;
   kiosk)
     exec "$CHROMIUM_BIN" \
       --kiosk "$KIOSK_URL" \
       "${COMMON_FLAGS[@]}" \
+      "${EXTENSION_FLAGS[@]}" \
       "${EXTRA_FLAGS[@]}"
     ;;
   *)
