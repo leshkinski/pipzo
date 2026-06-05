@@ -96,4 +96,20 @@ describe("Chromium extension keyboard", () => {
     passwordField.disabled = true;
     expect(keyboard.isEditableTarget(passwordField)).toBe(false);
   });
+
+  it("uses data-driven key row columns so every letter row stays horizontal", () => {
+    const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+    const stylesheet = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.css", "utf8");
+
+    expect(script).toContain('row.style.setProperty("--pipzo-keyboard-columns", String(columns))');
+    expect(stylesheet).toContain("grid-template-columns: repeat(var(--pipzo-keyboard-columns), minmax(0, 1fr))");
+    expect(stylesheet).not.toContain('.pipzo-keyboard-row[data-columns="10"]');
+  });
+
+  it("reports its overlay height through the app keyboard inset variable", () => {
+    const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+
+    expect(script).toContain('style.setProperty("--pipzo-keyboard-inset", `${height}px`)');
+    expect(script).toContain('style.setProperty("--pipzo-keyboard-inset", "0px")');
+  });
 });

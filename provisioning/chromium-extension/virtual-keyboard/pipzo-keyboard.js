@@ -114,10 +114,20 @@
     const row = documentRef.createElement("div");
     row.className = "pipzo-keyboard-row";
     row.dataset.columns = String(columns);
+    row.style.setProperty("--pipzo-keyboard-columns", String(columns));
     keys.forEach((key) => {
       row.appendChild(buildButton(documentRef, displayKey(key, state), { kind: "text", value: key }));
     });
     return row;
+  }
+
+  function syncKeyboardInset(documentRef, root) {
+    const height = root.hidden ? 0 : Math.ceil(root.getBoundingClientRect().height);
+    documentRef.documentElement?.style.setProperty("--pipzo-keyboard-inset", `${height}px`);
+  }
+
+  function clearKeyboardInset(documentRef) {
+    documentRef.documentElement?.style.setProperty("--pipzo-keyboard-inset", "0px");
   }
 
   function renderKeyboard(root) {
@@ -152,11 +162,14 @@
     if (!root) return;
     renderKeyboard(root);
     root.hidden = false;
+    syncKeyboardInset(documentRef, root);
   }
 
   function hideKeyboard() {
-    const root = globalScope.document?.getElementById(ROOT_ID);
+    const documentRef = globalScope.document;
+    const root = documentRef?.getElementById(ROOT_ID);
     if (root) root.hidden = true;
+    if (documentRef) clearKeyboardInset(documentRef);
     state.target = null;
   }
 
@@ -172,7 +185,10 @@
     }
     Object.assign(state, nextState(state, command));
     const root = globalScope.document?.getElementById(ROOT_ID);
-    if (root && !root.hidden) renderKeyboard(root);
+    if (root && !root.hidden) {
+      renderKeyboard(root);
+      syncKeyboardInset(root.ownerDocument, root);
+    }
   }
 
   function ensureRoot(documentRef) {
@@ -185,6 +201,7 @@
     root.setAttribute("role", "group");
     root.setAttribute("aria-label", "Pipzo touch keyboard");
     documentRef.body.appendChild(root);
+    clearKeyboardInset(documentRef);
     return root;
   }
 
