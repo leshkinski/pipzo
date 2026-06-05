@@ -4,6 +4,7 @@
   const ROOT_ID = "pipzo-extension-keyboard";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
   const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
+  const STALE_TARGET_CHECK_DELAY_MS = 500;
   const SHIFTED_NUMBER_KEYS = {
     "1": "!",
     "2": "@",
@@ -35,6 +36,10 @@
     shift: false,
     target: null,
   };
+
+  function isConnectedTarget(element) {
+    return Boolean(element?.isConnected ?? element);
+  }
 
   function isEditableTarget(element) {
     if (!element) return false;
@@ -75,7 +80,6 @@
       { label: "Clear", kind: "clear" },
       { label: currentState.mode === "letters" ? "Symbols" : "Letters", kind: "mode" },
       { label: "Space", kind: "space" },
-      { label: "Cancel", kind: "cancel" },
       { label: "Done", kind: "done", primary: true },
     ];
     if (currentState.mode === "letters") return [...LETTER_ROWS, commandRow];
@@ -86,7 +90,6 @@
         { label: "Letters", kind: "mode" },
         { label: "Backspace", kind: "backspace" },
         { label: "Space", kind: "space" },
-        { label: "Cancel", kind: "cancel" },
         { label: "Done", kind: "done", primary: true },
       ],
     ];
@@ -232,12 +235,27 @@
     state.target = null;
   }
 
+  function isKeyboardVisible(documentRef) {
+    const root = documentRef?.getElementById(ROOT_ID);
+    return Boolean(root && !root.hidden);
+  }
+
+  function commandTarget(documentRef) {
+    if (state.target && isConnectedTarget(state.target) && isEditableTarget(state.target)) return state.target;
+    const active = documentRef?.activeElement;
+    if (isConnectedTarget(active) && isEditableTarget(active)) {
+      state.target = active;
+      return active;
+    }
+    return null;
+  }
+
   function handleCommand(command) {
-    if (command.kind === "cancel" || command.kind === "done") {
+    if (command.kind === "done") {
       hideKeyboard();
       return;
     }
-    const target = state.target;
+    const target = commandTarget(globalScope.document);
     if (target && isEditableTarget(target) && ["text", "space", "backspace", "clear"].includes(command.kind)) {
       setTargetValue(target, command);
       target.focus();
@@ -287,6 +305,17 @@
     if (isEditableTarget(active)) showKeyboard(documentRef, active);
   }
 
+  function hideIfTargetLeftPage(documentRef) {
+    if (!isKeyboardVisible(documentRef)) return;
+    if (state.target && isConnectedTarget(state.target)) return;
+    if (isEditableTarget(documentRef.activeElement)) return;
+    hideKeyboard();
+  }
+
+  function scheduleStaleTargetCheck(documentRef) {
+    globalScope.setTimeout(() => hideIfTargetLeftPage(documentRef), STALE_TARGET_CHECK_DELAY_MS);
+  }
+
   function scheduleActiveElementChecks(documentRef) {
     ACTIVE_ELEMENT_CHECK_DELAYS_MS.forEach((delay) => {
       globalScope.setTimeout(() => checkActiveElement(documentRef), delay);
@@ -311,21 +340,40 @@
       const target = event.target;
       if (isEditableTarget(target)) showKeyboard(documentRef, target);
     });
-    documentRef.addEventListener("focusout", () => {
-      globalScope.setTimeout(() => {
-        const active = documentRef.activeElement;
-        const root = documentRef.getElementById(ROOT_ID);
-        if (root?.contains(active) || isEditableTarget(active)) return;
-        hideKeyboard();
-      }, 80);
-    });
+    documentRef.defaultView?.addEventListener("pagehide", hideKeyboard);
+    documentRef.defaultView?.addEventListener("popstate", hideKeyboard);
+    documentRef.defaultView?.addEventListener("hashchange", hideKeyboard);
+    const historyRef = documentRef.defaultView?.history;
+    if (historyRef && !historyRef.__pipzoKeyboardNavigationPatched) {
+      ["pushState", "replaceState"].forEach((method) => {
+        const original = historyRef[method];
+        if (typeof original !== "function") return;
+        historyRef[method] = function pipzoKeyboardHistoryMethod(...args) {
+          const result = original.apply(this, args);
+          hideKeyboard();
+          return result;
+        };
+      });
+      historyRef.__pipzoKeyboardNavigationPatched = true;
+    }
+    if (typeof globalScope.MutationObserver === "function") {
+      const observer = new globalScope.MutationObserver(() => {
+        scheduleStaleTargetCheck(documentRef);
+      });
+      if (documentRef.documentElement) {
+        observer.observe(documentRef.documentElement, { childList: true, subtree: true });
+      }
+    }
     scheduleActiveElementChecks(documentRef);
   }
 
   globalScope.__pipzoKeyboardTestApi = {
     applyCommandValue,
+    commandTarget,
     editableTargetFromEvent,
     displayKey,
+    hideIfTargetLeftPage,
+    isConnectedTarget,
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
     nextState,

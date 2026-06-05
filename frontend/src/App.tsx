@@ -3302,11 +3302,13 @@ function WifiPanel({
             />
             <button
               aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+              aria-pressed={controls.passwordVisible}
+              title={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
               disabled={!needsPassword}
               type="button"
               onClick={controls.onTogglePasswordVisibility}
             >
-              {controls.passwordVisible ? "Hide" : "Show"}
+              <span className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"} aria-hidden="true" />
             </button>
           </div>
         </label>

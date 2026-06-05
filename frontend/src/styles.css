@@ -1912,7 +1912,7 @@ label.touch-pressed {
 
 .wifi-password-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
+  grid-template-columns: minmax(0, 1fr) 56px;
   gap: 8px;
 }
 
@@ -1930,17 +1930,50 @@ label.touch-pressed {
 }
 
 .wifi-password-control button {
+  display: grid;
+  place-items: center;
   min-height: 52px;
   border: 0;
   border-radius: 8px;
-  padding: 0 14px;
+  padding: 0;
   background: #dfe8b7;
   color: #17211c;
-  font-weight: 850;
 }
 
 .wifi-password-control button:disabled {
   opacity: 0.45;
+}
+
+.wifi-password-eye {
+  position: relative;
+  width: 26px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.wifi-password-eye::before {
+  content: "";
+  position: absolute;
+  inset: 4px 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.wifi-password-eye::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: -5px;
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(-38deg);
+}
+
+.wifi-password-eye.is-visible::after {
+  display: none;
 }
 
 .wifi-form span,

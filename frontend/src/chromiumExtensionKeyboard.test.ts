@@ -13,8 +13,11 @@ type KeyboardTestApi = {
     command: { kind: string; value?: string },
     state: { mode: string; shift: boolean; caps: boolean },
   ) => { value: string; caret: number };
+  commandTarget: (documentRef: { activeElement?: unknown } | null) => unknown | null;
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
   editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
+  hideIfTargetLeftPage: (documentRef: unknown) => void;
+  isConnectedTarget: (element: unknown) => boolean;
   isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
   nextState: (
@@ -26,12 +29,14 @@ type KeyboardTestApi = {
 
 class FakeInput {
   disabled = false;
+  isConnected = true;
   readOnly = false;
   type = "text";
 }
 
 class FakeTextArea {
   disabled = false;
+  isConnected = true;
   readOnly = false;
 }
 
@@ -113,7 +118,7 @@ describe("Chromium extension keyboard", () => {
       ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
       ["Shift", "a", "s", "d", "f", "g", "h", "j", "k", "l", "Backspace"],
       ["z", "x", "c", "v", "b", "n", "m"],
-      ["Clear", "Symbols", "Space", "Cancel", "Done"],
+      ["Clear", "Symbols", "Space", "Done"],
     ]);
   });
 
@@ -172,12 +177,43 @@ describe("Chromium extension keyboard", () => {
     expect(stylesheet).toContain("max-height: 44vh");
   });
 
-  it("keeps Wi-Fi password reveal local to the Pipzo app field", () => {
+  it("keeps the keyboard persistent until explicit Done or page navigation", () => {
+    const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+
+    expect(script).not.toContain('documentRef.addEventListener("focusout"');
+    expect(script).toContain('if (command.kind === "done")');
+    expect(script).not.toContain('command.kind === "cancel"');
+    expect(script).toContain('addEventListener("pagehide", hideKeyboard)');
+    expect(script).toContain('addEventListener("popstate", hideKeyboard)');
+    expect(script).toContain('addEventListener("hashchange", hideKeyboard)');
+    expect(script).toContain('["pushState", "replaceState"]');
+    expect(script).toContain("MutationObserver");
+    expect(script).toContain("hideIfTargetLeftPage");
+    expect(script).toContain("STALE_TARGET_CHECK_DELAY_MS");
+  });
+
+  it("can rebind typing to the active editable field after a React input re-render", () => {
+    const keyboard = loadKeyboardApi();
+    const replacementField = new FakeInput();
+
+    expect(keyboard.commandTarget({ activeElement: replacementField })).toBe(replacementField);
+    replacementField.isConnected = false;
+    expect(keyboard.commandTarget({ activeElement: replacementField })).toBeNull();
+  });
+
+  it("keeps Wi-Fi password reveal local and uses an icon-only eye state", () => {
     const source = readFileSync("src/App.tsx", "utf8");
+    const stylesheet = readFileSync("src/styles.css", "utf8");
 
     expect(source).toContain("wifiPasswordVisible");
     expect(source).toContain('aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}');
+    expect(source).toContain("aria-pressed={controls.passwordVisible}");
+    expect(source).toContain('title={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}');
     expect(source).toContain('type={controls.passwordVisible ? "text" : "password"}');
+    expect(source).toContain('className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"}');
+    expect(source).not.toContain('{controls.passwordVisible ? "Hide" : "Show"}');
+    expect(stylesheet).toContain(".wifi-password-eye");
+    expect(stylesheet).toContain(".wifi-password-eye.is-visible::after");
     expect(source).toContain("onTogglePasswordVisibility");
   });
 });
