@@ -38,6 +38,7 @@ import {
   shouldRefreshHomeOnOpen,
   shouldShowDeveloperPanel,
   shellNavigationItems,
+  settingsStatusRows,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
   sleepTimerExpiryCommand,
@@ -258,6 +259,73 @@ describe("kiosk shell view model", () => {
       { surface: "now_playing", label: "Now Playing", priority: "primary" },
       { surface: "settings", label: "Settings", priority: "utility" },
     ]);
+  });
+
+  it("models ready Settings landing status rows", () => {
+    expect(settingsStatusRows(localScenarios.ready_healthy.snapshot)).toEqual([
+      expect.objectContaining({ id: "wifi", status: "Connected", tone: "ready", targetPage: "wifi" }),
+      expect.objectContaining({ id: "internet", status: "Online", tone: "ready", targetPage: "wifi" }),
+      expect.objectContaining({ id: "spotify", status: "Connected", tone: "ready", targetPage: "spotify" }),
+      expect.objectContaining({ id: "audio", status: "Connected", tone: "ready", targetPage: "audio" }),
+      expect.objectContaining({ id: "device", status: "Ready", tone: "ready", targetPage: "device" }),
+    ]);
+  });
+
+  it("marks first-run setup dependencies as action needed on Settings landing", () => {
+    const rows = settingsStatusRows(localScenarios.first_boot_empty.snapshot);
+
+    expect(rows.find((row) => row.id === "wifi")).toMatchObject({
+      status: "Required for setup",
+      tone: "action_needed",
+      actionLabel: "Connect",
+    });
+    expect(rows.find((row) => row.id === "spotify")).toMatchObject({
+      status: "Required for setup",
+      tone: "action_needed",
+      actionLabel: "Connect",
+    });
+    expect(rows.find((row) => row.id === "audio")).toMatchObject({
+      status: "Required for setup",
+      tone: "action_needed",
+      actionLabel: "Open audio",
+    });
+  });
+
+  it("models post-setup Wi-Fi and internet recovery as focused warning/error rows", () => {
+    const rows = settingsStatusRows(localScenarios.wifi_local_only.snapshot);
+
+    expect(rows.find((row) => row.id === "wifi")).toMatchObject({
+      status: "Connected, no internet",
+      detail: "PipzoNet",
+      tone: "warning",
+      targetPage: "wifi",
+    });
+    expect(rows.find((row) => row.id === "internet")).toMatchObject({
+      status: "Offline",
+      tone: "error",
+      actionLabel: "Open Wi-Fi",
+      targetPage: "wifi",
+    });
+  });
+
+  it("models post-setup Spotify reauth and speaker recovery without setup gating", () => {
+    const spotifyRows = settingsStatusRows(localScenarios.spotify_auth_unavailable.snapshot);
+    const speakerRows = settingsStatusRows(localScenarios.speaker_saved_disconnected.snapshot);
+
+    expect(isSetupGated(localScenarios.spotify_auth_unavailable.snapshot)).toBe(false);
+    expect(canOpenSurface(localScenarios.spotify_auth_unavailable.snapshot, "home")).toBe(true);
+    expect(spotifyRows.find((row) => row.id === "spotify")).toMatchObject({
+      status: "Reconnect needed",
+      tone: "error",
+      targetPage: "spotify",
+      actionLabel: "Reconnect",
+    });
+    expect(speakerRows.find((row) => row.id === "audio")).toMatchObject({
+      status: "Speaker disconnected",
+      tone: "warning",
+      targetPage: "audio",
+      actionLabel: "Reconnect",
+    });
   });
 
   it("prioritizes the default Home library order around recent listening", () => {

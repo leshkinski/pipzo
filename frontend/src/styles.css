@@ -345,6 +345,7 @@ label.touch-pressed {
 
 .warning-band div {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
@@ -352,6 +353,14 @@ label.touch-pressed {
   background: #f7dfc6;
   border: 1px solid #d59c6a;
   color: #17211c;
+}
+
+.warning-band button {
+  min-height: 42px;
+  padding: 0 14px;
+  background: #17211c;
+  color: #fffdf7;
+  font-weight: 900;
 }
 
 .degraded-banner {
@@ -535,6 +544,8 @@ label.touch-pressed {
 .checklist,
 .health-list,
 .actions,
+.settings-overview,
+.settings-subpage-summary,
 .setup-completion-panel,
 .spotify-panel,
 .wifi-panel,
@@ -602,8 +613,128 @@ label.touch-pressed {
 
 .checklist,
 .health-list,
-.actions {
+.actions,
+.settings-overview,
+.settings-subpage-summary,
+.setup-status-links {
   padding: 12px;
+}
+
+.settings-overview,
+.setup-status-links {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-overview-heading h2,
+.settings-row-group h3,
+.settings-subpage-summary h2 {
+  margin: 6px 0 8px;
+}
+
+.settings-row-group {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-row-group h3 {
+  color: #dfe8b7;
+  font-size: 18px;
+}
+
+.settings-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-status-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(130px, auto) minmax(80px, auto);
+  gap: 12px;
+  align-items: center;
+  min-height: 76px;
+  border: 1px solid rgba(246, 240, 223, 0.12);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: rgba(10, 13, 11, 0.16);
+  color: #fffdf7;
+  text-align: left;
+}
+
+.setup-status-links .settings-status-row {
+  grid-template-columns: 14px minmax(0, 1fr) minmax(128px, auto);
+}
+
+.settings-status-row span:not(.settings-status-dot) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-status-row strong,
+.settings-status-row small,
+.settings-status-row b {
+  overflow-wrap: anywhere;
+}
+
+.settings-status-row small {
+  color: #bfc9c2;
+  font-weight: 700;
+}
+
+.settings-status-row b {
+  justify-self: end;
+}
+
+.settings-status-row em {
+  justify-self: end;
+  color: #dfe8b7;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.settings-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #8dbb96;
+}
+
+.status-warning .settings-status-dot {
+  background: #d59c6a;
+}
+
+.status-error .settings-status-dot,
+.status-action_needed .settings-status-dot {
+  background: #d66d6d;
+}
+
+.settings-status-row.status-warning {
+  border-color: #d59c6a;
+}
+
+.settings-status-row.status-error,
+.settings-status-row.status-action_needed {
+  border-color: #d66d6d;
+}
+
+.settings-subpage-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.settings-subpage-summary p {
+  margin: 0;
+  color: #bfc9c2;
+}
+
+.settings-back {
+  width: fit-content;
+  min-height: 48px;
+  padding: 0 14px;
+  font-weight: 900;
 }
 
 .setup-completion-panel {
@@ -2020,6 +2151,8 @@ label.touch-pressed {
   .speaker-panel,
   .volume-panel,
   .device-power-panel,
+  .settings-status-row,
+  .setup-status-links .settings-status-row,
   .sleep-timer,
   .idle-settings {
     grid-template-columns: 1fr;
@@ -2051,6 +2184,11 @@ label.touch-pressed {
     min-height: 64px;
     text-align: center;
     padding: 0 8px;
+  }
+
+  .settings-status-row b,
+  .settings-status-row em {
+    justify-self: start;
   }
 
   .hero-panel h1,

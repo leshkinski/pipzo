@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   activateBackendScenario,
@@ -35,7 +35,7 @@ import {
   connectNetwork,
   transferSpotifyPlayback,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DevicePowerAction, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WifiNetwork } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DevicePowerAction, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WarningCode, WifiNetwork } from "./contracts";
 import { localLibraryHome, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -71,6 +71,7 @@ import {
   playbackQueueViewModel,
   queueSelectionPlayback,
   shellNavigationItems,
+  settingsStatusRows,
   shouldRenderQueuePanel,
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
@@ -92,6 +93,8 @@ import {
   type AppSurfaceId,
   type DevicePowerConfirmation,
   type NowPlayingSubview,
+  type SettingsPageId,
+  type SettingsStatusRow,
 } from "./viewModel";
 import {
   bluetoothSuccessAlertSuppressedEvent,
@@ -266,9 +269,23 @@ function categoryFallbackInitial(category: LibraryCategoryId) {
   return "P";
 }
 
+function settingsPageForWarning(code: WarningCode): SettingsPageId {
+  if (code === "network_offline" || code === "network_local_only" || code === "stale_content") {
+    return "wifi";
+  }
+  if (code === "spotify_reconnect_required") {
+    return "spotify";
+  }
+  if (code === "speaker_disconnected" || code === "speaker_pair_failed" || code === "volume_limited" || code === "volume_out_of_sync") {
+    return "audio";
+  }
+  return "device";
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => localScenarioSnapshot("first_boot_empty"));
   const [selectedSurface, setSelectedSurface] = useState<AppSurfaceId>("setup");
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId>("overview");
   const [timerReturnSurface, setTimerReturnSurface] = useState<AppSurfaceId>("now_playing");
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>(() => localScenarioSummaries());
   const [selectedScenario, setSelectedScenario] = useState("first_boot_empty");
@@ -698,7 +715,7 @@ export function App() {
   }, [dataSource, snapshot]);
 
   const gated = isSetupGated(snapshot);
-  const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
+  const activeSurface = idleActive ? "idle" : gated && selectedSurface !== "settings" ? "setup" : selectedSurface;
   const queueOpen = shouldRenderQueuePanel(activeSurface, nowPlayingSubview);
   const visibleWarnings = snapshot.warnings;
   const degradedMode = degradedModeViewModel(snapshot);
@@ -1896,6 +1913,13 @@ export function App() {
     setStatusText("Sleep timer cleared.");
   }
 
+  function openSettingsPage(page: SettingsPageId) {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    setSettingsPage(page);
+    setSelectedSurface("settings");
+  }
+
   const spotifyAuthControls = {
     session: spotifyAuthSession,
     busy: spotifyAuthBusy,
@@ -2024,6 +2048,9 @@ export function App() {
             <div key={`${warning.code}-${warning.reason ?? "none"}`}>
               <strong>{labelFromId(warning.code)}</strong>
               <span>{warning.reason ? labelFromId(warning.reason) : "Action recommended"}</span>
+              <button type="button" onClick={() => openSettingsPage(settingsPageForWarning(warning.code))}>
+                Fix
+              </button>
             </div>
           ))}
         </section>
@@ -2104,6 +2131,7 @@ export function App() {
               playbackGateDetail={spotifyPlaybackGate.detail}
               onActivateSpotify={activateSpotifyPlayer}
               playbackTest={setupPlaybackControls}
+              onOpenSettingsPage={openSettingsPage}
             />
           )}
           {activeSurface === "home" && (
@@ -2142,6 +2170,8 @@ export function App() {
           {activeSurface === "settings" && (
             <SettingsSurface
               snapshot={snapshot}
+              page={settingsPage}
+              onPageChange={setSettingsPage}
               spotifyAuth={spotifyAuthControls}
               wifi={wifiControls}
               speaker={speakerControls}
@@ -2251,6 +2281,7 @@ function SetupSurface({
   playbackGateDetail,
   onActivateSpotify,
   playbackTest,
+  onOpenSettingsPage,
 }: {
   snapshot: AppSnapshot;
   spotifyAuth: SpotifyAuthControls;
@@ -2260,9 +2291,11 @@ function SetupSurface({
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   playbackTest: SetupPlaybackControls;
+  onOpenSettingsPage: (page: SettingsPageId) => void;
 }) {
   const playbackActive = snapshot.setup.blockingStep === "playback_test" || snapshot.readiness.primarySpeakerSaved;
   const completionActive = snapshot.setup.blockingStep === "playback_test";
+  const setupRows = settingsStatusRows(snapshot, spotifyAuth.session).filter((row) => row.id !== "internet");
   return (
     <div className="surface-grid">
       <section className="hero-panel">
@@ -2289,6 +2322,18 @@ function SetupSurface({
               </div>
               <b>{labelFromId(step.status)}</b>
             </div>
+          ))}
+        </section>
+        <section className="setup-status-links" aria-label="Setup recovery shortcuts">
+          {setupRows.map((row) => (
+            <button className={`settings-status-row status-${row.tone}`} key={row.id} type="button" onClick={() => onOpenSettingsPage(row.targetPage)}>
+              <span className="settings-status-dot" aria-hidden="true" />
+              <span>
+                <strong>{row.title}</strong>
+                <small>{row.detail}</small>
+              </span>
+              <b>{row.status}</b>
+            </button>
           ))}
         </section>
         <WifiPanel snapshot={snapshot} controls={wifi} context="setup" />
@@ -2726,6 +2771,8 @@ function QueuePanel({ queue }: { queue: QueueControls }) {
 
 function SettingsSurface({
   snapshot,
+  page,
+  onPageChange,
   spotifyAuth,
   wifi,
   speaker,
@@ -2738,6 +2785,8 @@ function SettingsSurface({
   devicePower,
 }: {
   snapshot: AppSnapshot;
+  page: SettingsPageId;
+  onPageChange: (page: SettingsPageId) => void;
   spotifyAuth: SpotifyAuthControls;
   wifi: WifiControls;
   speaker: SpeakerControls;
@@ -2749,40 +2798,137 @@ function SettingsSurface({
   volume: VolumeControls;
   devicePower: DevicePowerControls;
 }) {
+  const rows = settingsStatusRows(snapshot, spotifyAuth.session);
+  const activeTitle = page === "overview" ? "Settings" : settingsPageTitle(page);
   return (
     <div className="settings-layout">
       <section className="hero-panel">
         <p className="eyebrow">Settings and recovery</p>
-        <h1>{snapshot.appPhase === "degraded" ? "Recovery mode is available" : "Device settings"}</h1>
-        <p>{snapshot.surfaces.returnSurface ? `Return target: ${labelFromId(snapshot.surfaces.returnSurface)}` : "App reset is separate from Wi-Fi and speaker forget actions."}</p>
+        <h1>{activeTitle}</h1>
+        <p>{page === "overview" ? "Open one focused area to recover Wi-Fi, Spotify, Bluetooth audio, or device utilities." : "Focused settings stay separate so recovery does not lock the whole app."}</p>
+        {page !== "overview" && (
+          <button className="settings-back" type="button" onClick={() => onPageChange("overview")}>
+            Back to status
+          </button>
+        )}
         <div className="display-summary">
           <span>Display</span>
           <strong>{snapshot.health.display.brightness}%</strong>
           <small>{labelFromId(snapshot.health.display.status)}{snapshot.health.display.reason ? ` / ${labelFromId(snapshot.health.display.reason)}` : ""}</small>
         </div>
       </section>
-      <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
-      <VolumeControlPanel snapshot={snapshot} controls={volume} />
-      <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
-      <DevicePowerPanel controls={devicePower} />
-      <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
-      <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
-      <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
-      <SpotifyPlaybackPanel
-        playbackGateDetail={playbackGateDetail}
-        spotifySdk={spotifySdk}
-        onActivateSpotify={onActivateSpotify}
-      />
-      <HealthRows snapshot={snapshot} />
-      <section className="actions">
-        {snapshot.recoveryActions.map((action) => (
-          <button key={action.id} type="button">
-            {labelFromId(action.kind)}
-            <span>{labelFromId(action.state)}</span>
-          </button>
-        ))}
-      </section>
+      {page === "overview" && (
+        <SettingsOverview rows={rows} onOpen={onPageChange} />
+      )}
+      {page === "wifi" && (
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "wifi") ?? rows[0]}>
+          <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
+        </SettingsSubPageSummary>
+      )}
+      {page === "spotify" && (
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]}>
+          <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
+        </SettingsSubPageSummary>
+      )}
+      {page === "audio" && (
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "audio") ?? rows[3]}>
+          <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
+          <VolumeControlPanel snapshot={snapshot} controls={volume} />
+        </SettingsSubPageSummary>
+      )}
+      {page === "device" && (
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[4]}>
+          <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
+          <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
+          <SpotifyPlaybackPanel
+            playbackGateDetail={playbackGateDetail}
+            spotifySdk={spotifySdk}
+            onActivateSpotify={onActivateSpotify}
+          />
+          <DevicePowerPanel controls={devicePower} />
+          <HealthRows snapshot={snapshot} />
+          <section className="actions">
+            {snapshot.recoveryActions.map((action) => (
+              <button key={action.id} type="button">
+                {labelFromId(action.kind)}
+                <span>{labelFromId(action.state)}</span>
+              </button>
+            ))}
+          </section>
+        </SettingsSubPageSummary>
+      )}
     </div>
+  );
+}
+
+function settingsPageTitle(page: SettingsPageId): string {
+  if (page === "wifi") return "Wi-Fi";
+  if (page === "spotify") return "Spotify";
+  if (page === "audio") return "Bluetooth & audio";
+  if (page === "device") return "Device";
+  return "Settings";
+}
+
+function SettingsOverview({
+  rows,
+  onOpen,
+}: {
+  rows: SettingsStatusRow[];
+  onOpen: (page: SettingsPageId) => void;
+}) {
+  const groups: { title: string; ids: SettingsStatusRow["id"][] }[] = [
+    { title: "Connectivity", ids: ["wifi", "internet"] },
+    { title: "Accounts", ids: ["spotify"] },
+    { title: "Audio output", ids: ["audio"] },
+    { title: "Device", ids: ["device"] },
+  ];
+  return (
+    <section className="settings-overview" aria-label="Status overview">
+      <div className="settings-overview-heading">
+        <p className="eyebrow">Status overview</p>
+        <h2>Core status</h2>
+      </div>
+      {groups.map((group) => (
+        <div className="settings-row-group" key={group.title}>
+          <h3>{group.title}</h3>
+          <div className="settings-status-list">
+            {rows.filter((row) => group.ids.includes(row.id)).map((row) => (
+              <button className={`settings-status-row status-${row.tone}`} type="button" key={row.id} onClick={() => onOpen(row.targetPage)}>
+                <span className="settings-status-dot" aria-hidden="true" />
+                <span>
+                  <strong>{row.title}</strong>
+                  <small>{row.detail}</small>
+                </span>
+                <b>{row.status}</b>
+                <em>{row.actionLabel ?? "Open"}</em>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function SettingsSubPageSummary({
+  row,
+  children,
+}: {
+  row: SettingsStatusRow;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <section className={`settings-subpage-summary status-${row.tone}`} aria-label={`${row.title} status`}>
+        <span className="settings-status-dot" aria-hidden="true" />
+        <div>
+          <p className="eyebrow">{row.title}</p>
+          <h2>{row.status}</h2>
+          <p>{row.detail}</p>
+        </div>
+      </section>
+      {children}
+    </>
   );
 }
 
@@ -3266,6 +3412,9 @@ function SpotifyAuthPanel({
           <strong>{controls.session ? labelFromId(controls.session.status) : labelFromId(snapshot.health.spotifyAuth.status)}</strong>
         </div>
         <p className="subtle">{controls.message}</p>
+        {context === "settings" && !isConnected && (
+          <p className="subtle">If the Spotify page needs text entry or extra scrolling, use the supported browser mode instead of true fullscreen.</p>
+        )}
       </div>
       <div className="spotify-actions">
         {view.actions.includes("start") && (

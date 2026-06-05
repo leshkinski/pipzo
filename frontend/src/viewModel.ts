@@ -55,6 +55,18 @@ export type ShellNavigationItem = {
   priority: "primary" | "utility";
 };
 
+export type SettingsPageId = "overview" | "wifi" | "spotify" | "audio" | "device";
+export type SettingsStatusTone = "ready" | "warning" | "error" | "action_needed";
+export type SettingsStatusRow = {
+  id: Exclude<SettingsPageId, "overview"> | "internet";
+  title: string;
+  status: string;
+  detail: string;
+  tone: SettingsStatusTone;
+  targetPage: SettingsPageId;
+  actionLabel?: string;
+};
+
 export type DevicePowerConfirmation = {
   action: DevicePowerAction | null;
   state: "idle" | "confirming" | "running" | "succeeded" | "failed";
@@ -100,6 +112,234 @@ export function shellNavigationItems(): ShellNavigationItem[] {
     ...dailyPrimarySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "primary" as const })),
     ...demotedUtilitySurfaces.map((surface) => ({ surface, label: labelFromId(surface), priority: "utility" as const })),
   ];
+}
+
+export function settingsStatusRows(snapshot: AppSnapshot, authSession?: SpotifyAuthSession | null): SettingsStatusRow[] {
+  return [
+    wifiSettingsStatusRow(snapshot),
+    internetSettingsStatusRow(snapshot),
+    spotifySettingsStatusRow(snapshot, authSession),
+    audioSettingsStatusRow(snapshot),
+    deviceSettingsStatusRow(snapshot),
+  ];
+}
+
+function wifiSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+  const network = snapshot.health.network;
+  const setupRequired = isSetupGated(snapshot) && !snapshot.readiness.networkConfigured;
+  if (setupRequired) {
+    return {
+      id: "wifi",
+      title: "Wi-Fi",
+      status: "Required for setup",
+      detail: "Connect Wi-Fi to continue",
+      tone: "action_needed",
+      targetPage: "wifi",
+      actionLabel: "Connect",
+    };
+  }
+  if (network.status === "online") {
+    return {
+      id: "wifi",
+      title: "Wi-Fi",
+      status: "Connected",
+      detail: network.ssid ?? "Network ready",
+      tone: "ready",
+      targetPage: "wifi",
+    };
+  }
+  if (network.status === "local_only") {
+    return {
+      id: "wifi",
+      title: "Wi-Fi",
+      status: "Connected, no internet",
+      detail: network.ssid ?? "Local network",
+      tone: "warning",
+      targetPage: "wifi",
+      actionLabel: "Check network",
+    };
+  }
+  if (network.status === "starting") {
+    return {
+      id: "wifi",
+      title: "Wi-Fi",
+      status: "Checking",
+      detail: "Device is checking Wi-Fi",
+      tone: "warning",
+      targetPage: "wifi",
+    };
+  }
+  return {
+    id: "wifi",
+    title: "Wi-Fi",
+    status: "Not connected",
+    detail: "Tap to connect",
+    tone: "error",
+    targetPage: "wifi",
+    actionLabel: "Connect",
+  };
+}
+
+function internetSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+  const network = snapshot.health.network;
+  if (network.status === "online" && network.internetReachable !== false) {
+    return {
+      id: "internet",
+      title: "Internet",
+      status: "Online",
+      detail: "Spotify can connect",
+      tone: "ready",
+      targetPage: "wifi",
+    };
+  }
+  if (network.status === "starting" || network.reason === "boot_probe_pending") {
+    return {
+      id: "internet",
+      title: "Internet",
+      status: "Checking",
+      detail: "Device is still checking internet access",
+      tone: "warning",
+      targetPage: "wifi",
+    };
+  }
+  return {
+    id: "internet",
+    title: "Internet",
+    status: "Offline",
+    detail: "Playback and Spotify setup are unavailable",
+    tone: "error",
+    targetPage: "wifi",
+    actionLabel: "Open Wi-Fi",
+  };
+}
+
+function spotifySettingsStatusRow(snapshot: AppSnapshot, authSession?: SpotifyAuthSession | null): SettingsStatusRow {
+  const auth = snapshot.health.spotifyAuth;
+  const activeSession = authSession && ["waiting", "callback_received"].includes(authSession.status);
+  const setupRequired = isSetupGated(snapshot) && !snapshot.readiness.spotifyAuthorized;
+  if (activeSession || auth.status === "waiting") {
+    return {
+      id: "spotify",
+      title: "Spotify",
+      status: "In progress",
+      detail: "Finish in this browser window",
+      tone: "warning",
+      targetPage: "spotify",
+      actionLabel: "Open",
+    };
+  }
+  if (setupRequired) {
+    return {
+      id: "spotify",
+      title: "Spotify",
+      status: "Required for setup",
+      detail: "Connect Spotify to continue",
+      tone: "action_needed",
+      targetPage: "spotify",
+      actionLabel: "Connect",
+    };
+  }
+  if (auth.status === "connected") {
+    return {
+      id: "spotify",
+      title: "Spotify",
+      status: "Connected",
+      detail: auth.accountDisplayName ?? "Spotify account ready",
+      tone: "ready",
+      targetPage: "spotify",
+    };
+  }
+  return {
+    id: "spotify",
+    title: "Spotify",
+    status: "Reconnect needed",
+    detail: auth.reason === "token_refresh_failed" || auth.reason === "revoked"
+      ? "Playback is blocked until Spotify is reconnected"
+      : "Reconnect to approve updated Spotify access",
+    tone: "error",
+    targetPage: "spotify",
+    actionLabel: "Reconnect",
+  };
+}
+
+function audioSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+  const speaker = snapshot.health.speaker;
+  const setupRequired = isSetupGated(snapshot) && !snapshot.readiness.primarySpeakerSaved;
+  if (setupRequired) {
+    return {
+      id: "audio",
+      title: "Bluetooth audio",
+      status: "Required for setup",
+      detail: "Pair a speaker to continue",
+      tone: "action_needed",
+      targetPage: "audio",
+      actionLabel: "Open audio",
+    };
+  }
+  if (speaker.status === "connected" && speaker.primary?.connected) {
+    return {
+      id: "audio",
+      title: "Bluetooth audio",
+      status: "Connected",
+      detail: speaker.primary.displayName,
+      tone: "ready",
+      targetPage: "audio",
+    };
+  }
+  if (speaker.status === "saved_disconnected" || speaker.status === "reconnecting" || speaker.status === "starting") {
+    return {
+      id: "audio",
+      title: "Bluetooth audio",
+      status: "Speaker disconnected",
+      detail: speaker.primary?.displayName ?? "Saved speaker",
+      tone: "warning",
+      targetPage: "audio",
+      actionLabel: "Reconnect",
+    };
+  }
+  return {
+    id: "audio",
+    title: "Bluetooth audio",
+    status: "No speaker ready",
+    detail: "Playback is unavailable until a speaker is connected",
+    tone: "error",
+    targetPage: "audio",
+    actionLabel: "Open audio",
+  };
+}
+
+function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+  const playback = snapshot.health.playbackDevice;
+  const display = snapshot.health.display;
+  if (playback.status === "starting" || playback.status === "registering" || display.status === "unavailable") {
+    return {
+      id: "device",
+      title: "Device",
+      status: "Needs attention",
+      detail: "Some device features are still starting",
+      tone: "warning",
+      targetPage: "device",
+    };
+  }
+  if (playback.status === "error") {
+    return {
+      id: "device",
+      title: "Device",
+      status: "Recovery tools available",
+      detail: "Use for reboot, power off, idle, and playback test tools",
+      tone: "error",
+      targetPage: "device",
+      actionLabel: "Open device",
+    };
+  }
+  return {
+    id: "device",
+    title: "Device",
+    status: "Ready",
+    detail: "Brightness and idle settings available",
+    tone: "ready",
+    targetPage: "device",
+  };
 }
 
 export function devicePowerActionView(
