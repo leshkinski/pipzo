@@ -56,19 +56,19 @@ def test_backend_unit_keeps_state_directory_permissions_explicit():
     assert "LogsDirectoryMode=0750" in unit
 
 
-def test_kiosk_runtime_defaults_to_osk_compatible_mode_with_fullscreen_override():
+def test_kiosk_runtime_defaults_to_true_fullscreen_with_diagnostic_app_mode():
     launcher = (REPO_ROOT / "provisioning/scripts/kiosk-launcher.sh").read_text()
     kiosk_env = (REPO_ROOT / "provisioning/env/pipzo-kiosk.env.example").read_text()
     installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
     docs = (REPO_ROOT / "docs/provisioning.md").read_text()
 
-    assert 'CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-app-maximized}"' in launcher
-    assert 'PIPZO_CHROMIUM_MODE=app-maximized' in kiosk_env
+    assert 'CHROMIUM_MODE="${PIPZO_CHROMIUM_MODE:-kiosk}"' in launcher
+    assert 'PIPZO_CHROMIUM_MODE=kiosk' in kiosk_env
     assert '--kiosk "$KIOSK_URL"' in launcher
     assert "--app=\"$KIOSK_URL\"" in launcher
-    assert "V1 default" in docs
-    assert "PIPZO_CHROMIUM_MODE=kiosk" in docs
-    assert "Existing $ENV_DIR/kiosk.env keeps PIPZO_CHROMIUM_MODE=kiosk." in installer
+    assert "V1 product default" in docs
+    assert "PIPZO_CHROMIUM_MODE=app-maximized" in docs
+    assert "Existing $ENV_DIR/kiosk.env keeps diagnostic PIPZO_CHROMIUM_MODE=app-maximized." in installer
     assert "Squeekboard" in docs
 
 

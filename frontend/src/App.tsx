@@ -3427,7 +3427,7 @@ function SpotifyAuthPanel({
         </div>
         <p className="subtle">{controls.message}</p>
         {context === "settings" && !isConnected && (
-          <p className="subtle">If the Spotify page needs text entry or extra scrolling, use the supported browser mode instead of true fullscreen.</p>
+          <p className="subtle">Spotify authorization must preserve the fullscreen appliance runtime.</p>
         )}
       </div>
       <div className="spotify-actions">
