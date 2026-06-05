@@ -61,7 +61,6 @@ label,
 .hero-panel,
 .player-panel,
 .art-panel,
-.setup-completion-panel,
 .spotify-panel,
 .wifi-panel,
 .speaker-panel,
@@ -73,7 +72,6 @@ label,
 .library-section-heading,
 .library-list button,
 .category-tabs,
-.step,
 .health-row,
 .tile-grid,
 .actions,
@@ -251,7 +249,6 @@ label.touch-pressed {
 .developer-panel span,
 .developer-panel p,
 .tile-grid span,
-.step span,
 .health-row small,
 .actions span,
 .home-status-stack span {
@@ -531,12 +528,10 @@ label.touch-pressed {
 .hero-panel,
 .player-panel,
 .art-panel,
-.checklist,
 .health-list,
 .actions,
 .settings-overview,
 .settings-subpage-summary,
-.setup-completion-panel,
 .spotify-panel,
 .wifi-panel,
 .speaker-panel,
@@ -590,28 +585,23 @@ label.touch-pressed {
   color: #dfe8b7;
 }
 
-.checklist,
 .health-list,
 .actions,
 .tile-grid,
 .side-stack,
-.setup-side,
 .library-list {
   display: grid;
   gap: 10px;
 }
 
-.checklist,
 .health-list,
 .actions,
 .settings-overview,
-.settings-subpage-summary,
-.setup-status-links {
+.settings-subpage-summary {
   padding: 12px;
 }
 
-.settings-overview,
-.setup-status-links {
+.settings-overview {
   display: grid;
   gap: 12px;
 }
@@ -657,10 +647,6 @@ label.touch-pressed {
   gap: 16px;
   min-height: 116px;
   padding: 18px 20px;
-}
-
-.setup-status-links .settings-status-row {
-  grid-template-columns: 14px minmax(0, 1fr) minmax(128px, auto);
 }
 
 .settings-status-row span:not(.settings-status-dot) {
@@ -718,11 +704,6 @@ label.touch-pressed {
   height: 18px;
   border-radius: 999px;
   background: #8dbb96;
-}
-
-.setup-status-links .settings-status-dot {
-  width: 12px;
-  height: 12px;
 }
 
 .status-warning .settings-status-dot {
@@ -806,41 +787,6 @@ label.touch-pressed {
   font-weight: 900;
 }
 
-.setup-completion-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.42fr);
-  gap: 14px;
-  align-items: center;
-  padding: 18px;
-  border-color: #2f6f73;
-  background: #edf7f1;
-  color: #17211c;
-}
-
-.setup-completion-panel h2 {
-  margin: 6px 0 8px;
-  font-size: 32px;
-  line-height: 1.08;
-}
-
-.setup-completion-panel p {
-  margin: 8px 0;
-  color: #526058;
-  line-height: 1.35;
-}
-
-.setup-completion-panel button {
-  min-height: 112px;
-  padding: 0 18px;
-  border-color: #1f5559;
-  background: #2f6f73;
-  color: #fffdf7;
-  font-size: 22px;
-  font-weight: 900;
-  text-align: left;
-}
-
-.step,
 .health-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -851,18 +797,6 @@ label.touch-pressed {
   border-radius: 8px;
   background: #f4f1ea;
   color: #17211c;
-}
-
-.step b {
-  color: #2f6f73;
-}
-
-.step-blocked b {
-  color: #87827a;
-}
-
-.step-action_required {
-  outline: 2px solid #d59c6a;
 }
 
 .tile-grid {
@@ -2297,7 +2231,6 @@ label.touch-pressed {
   .shell,
   .surface-grid,
   .degraded-banner,
-  .setup-completion-panel,
   .spotify-panel,
   .wifi-panel,
   .speaker-panel,
@@ -2306,7 +2239,6 @@ label.touch-pressed {
   .device-power-panel,
   .settings-subpage-summary,
   .settings-status-row,
-  .setup-status-links .settings-status-row,
   .sleep-timer,
   .idle-settings {
     grid-template-columns: 1fr;

@@ -1569,6 +1569,8 @@ def test_reset_app_clears_spotify_auth_state(tmp_path):
     assert SpotifyAuthStore(settings.db_path).get_auth_record() is None
     assert service._sessions == {}
     assert state_response.json()["appPhase"] == "setup"
+    assert state_response.json()["surfaces"]["current"] == "settings"
+    assert state_response.json()["surfaces"]["route"] == "/settings"
     assert state_response.json()["health"]["spotifyAuth"]["status"] == "none"
     assert state_response.json()["readiness"]["spotifyAuthorized"] is False
     assert session["sessionId"] not in service._sessions

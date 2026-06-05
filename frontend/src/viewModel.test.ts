@@ -64,8 +64,9 @@ describe("kiosk shell view model", () => {
     const snapshot = localScenarios.first_boot_empty.snapshot;
 
     expect(isSetupGated(snapshot)).toBe(true);
-    expect(preferredSurface(snapshot)).toBe("setup");
+    expect(preferredSurface(snapshot)).toBe("settings");
     expect(canOpenSurface(snapshot, "home")).toBe(false);
+    expect(canOpenSurface(snapshot, "setup")).toBe(false);
     expect(canOpenSurface(snapshot, "settings")).toBe(true);
   });
 
@@ -280,6 +281,37 @@ describe("kiosk shell view model", () => {
       status: "Needs attention",
       tone: "warning",
       targetPage: "device",
+    });
+  });
+
+  it("routes incomplete playback readiness through Settings instead of setup wizard selection", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      appPhase: "setup" as const,
+      setup: { ...localScenarios.ready_healthy.snapshot.setup, blockingStep: "playback_test" as const },
+      readiness: {
+        ...localScenarios.ready_healthy.snapshot.readiness,
+        minimumReady: false,
+        playbackTestPassed: false,
+        setupCompletedAt: undefined,
+      },
+      health: {
+        ...localScenarios.ready_healthy.snapshot.health,
+        playbackDevice: { status: "transfer_required" as const, reason: "device_not_registered" as const },
+      },
+      surfaces: { ...localScenarios.ready_healthy.snapshot.surfaces, current: "settings" as const, route: "/settings/spotify" },
+    };
+
+    const rows = settingsStatusRows(snapshot);
+
+    expect(isSetupGated(snapshot)).toBe(true);
+    expect(preferredSurface(snapshot)).toBe("settings");
+    expect(canOpenSurface(snapshot, "setup")).toBe(false);
+    expect(rows.find((row) => row.id === "device")).toMatchObject({
+      status: "Playback test needed",
+      tone: "action_needed",
+      targetPage: "spotify",
+      actionLabel: "Open playback",
     });
   });
 

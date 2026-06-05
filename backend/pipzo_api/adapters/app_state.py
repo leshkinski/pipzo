@@ -118,7 +118,7 @@ class ProductionAppStateAdapter:
                 kiosk=KioskHealth(phase=KioskBootPhase.APP_READY),
             ),
             surfaces=SurfaceState(
-                current=SurfaceId.SETUP,
+                current=SurfaceId.SETTINGS,
                 route=self._route_for_blocking(self._blocking_step(network_ready, False, speaker_ready, False)),
                 idle_mode=IdleMode.CLOCK,
             ),
@@ -159,14 +159,9 @@ class ProductionAppStateAdapter:
         return SetupStepId.NONE
 
     def _route_for_blocking(self, blocking: SetupStepId) -> str:
-        routes = {
-            SetupStepId.WIFI: "/setup/wifi",
-            SetupStepId.SPOTIFY_AUTH: "/setup/spotify",
-            SetupStepId.SPEAKER: "/setup/speaker",
-            SetupStepId.PLAYBACK_TEST: "/setup/playback-test",
-            SetupStepId.NONE: "/",
-        }
-        return routes.get(blocking, "/setup")
+        if blocking == SetupStepId.NONE:
+            return "/"
+        return "/settings"
 
     def _setup_steps(self, network_ready: bool, spotify_ready: bool, speaker_ready: bool, playback_ready: bool) -> list[SetupStep]:
         blocking = self._blocking_step(network_ready, spotify_ready, speaker_ready, playback_ready)

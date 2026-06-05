@@ -310,6 +310,17 @@ function audioSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
 
 function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
   const playback = snapshot.health.playbackDevice;
+  if (isSetupGated(snapshot) && snapshot.setup.blockingStep === "playback_test") {
+    return {
+      id: "device",
+      title: "Device",
+      status: "Playback test needed",
+      detail: "Activate Pipzo playback and confirm sound",
+      tone: "action_needed",
+      targetPage: "spotify",
+      actionLabel: "Open playback",
+    };
+  }
   if (playback.status === "starting" || playback.status === "registering") {
     return {
       id: "device",
@@ -329,6 +340,17 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
       tone: "error",
       targetPage: "device",
       actionLabel: "Open device",
+    };
+  }
+  if (playback.status === "transfer_required" || playback.reason === "device_not_registered" || playback.reason === "sdk_not_ready") {
+    return {
+      id: "device",
+      title: "Device",
+      status: "Playback not selected",
+      detail: "Open browser playback controls",
+      tone: "warning",
+      targetPage: "spotify",
+      actionLabel: "Open playback",
     };
   }
   return {
@@ -625,7 +647,7 @@ export function shouldRenderQueuePanel(surface: AppSurfaceId, subview: NowPlayin
 
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
   if (surface === "setup") {
-    return isSetupGated(snapshot);
+    return false;
   }
   if (surface === "settings") {
     return snapshot.capabilities.canOpenSettings;
@@ -650,7 +672,7 @@ export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boole
 
 export function preferredSurface(snapshot: AppSnapshot): SurfaceId {
   if (isSetupGated(snapshot)) {
-    return "setup";
+    return "settings";
   }
   if (snapshot.surfaces.current === "setup") {
     return "home";

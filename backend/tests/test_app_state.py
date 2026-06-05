@@ -258,6 +258,8 @@ def test_app_state_returns_first_boot_snapshot_contract(tmp_path):
     body = response.json()
     assert body["schemaVersion"] == "v1"
     assert body["appPhase"] == "setup"
+    assert body["surfaces"]["current"] == "settings"
+    assert body["surfaces"]["route"] == "/settings"
     assert body["setup"]["blockingStep"] == "wifi"
     assert body["readiness"]["minimumReady"] is False
     assert body["health"]["speaker"]["status"] == "none_saved"
@@ -766,6 +768,8 @@ def test_playback_test_and_recovery_actions_are_mockable(tmp_path):
     assert reset_without_confirm.json()["state"] == "confirm_required"
     assert reset_with_confirm.json()["state"] == "succeeded"
     assert state_response.json()["appPhase"] == "setup"
+    assert state_response.json()["surfaces"]["current"] == "settings"
+    assert state_response.json()["surfaces"]["route"] == "/settings"
 
 
 def test_network_mock_scan_connect_retry_and_forget_update_state(tmp_path):
@@ -1424,3 +1428,5 @@ def test_mock_library_play_does_not_mark_playback_test_passed(tmp_path):
     assert state["readiness"]["playbackTestPassed"] is False
     assert state["readiness"]["minimumReady"] is False
     assert state["appPhase"] == "setup"
+    assert state["surfaces"]["current"] == "settings"
+    assert state["surfaces"]["route"] == "/settings"

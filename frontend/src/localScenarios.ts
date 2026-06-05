@@ -108,7 +108,7 @@ firstBoot.health.spotifyAuth = { status: "none", reason: "no_session" };
 firstBoot.health.speaker = { status: "none_saved", reason: "primary_missing" };
 firstBoot.health.playbackDevice = { status: "unavailable", reason: "auth_required" };
 firstBoot.health.volume = { status: "unavailable", reason: "bluetooth_sink_missing" };
-firstBoot.surfaces = { current: "setup", route: "/setup/wifi", idleMode: "clock" };
+firstBoot.surfaces = { current: "settings", route: "/settings", idleMode: "clock" };
 firstBoot.capabilities = {
   ...firstBoot.capabilities,
   canBrowse: false,
@@ -232,7 +232,7 @@ bootProbeDelayed.health.playbackDevice = { status: "starting", reason: "sdk_not_
 bootProbeDelayed.health.volume = { status: "unavailable", reason: "boot_probe_pending" };
 bootProbeDelayed.health.display = { status: "unavailable", reason: "boot_probe_pending", brightness: 0 };
 bootProbeDelayed.health.kiosk = { phase: "adapters_probing" };
-bootProbeDelayed.surfaces = { current: "setup", route: "/starting", idleMode: "clock" };
+bootProbeDelayed.surfaces = { current: "settings", route: "/settings", idleMode: "clock" };
 bootProbeDelayed.recoveryActions = [];
 bootProbeDelayed.warnings = [];
 

@@ -1212,7 +1212,7 @@ def project_setup_readiness(snapshot: AppSnapshot) -> None:
         return
     if not snapshot.readiness.minimum_ready:
         snapshot.app_phase = "setup"
-        snapshot.surfaces.current = "setup"
+        snapshot.surfaces.current = "settings"
         snapshot.surfaces.route = route_for_blocking(blocking)
 
 
@@ -1334,13 +1334,9 @@ def setup_blocking_step(network_ready: bool, spotify_ready: bool, speaker_ready:
 
 
 def route_for_blocking(blocking: SetupStepId) -> str:
-    return {
-        SetupStepId.WIFI: "/setup/wifi",
-        SetupStepId.SPOTIFY_AUTH: "/setup/spotify",
-        SetupStepId.SPEAKER: "/setup/speaker",
-        SetupStepId.PLAYBACK_TEST: "/setup/playback-test",
-        SetupStepId.NONE: "/",
-    }.get(blocking, "/setup")
+    if blocking == SetupStepId.NONE:
+        return "/"
+    return "/settings"
 
 
 def setup_steps_for_blocking(blocking: SetupStepId) -> list[SetupStep]:

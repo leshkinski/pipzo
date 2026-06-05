@@ -25,7 +25,6 @@ import type {
   SpeakerPairRequest,
   SpeakerScanResults,
   SetupPlaybackTestRequest,
-  SetupState,
   SpotifyAuthSession,
   SpotifyPlaybackToken,
   SpotifyPlaybackTransferRequest,
@@ -57,14 +56,6 @@ export function fetchBackendScenarios(): Promise<ScenarioSummary[]> {
 
 export function activateBackendScenario(scenarioId: string): Promise<AppSnapshot> {
   return request<AppSnapshot>(`/api/v1/mock/scenarios/${scenarioId}/activate`, { method: "POST" });
-}
-
-export function startSetup(): Promise<SetupState> {
-  return request<SetupState>("/api/v1/setup/start", { method: "POST" });
-}
-
-export function completeSetup(): Promise<AppSnapshot> {
-  return request<AppSnapshot>("/api/v1/setup/complete", { method: "POST" });
 }
 
 export function runSetupPlaybackTest(body: SetupPlaybackTestRequest): Promise<RecoveryAction> {

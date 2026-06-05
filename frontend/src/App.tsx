@@ -286,7 +286,7 @@ function settingsPageForWarning(code: WarningCode): SettingsPageId {
 
 export function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => localScenarioSnapshot("first_boot_empty"));
-  const [selectedSurface, setSelectedSurface] = useState<AppSurfaceId>("setup");
+  const [selectedSurface, setSelectedSurface] = useState<AppSurfaceId>("settings");
   const [settingsPage, setSettingsPage] = useState<SettingsPageId>("overview");
   const [timerReturnSurface, setTimerReturnSurface] = useState<AppSurfaceId>("now_playing");
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>(() => localScenarioSummaries());
@@ -419,7 +419,12 @@ export function App() {
 
   useEffect(() => {
     const preferred = preferredSurface(snapshot);
-    setSelectedSurface((current) => (current === "sleep_timer" || canOpenSurface(snapshot, current) ? current : preferred));
+    setSelectedSurface((current) => {
+      if (current === "sleep_timer") {
+        return isSetupGated(snapshot) ? preferred : current;
+      }
+      return canOpenSurface(snapshot, current) ? current : preferred;
+    });
   }, [snapshot]);
 
   useEffect(() => {
@@ -718,7 +723,7 @@ export function App() {
   }, [dataSource, snapshot]);
 
   const gated = isSetupGated(snapshot);
-  const activeSurface = idleActive ? "idle" : gated && selectedSurface !== "settings" ? "setup" : selectedSurface;
+  const activeSurface = idleActive ? "idle" : selectedSurface;
   const queueOpen = shouldRenderQueuePanel(activeSurface, nowPlayingSubview);
   const visibleWarnings = snapshot.warnings;
   const degradedMode = degradedModeViewModel(snapshot);
@@ -1610,7 +1615,7 @@ export function App() {
         ...current,
         readiness: { ...current.readiness, spotifyAuthorized: false, minimumReady: false },
         health: { ...current.health, spotifyAuth },
-        appPhase: "setup",
+        appPhase: "degraded",
         setup: {
           ...current.setup,
           blockingStep: "spotify_auth",
@@ -1618,10 +1623,10 @@ export function App() {
             step.id === "spotify_auth" ? { ...step, status: "action_required" } : step,
           ),
         },
-        surfaces: { ...current.surfaces, current: "setup", route: "/setup/spotify" },
+        surfaces: { ...current.surfaces, current: "settings", route: "/settings/spotify" },
       }));
       await refreshSnapshot().catch(() => undefined);
-      setSelectedSurface("setup");
+      openSettingsPage("spotify");
       setSpotifyAuthMessage("Spotify disconnected. Reconnect locally when ready.");
       return true;
     } catch {
@@ -2135,19 +2140,6 @@ export function App() {
         </nav>
 
         <section className="surface" aria-live="polite" data-drag-scroll data-surface={activeSurface}>
-          {activeSurface === "setup" && (
-            <SetupSurface
-              snapshot={snapshot}
-              spotifyAuth={spotifyAuthControls}
-              wifi={wifiControls}
-              speaker={speakerControls}
-              spotifySdk={spotifySdkState}
-              playbackGateDetail={spotifyPlaybackGate.detail}
-              onActivateSpotify={activateSpotifyPlayer}
-              playbackTest={setupPlaybackControls}
-              onOpenSettingsPage={openSettingsPage}
-            />
-          )}
           {activeSurface === "home" && (
             <HomeSurface
               snapshot={snapshot}
@@ -2196,6 +2188,7 @@ export function App() {
               onDisplayChange={updateDisplay}
               sleepTimer={sleepTimerControls}
               volume={volumeControls}
+              playbackTest={setupPlaybackControls}
               devicePower={devicePowerControls}
             />
           )}
@@ -2283,109 +2276,6 @@ function DeveloperPanel(props: {
         </select>
       </div>
       <p>{props.currentScenario?.description}</p>
-    </section>
-  );
-}
-
-function SetupSurface({
-  snapshot,
-  spotifyAuth,
-  wifi,
-  speaker,
-  spotifySdk,
-  playbackGateDetail,
-  onActivateSpotify,
-  playbackTest,
-  onOpenSettingsPage,
-}: {
-  snapshot: AppSnapshot;
-  spotifyAuth: SpotifyAuthControls;
-  wifi: WifiControls;
-  speaker: SpeakerControls;
-  spotifySdk: SpotifySdkState;
-  playbackGateDetail: string;
-  onActivateSpotify: () => void;
-  playbackTest: SetupPlaybackControls;
-  onOpenSettingsPage: (page: SettingsPageId) => void;
-}) {
-  const playbackActive = snapshot.setup.blockingStep === "playback_test" || snapshot.readiness.primarySpeakerSaved;
-  const completionActive = snapshot.setup.blockingStep === "playback_test";
-  const setupRows = settingsStatusRows(snapshot, spotifyAuth.session).filter((row) => row.id !== "internet");
-  return (
-    <div className="surface-grid">
-      <section className="hero-panel">
-        <p className="eyebrow">First run setup</p>
-        <h1>{snapshot.appPhase === "starting" ? "Checking Pipzo hardware" : "Finish setup before music starts"}</h1>
-        <p>
-          Current blocker: <strong>{labelFromId(snapshot.setup.blockingStep)}</strong>
-        </p>
-        <p>Wi-Fi, Spotify, and one connected Bluetooth speaker are required before setup can complete.</p>
-      </section>
-      <div className="setup-side">
-        {completionActive && (
-          <SetupPlaybackCompletionPanel
-            spotifySdk={spotifySdk}
-            playbackTest={playbackTest}
-          />
-        )}
-        <section className="checklist">
-          {snapshot.setup.steps.map((step) => (
-            <div className={`step step-${step.status}`} key={step.id}>
-              <div>
-                <strong>{step.id === "spotify_auth" ? "Spotify" : labelFromId(step.id)}</strong>
-                <span>{step.required ? "Required" : "Intro"}</span>
-              </div>
-              <b>{labelFromId(step.status)}</b>
-            </div>
-          ))}
-        </section>
-        <section className="setup-status-links" aria-label="Setup recovery shortcuts">
-          {setupRows.map((row) => (
-            <button className={`settings-status-row status-${row.tone}`} key={row.id} type="button" onClick={() => onOpenSettingsPage(row.targetPage)}>
-              <span className="settings-status-dot" aria-hidden="true" />
-              <span>
-                <strong>{row.title}</strong>
-                <small>{row.detail}</small>
-              </span>
-              <b>{row.status}</b>
-            </button>
-          ))}
-        </section>
-        <WifiPanel snapshot={snapshot} controls={wifi} context="setup" />
-        <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="setup" />
-        <SpeakerPanel snapshot={snapshot} controls={speaker} context="setup" />
-        {playbackActive && (
-          <SpotifyPlaybackPanel
-            playbackGateDetail={playbackGateDetail}
-            spotifySdk={spotifySdk}
-            onActivateSpotify={onActivateSpotify}
-            playbackTest={playbackTest}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SetupPlaybackCompletionPanel({
-  spotifySdk,
-  playbackTest,
-}: {
-  spotifySdk: SpotifySdkState;
-  playbackTest: SetupPlaybackControls;
-}) {
-  const hasDevice = Boolean(spotifySdk.deviceId);
-  return (
-    <section className="setup-completion-panel" aria-label="Finish setup">
-      <div>
-        <p className="eyebrow">Final step</p>
-        <h2>Did music play through Pipzo?</h2>
-        <p>Tap once after you hear music from the connected speaker or headphones. Pipzo will finish setup from the real playback device.</p>
-        <p className="subtle">{hasDevice ? playbackTest.message : "Start the player once so Pipzo can see this browser as the playback device."}</p>
-      </div>
-      <button disabled={playbackTest.busy || !hasDevice} type="button" onClick={playbackTest.onConfirm}>
-        Playback works
-      </button>
     </section>
   );
 }
@@ -2798,6 +2688,7 @@ function SettingsSurface({
   onDisplayChange,
   sleepTimer,
   volume,
+  playbackTest,
   devicePower,
 }: {
   snapshot: AppSnapshot;
@@ -2813,6 +2704,7 @@ function SettingsSurface({
   onDisplayChange: (brightness: number, status?: DisplayStatus) => void;
   sleepTimer: SleepTimerControls;
   volume: VolumeControls;
+  playbackTest: SetupPlaybackControls;
   devicePower: DevicePowerControls;
 }) {
   const rows = settingsStatusRows(snapshot, spotifyAuth.session);
@@ -2833,6 +2725,7 @@ function SettingsSurface({
             playbackGateDetail={playbackGateDetail}
             spotifySdk={spotifySdk}
             onActivateSpotify={onActivateSpotify}
+            playbackTest={playbackTest}
           />
         </SettingsSubPageSummary>
       )}

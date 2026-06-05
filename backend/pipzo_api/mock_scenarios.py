@@ -180,7 +180,7 @@ def _first_boot_empty() -> AppSnapshot:
         reason=PlaybackDeviceReason.AUTH_REQUIRED,
     )
     snap.health.volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BLUETOOTH_SINK_MISSING)
-    snap.surfaces = SurfaceState(current=SurfaceId.SETUP, route="/setup/wifi", idle_mode=IdleMode.CLOCK)
+    snap.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings", idle_mode=IdleMode.CLOCK)
     snap.capabilities = CapabilityState(
         can_browse=False,
         can_search=False,
@@ -401,7 +401,7 @@ def _boot_probe_delayed() -> AppSnapshot:
     snap.health.volume = VolumeHealth(status=VolumeStatus.UNAVAILABLE, reason=VolumeReason.BOOT_PROBE_PENDING)
     snap.health.display = DisplayHealth(status=DisplayStatus.UNAVAILABLE, reason=DisplayReason.BOOT_PROBE_PENDING, brightness=0)
     snap.health.kiosk = KioskHealth(phase=KioskBootPhase.ADAPTERS_PROBING)
-    snap.surfaces = SurfaceState(current=SurfaceId.SETUP, route="/starting", idle_mode=IdleMode.CLOCK)
+    snap.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings", idle_mode=IdleMode.CLOCK)
     snap.warnings = []
     snap.recovery_actions = []
     return snap
@@ -525,7 +525,7 @@ class MockScenarioStore:
 
     def start_setup(self) -> SetupState:
         self._snapshot.app_phase = AppPhase.SETUP
-        self._snapshot.surfaces = SurfaceState(current=SurfaceId.SETUP, route="/setup/wifi", idle_mode=self._snapshot.settings.idle_mode)
+        self._snapshot.surfaces = SurfaceState(current=SurfaceId.SETTINGS, route="/settings", idle_mode=self._snapshot.settings.idle_mode)
         return self.get_snapshot().setup
 
     def complete_setup(self) -> AppSnapshot:
@@ -904,4 +904,8 @@ class MockScenarioStore:
         self._snapshot.setup = SetupState(blocking_step=blocking, steps=_ready_steps() if blocking == SetupStepId.NONE else _setup_steps(blocking))
         if blocking != SetupStepId.NONE:
             self._snapshot.app_phase = AppPhase.SETUP
-            self._snapshot.surfaces = SurfaceState(current=SurfaceId.SETUP, route=f"/setup/{blocking.value.replace('_auth', '')}", idle_mode=self._snapshot.settings.idle_mode)
+            self._snapshot.surfaces = SurfaceState(
+                current=SurfaceId.SETTINGS,
+                route="/settings",
+                idle_mode=self._snapshot.settings.idle_mode,
+            )
