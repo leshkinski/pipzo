@@ -54,6 +54,8 @@ import {
   labelFromId,
   libraryAvailability,
   nextNowPlayingBoundaryRefreshDelayMs,
+  nowPlayingSubviewAfterLibraryPlaybackStart,
+  nowPlayingSubviewAfterSurfaceChange,
   nowPlayingEmptyState,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingRefreshIntervalMs,
@@ -65,6 +67,7 @@ import {
   playbackQueueViewModel,
   queueSelectionPlayback,
   shellNavigationItems,
+  shouldRenderQueuePanel,
   shouldRefreshNowPlaying,
   shouldRefreshHomeOnOpen,
   shouldPollAppStateForSetupReadiness,
@@ -82,6 +85,8 @@ import {
   wifiSetupViewModel,
   type SleepTimerPresetMinutes,
   type SleepTimerState,
+  type AppSurfaceId,
+  type NowPlayingSubview,
 } from "./viewModel";
 import {
   bluetoothSuccessAlertSuppressedEvent,
@@ -99,7 +104,6 @@ import {
 } from "./volumeInteraction";
 
 type DataSource = "backend" | "local";
-type AppSurfaceId = SurfaceId | "sleep_timer";
 type PipzoImportMeta = ImportMeta & {
   env?: {
     DEV?: boolean;
@@ -285,7 +289,7 @@ export function App() {
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategoryId>("recently_played");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("Library fixtures loaded for local development.");
-  const [queueOpen, setQueueOpen] = useState(false);
+  const [nowPlayingSubview, setNowPlayingSubview] = useState<NowPlayingSubview>("artwork");
   const [queueBusy, setQueueBusy] = useState(false);
   const [queueMessage, setQueueMessage] = useState("Tap the artwork to show songs coming up.");
   const [likeBusy, setLikeBusy] = useState(false);
@@ -382,6 +386,10 @@ export function App() {
     const preferred = preferredSurface(snapshot);
     setSelectedSurface((current) => (current === "sleep_timer" || canOpenSurface(snapshot, current) ? current : preferred));
   }, [snapshot]);
+
+  useEffect(() => {
+    setNowPlayingSubview((current) => nowPlayingSubviewAfterSurfaceChange(current, selectedSurface));
+  }, [selectedSurface]);
 
   useEffect(() => {
     if (snapshot.health.spotifyAuth.status === "connected") {
@@ -676,6 +684,7 @@ export function App() {
 
   const gated = isSetupGated(snapshot);
   const activeSurface = idleActive ? "idle" : gated ? "setup" : selectedSurface;
+  const queueOpen = shouldRenderQueuePanel(activeSurface, nowPlayingSubview);
   const visibleWarnings = snapshot.warnings;
   const degradedMode = degradedModeViewModel(snapshot);
   const spotifyPlaybackGate = useMemo(() => spotifySdkGate(snapshot, dataSource, backendMode ?? undefined), [snapshot, dataSource, backendMode]);
@@ -1104,7 +1113,7 @@ export function App() {
     queueRefreshVersionRef.current += 1;
     queueOptimisticRefreshUntilMsRef.current = 0;
     setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
-    setQueueOpen(false);
+    setNowPlayingSubview(nowPlayingSubviewAfterLibraryPlaybackStart());
     setQueueBusy(false);
     setQueueMessage("Tap the artwork to show songs coming up.");
     setSelectedSurface("now_playing");
@@ -1194,12 +1203,12 @@ export function App() {
   }
 
   async function openPlaybackQueue() {
-    setQueueOpen(true);
+    setNowPlayingSubview("queue");
     await loadPlaybackQueue();
   }
 
   function closePlaybackQueue() {
-    setQueueOpen(false);
+    setNowPlayingSubview("artwork");
     queueOptimisticRefreshUntilMsRef.current = 0;
     setQueueMessage("Tap the artwork to show songs coming up.");
   }

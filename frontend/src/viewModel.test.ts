@@ -16,6 +16,8 @@ import {
   homeLibraryCategoryOrder,
   nextNowPlayingBoundaryRefreshDelayMs,
   nowPlayingCommandRefreshDelaysMs,
+  nowPlayingSubviewAfterLibraryPlaybackStart,
+  nowPlayingSubviewAfterSurfaceChange,
   nowPlayingEmptyState,
   nowPlayingRefreshIntervalMs,
   playbackQueueAfterSelection,
@@ -29,6 +31,7 @@ import {
   queueSelectionPlayback,
   shouldRefreshNowPlaying,
   shouldPollAppStateForSetupReadiness,
+  shouldRenderQueuePanel,
   shouldRetryBackendRecovery,
   shouldRefreshHomeOnOpen,
   shouldShowDeveloperPanel,
@@ -967,6 +970,19 @@ describe("kiosk shell view model", () => {
     expect(shouldRefreshNowPlaying(offline, "backend")).toBe(false);
   });
 
+  it("renders artwork view after Home starts playback while the queue subview was previously open", () => {
+    let subview: "artwork" | "queue" = "queue";
+
+    expect(shouldRenderQueuePanel("now_playing", subview)).toBe(true);
+
+    subview = nowPlayingSubviewAfterSurfaceChange(subview, "home");
+    expect(shouldRenderQueuePanel("home", subview)).toBe(false);
+    expect(subview).toBe("artwork");
+
+    subview = nowPlayingSubviewAfterLibraryPlaybackStart();
+    expect(shouldRenderQueuePanel("now_playing", subview)).toBe(false);
+  });
+
   it("closes an open queue panel after Home starts new playback without changing queue selection continuation", () => {
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
@@ -975,7 +991,9 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain("function resetNowPlayingQueueAfterLibraryStart()");
     expect(appSource).toContain("queueRefreshVersionRef.current += 1");
     expect(appSource).toContain("setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()))");
-    expect(appSource).toContain("setQueueOpen(false)");
+    expect(appSource).toContain("const [nowPlayingSubview, setNowPlayingSubview] = useState<NowPlayingSubview>(\"artwork\")");
+    expect(appSource).toContain("setNowPlayingSubview((current) => nowPlayingSubviewAfterSurfaceChange(current, selectedSurface))");
+    expect(appSource).toContain("setNowPlayingSubview(nowPlayingSubviewAfterLibraryPlaybackStart())");
     expect(appSource).toContain("setQueueBusy(false)");
     expect(appSource).toContain('setQueueMessage("Tap the artwork to show songs coming up.")');
     expect(appSource).toContain('setSelectedSurface("now_playing")');

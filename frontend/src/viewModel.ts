@@ -13,6 +13,8 @@ export const homeLibraryCategoryOrder: Exclude<LibraryCategoryId, "home">[] = [
 ];
 
 export type SleepTimerPresetMinutes = (typeof sleepTimerPresets)[number];
+export type AppSurfaceId = SurfaceId | "sleep_timer";
+export type NowPlayingSubview = "artwork" | "queue";
 
 export type SleepTimerState = {
   status: "idle" | "active" | "expired" | "blocked" | "failed";
@@ -291,11 +293,23 @@ export function shouldShowDeveloperPanel(
 }
 
 export function shouldRefreshHomeOnOpen(
-  activeSurface: SurfaceId | "sleep_timer",
+  activeSurface: AppSurfaceId,
   snapshot: AppSnapshot,
   dataSource: "backend" | "local",
 ): boolean {
   return activeSurface === "home" && dataSource === "backend" && libraryAvailability(snapshot).canBrowse;
+}
+
+export function nowPlayingSubviewAfterSurfaceChange(current: NowPlayingSubview, surface: AppSurfaceId): NowPlayingSubview {
+  return surface === "now_playing" ? current : "artwork";
+}
+
+export function nowPlayingSubviewAfterLibraryPlaybackStart(): NowPlayingSubview {
+  return "artwork";
+}
+
+export function shouldRenderQueuePanel(surface: AppSurfaceId, subview: NowPlayingSubview): boolean {
+  return surface === "now_playing" && subview === "queue";
 }
 
 export function canOpenSurface(snapshot: AppSnapshot, surface: SurfaceId): boolean {
