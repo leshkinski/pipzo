@@ -137,7 +137,7 @@ The extension is static first-party code with narrow content-script matches:
 - `http://localhost:8000/*`
 - `https://accounts.spotify.com/*`
 
-It has no extension permissions, host permissions, background service worker, storage, network fetch, external messaging, remote code, or analytics. It only renders a touch keyboard overlay for focused editable text/password/email/search inputs, mutates that focused field, and dispatches DOM `input`/`change` events. Because it can touch Spotify login fields, keep the extension files root-owned and not writable by the kiosk user. On normal `/opt/pipzo/app` installs, `install-app.sh` leaves the app tree root-owned.
+It has no extension permissions, host permissions, background service worker, storage, network fetch, external messaging, remote code, or analytics. It only renders a touch keyboard overlay for focused or touched editable text/password/email/search inputs, mutates that focused field, and dispatches DOM `input`/`change` events. Successful content-script injection sets `data-pipzo-keyboard-extension="ready"` on the page root for local Pi diagnostics. Because it can touch Spotify login fields, keep the extension files root-owned and not writable by the kiosk user. On normal `/opt/pipzo/app` installs, `install-app.sh` leaves the app tree root-owned.
 
 `--password-store=basic` keeps the dedicated Pipzo Chromium profile from asking the desktop Secret Service/keyring to unlock before the kiosk is usable. This is intended only for the local kiosk profile; Spotify OAuth tokens remain backend-owned and encrypted in Pipzo storage, and Chromium still handles the local Spotify PKCE web flow and Spotify Web Playback SDK runtime.
 

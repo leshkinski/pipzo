@@ -127,11 +127,14 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     ]
     assert script["js"] == ["pipzo-keyboard.js"]
     assert script["css"] == ["pipzo-keyboard.css"]
-    assert script["run_at"] == "document_idle"
+    assert script["run_at"] == "document_start"
     assert script["all_frames"] is True
 
     forbidden_tokens = ["fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "chrome.runtime", "sendMessage", "analytics"]
     for token in forbidden_tokens:
         assert token not in content_script
+    assert "pointerdown" in content_script
+    assert "touchstart" in content_script
+    assert "dataset.pipzoKeyboardExtension" in content_script
     assert "https://accounts.spotify.com/*" not in content_script
     assert "#pipzo-extension-keyboard" in stylesheet

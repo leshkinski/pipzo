@@ -3,6 +3,7 @@
 
   const ROOT_ID = "pipzo-extension-keyboard";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
+  const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
   const LETTER_ROWS = [
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
     ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
@@ -28,6 +29,14 @@
     if (element instanceof HTMLTextAreaElement) return !element.disabled && !element.readOnly;
     if (!(element instanceof HTMLInputElement)) return false;
     return !element.disabled && !element.readOnly && EDITABLE_INPUT_TYPES.has(element.type || "text");
+  }
+
+  function editableTargetFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const candidate of path) {
+      if (isEditableTarget(candidate)) return candidate;
+    }
+    return isEditableTarget(event.target) ? event.target : null;
   }
 
   function displayKey(key, currentState) {
@@ -140,6 +149,7 @@
   function showKeyboard(documentRef, target) {
     state.target = target;
     const root = ensureRoot(documentRef);
+    if (!root) return;
     renderKeyboard(root);
     root.hidden = false;
   }
@@ -168,6 +178,7 @@
   function ensureRoot(documentRef) {
     let root = documentRef.getElementById(ROOT_ID);
     if (root) return root;
+    if (!documentRef.body) return null;
     root = documentRef.createElement("div");
     root.id = ROOT_ID;
     root.hidden = true;
@@ -177,9 +188,49 @@
     return root;
   }
 
+  function markInstalled(documentRef) {
+    if (documentRef.documentElement) {
+      documentRef.documentElement.dataset.pipzoKeyboardExtension = "ready";
+    }
+  }
+
+  function showKeyboardForTarget(documentRef, target) {
+    if (!isEditableTarget(target)) return;
+    if (typeof target.focus === "function" && documentRef.activeElement !== target) {
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
+    }
+    showKeyboard(documentRef, target);
+  }
+
+  function checkActiveElement(documentRef) {
+    const active = documentRef.activeElement;
+    if (isEditableTarget(active)) showKeyboard(documentRef, active);
+  }
+
+  function scheduleActiveElementChecks(documentRef) {
+    ACTIVE_ELEMENT_CHECK_DELAYS_MS.forEach((delay) => {
+      globalScope.setTimeout(() => checkActiveElement(documentRef), delay);
+    });
+  }
+
   function install(documentRef) {
-    if (!documentRef?.body || documentRef.getElementById(ROOT_ID)) return;
+    if (!documentRef || documentRef.__pipzoKeyboardInstalled) return;
+    documentRef.__pipzoKeyboardInstalled = true;
+    markInstalled(documentRef);
     ensureRoot(documentRef);
+    const handleActivation = (event) => {
+      const target = editableTargetFromEvent(event);
+      if (!target) return;
+      showKeyboardForTarget(documentRef, target);
+      globalScope.setTimeout(() => showKeyboardForTarget(documentRef, target), 0);
+    };
+    documentRef.addEventListener("pointerdown", handleActivation, true);
+    documentRef.addEventListener("touchstart", handleActivation, true);
+    documentRef.addEventListener("mousedown", handleActivation, true);
     documentRef.addEventListener("focusin", (event) => {
       const target = event.target;
       if (isEditableTarget(target)) showKeyboard(documentRef, target);
@@ -192,11 +243,14 @@
         hideKeyboard();
       }, 80);
     });
+    scheduleActiveElementChecks(documentRef);
   }
 
   globalScope.__pipzoKeyboardTestApi = {
     applyCommandValue,
+    editableTargetFromEvent,
     displayKey,
+    isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
     nextState,
   };

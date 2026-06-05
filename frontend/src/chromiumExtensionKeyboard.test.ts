@@ -14,6 +14,8 @@ type KeyboardTestApi = {
     state: { mode: string; shift: boolean; caps: boolean },
   ) => { value: string; caret: number };
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
+  editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
+  isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
   nextState: (
     state: { mode: string; shift: boolean; caps: boolean },
@@ -21,9 +23,28 @@ type KeyboardTestApi = {
   ) => { mode: string; shift: boolean; caps: boolean };
 };
 
+class FakeInput {
+  disabled = false;
+  readOnly = false;
+  type = "text";
+}
+
+class FakeTextArea {
+  disabled = false;
+  readOnly = false;
+}
+
 function loadKeyboardApi(): KeyboardTestApi {
   const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
-  const context: { __pipzoKeyboardTestApi?: KeyboardTestApi; globalThis?: unknown } = {};
+  const context: {
+    HTMLInputElement: typeof FakeInput;
+    HTMLTextAreaElement: typeof FakeTextArea;
+    __pipzoKeyboardTestApi?: KeyboardTestApi;
+    globalThis?: unknown;
+  } = {
+    HTMLInputElement: FakeInput,
+    HTMLTextAreaElement: FakeTextArea,
+  };
   runInNewContext(source, context);
   if (!context.__pipzoKeyboardTestApi) {
     throw new Error("keyboard test API was not exposed");
@@ -61,5 +82,18 @@ describe("Chromium extension keyboard", () => {
     expect(["text", "password", "email", "search"].every((type) => keyboard.isEditableInputType(type))).toBe(true);
     expect(keyboard.isEditableInputType("checkbox")).toBe(false);
     expect(keyboard.isEditableInputType("number")).toBe(false);
+  });
+
+  it("recognizes the actual Wi-Fi password field shape from touch/pointer events", () => {
+    const keyboard = loadKeyboardApi();
+    const passwordField = new FakeInput();
+    passwordField.type = "password";
+
+    expect(keyboard.isEditableTarget(passwordField)).toBe(true);
+    expect(keyboard.editableTargetFromEvent({ target: passwordField })).toBe(passwordField);
+    expect(keyboard.editableTargetFromEvent({ composedPath: () => [{}, passwordField], target: {} })).toBe(passwordField);
+
+    passwordField.disabled = true;
+    expect(keyboard.isEditableTarget(passwordField)).toBe(false);
   });
 });
