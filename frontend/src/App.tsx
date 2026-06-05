@@ -1066,24 +1066,17 @@ export function App() {
     setLibraryMessage(`Starting ${item.title}.`);
     const queueWasOpen = queueOpen;
     if (queueWasOpen) {
-      queueRefreshVersionRef.current += 1;
-      queueOptimisticRefreshUntilMsRef.current = 0;
       setQueueBusy(true);
       setQueueMessage(`Refreshing songs coming up for ${item.title}.`);
-      setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
     }
     try {
       if (dataSource === "backend") {
         const result = await playLibraryItem({ uri: item.uri, playbackKind: item.playbackKind, deviceId });
         setLibraryMessage(result.state === "succeeded" ? `Playback start sent for ${item.title}.` : `Playback blocked: ${labelFromId(result.reason ?? "unknown")}.`);
         if (result.state === "succeeded") {
+          resetNowPlayingQueueAfterLibraryStart();
           await refreshSnapshot().catch(() => undefined);
           scheduleSnapshotRefreshes();
-          if (queueWasOpen) {
-            setQueueOpen(false);
-            setQueueBusy(false);
-            setQueueMessage("Tap the artwork to show songs coming up.");
-          }
           if (snapshot.setup.blockingStep === "playback_test") {
             setPlaybackTestMessage("Playback worked, so setup can finish.");
             setStatusText("Playback worked. Setup is finishing.");
@@ -1093,13 +1086,9 @@ export function App() {
           setQueueMessage("Songs coming up were not changed.");
         }
       } else {
-        if (queueWasOpen) {
-          setQueueBusy(false);
-          setQueueMessage(`Local queue will refresh after ${item.title}.`);
-        }
+        resetNowPlayingQueueAfterLibraryStart();
         setLibraryMessage(`Local fixture selected: ${item.title}. Backend playback is not called in local fallback mode.`);
       }
-      setSelectedSurface("now_playing");
     } catch {
       setLibraryMessage("Playback start could not be sent.");
       if (queueWasOpen) {
@@ -1109,6 +1098,16 @@ export function App() {
     } finally {
       setLibraryBusy(false);
     }
+  }
+
+  function resetNowPlayingQueueAfterLibraryStart() {
+    queueRefreshVersionRef.current += 1;
+    queueOptimisticRefreshUntilMsRef.current = 0;
+    setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()));
+    setQueueOpen(false);
+    setQueueBusy(false);
+    setQueueMessage("Tap the artwork to show songs coming up.");
+    setSelectedSurface("now_playing");
   }
 
   async function loadPlaybackQueue(options: { automatic?: boolean } = {}) {

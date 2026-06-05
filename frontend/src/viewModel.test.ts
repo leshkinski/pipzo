@@ -971,10 +971,14 @@ describe("kiosk shell view model", () => {
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
     expect(appSource).toContain("const queueWasOpen = queueOpen");
+    expect(appSource.match(/resetNowPlayingQueueAfterLibraryStart\(\);/g)).toHaveLength(2);
+    expect(appSource).toContain("function resetNowPlayingQueueAfterLibraryStart()");
     expect(appSource).toContain("queueRefreshVersionRef.current += 1");
     expect(appSource).toContain("setPlaybackQueue(playbackQueueAfterNewPlaybackIntent(new Date().toISOString()))");
     expect(appSource).toContain("setQueueOpen(false)");
+    expect(appSource).toContain("setQueueBusy(false)");
     expect(appSource).toContain('setQueueMessage("Tap the artwork to show songs coming up.")');
+    expect(appSource).toContain('setSelectedSurface("now_playing")');
     expect(appSource).toContain("requestVersion === queueRefreshVersionRef.current");
     expect(appSource).toContain("queueOptimisticRefreshUntilMsRef.current = Date.now() + 5_000");
     expect(appSource).toContain("playbackQueueAfterSelection(current, item, new Date().toISOString())");
