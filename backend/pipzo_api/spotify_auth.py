@@ -755,6 +755,7 @@ class SpotifyAuthSessionService:
             "state": session.state,
             "code_challenge_method": "S256",
             "code_challenge": session.code_challenge,
+            "show_dialog": "true",
         }
         return f"{settings.spotify_auth_url}?{urlencode(params)}"
 

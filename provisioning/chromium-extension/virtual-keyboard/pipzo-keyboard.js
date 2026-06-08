@@ -2,6 +2,7 @@
   "use strict";
 
   const ROOT_ID = "pipzo-extension-keyboard";
+  const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
   const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
   const STALE_TARGET_CHECK_DELAY_MS = 500;
@@ -36,6 +37,11 @@
     shift: false,
     target: null,
   };
+
+  function isSpotifyAccountsPage() {
+    const locationRef = globalScope.location;
+    return locationRef?.protocol === "https:" && locationRef?.host === "accounts.spotify.com";
+  }
 
   function isConnectedTarget(element) {
     return Boolean(element?.isConnected ?? element);
@@ -297,6 +303,37 @@
     return root;
   }
 
+  function scrollSpotifyPage(direction) {
+    const distance = Math.max(Math.round(globalScope.innerHeight * 0.72), 320);
+    const top = direction === "up" ? -distance : distance;
+    globalScope.scrollBy({ top, left: 0, behavior: "smooth" });
+  }
+
+  function ensureSpotifyScrollControls(documentRef) {
+    if (!isSpotifyAccountsPage()) return;
+    if (!documentRef.body) return;
+    if (documentRef.getElementById(SPOTIFY_SCROLL_ROOT_ID)) return;
+    const root = documentRef.createElement("div");
+    root.id = SPOTIFY_SCROLL_ROOT_ID;
+
+    const up = documentRef.createElement("button");
+    up.type = "button";
+    up.textContent = "Up";
+    up.setAttribute("aria-label", "Scroll Spotify page up");
+    up.addEventListener("pointerdown", (event) => event.preventDefault());
+    up.addEventListener("click", () => scrollSpotifyPage("up"));
+
+    const down = documentRef.createElement("button");
+    down.type = "button";
+    down.textContent = "Down";
+    down.setAttribute("aria-label", "Scroll Spotify page down");
+    down.addEventListener("pointerdown", (event) => event.preventDefault());
+    down.addEventListener("click", () => scrollSpotifyPage("down"));
+
+    root.append(up, down);
+    documentRef.body.appendChild(root);
+  }
+
   function markInstalled(documentRef) {
     if (documentRef.documentElement) {
       documentRef.documentElement.dataset.pipzoKeyboardExtension = "ready";
@@ -342,6 +379,7 @@
     documentRef.__pipzoKeyboardInstalled = true;
     markInstalled(documentRef);
     ensureRoot(documentRef);
+    ensureSpotifyScrollControls(documentRef);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
       if (!target) {
@@ -396,6 +434,7 @@
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
     nextState,
+    isSpotifyAccountsPage,
     rowLabels,
   };
 

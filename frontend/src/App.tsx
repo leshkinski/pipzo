@@ -1544,8 +1544,10 @@ export function App() {
       const session = await createSpotifyAuthSession();
       setSpotifyAuthSession(session);
       setSpotifyAuthMessage("Spotify setup is ready in this Chromium window.");
+      return true;
     } catch {
       setSpotifyAuthMessage("Spotify setup could not start. Check configuration and try again.");
+      return false;
     } finally {
       setSpotifyAuthBusy(false);
     }
@@ -1627,7 +1629,7 @@ export function App() {
       }));
       await refreshSnapshot().catch(() => undefined);
       openSettingsPage("spotify");
-      setSpotifyAuthMessage("Spotify disconnected. Reconnect locally when ready.");
+      setSpotifyAuthMessage("Spotify disconnected. Start Spotify setup to choose a different account.");
       return true;
     } catch {
       setSpotifyAuthMessage("Spotify account could not be disconnected. Try again.");
@@ -1640,7 +1642,10 @@ export function App() {
   async function reconnectSpotify() {
     const loggedOut = await logoutSpotify();
     if (loggedOut) {
-      await startSpotifyAuth();
+      const started = await startSpotifyAuth();
+      if (started) {
+        setSpotifyAuthMessage("Spotify setup is ready. Open authorization to choose the account Pipzo should use.");
+      }
     }
   }
 
@@ -3352,7 +3357,7 @@ function SpotifyAuthPanel({
       <div className="spotify-actions">
         {view.actions.includes("start") && (
           <button disabled={controls.busy} type="button" onClick={controls.onStart}>
-            Start local Spotify setup
+            Start Spotify account setup
           </button>
         )}
         {view.actions.includes("open") && (
@@ -3377,12 +3382,12 @@ function SpotifyAuthPanel({
         )}
         {view.actions.includes("logout") && (
           <button disabled={controls.busy} type="button" onClick={controls.onLogout}>
-            Logout
+            Disconnect account
           </button>
         )}
         {view.actions.includes("reconnect") && (
           <button disabled={controls.busy} type="button" onClick={controls.onReconnect}>
-            Reconnect
+            Switch account
           </button>
         )}
       </div>

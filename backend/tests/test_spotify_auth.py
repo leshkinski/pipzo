@@ -424,6 +424,7 @@ def test_authorize_redirect_contains_pkce_challenge_client_redirect_and_scopes(t
     assert params["code_challenge"] == [stored.code_challenge]
     assert params["state"] == [stored.state]
     assert params["scope"] == [settings.spotify_scopes]
+    assert params["show_dialog"] == ["true"]
 
 
 def test_callback_rejects_missing_unknown_mismatched_and_expired_state(tmp_path):
@@ -878,11 +879,17 @@ def test_spotify_logout_deletes_tokens_clears_pending_sessions_and_emits_safe_st
             auth_event = websocket.receive_json()
             snapshot_event = websocket.receive_json()
             state_response = client.get("/api/v1/app/state")
+            sessions_after_logout = dict(service._sessions)
+            replacement_session = create_session(client)
+            replacement_redirect = client.get(
+                f"/api/v1/spotify/auth/start/{replacement_session['sessionId']}",
+                follow_redirects=False,
+            )
 
     assert response.status_code == 200
     assert response.json() == {"status": "none", "reason": "no_session", "accountDisplayName": None}
     assert SpotifyAuthStore(settings.db_path).get_auth_record() is None
-    assert service._sessions == {}
+    assert sessions_after_logout == {}
     assert auth_event["type"] == "spotify.auth_changed"
     assert auth_event["payload"] == {"status": "none", "reason": "no_session", "accountDisplayName": None}
     assert snapshot_event["type"] == "app.snapshot"
@@ -894,6 +901,12 @@ def test_spotify_logout_deletes_tokens_clears_pending_sessions_and_emits_safe_st
     assert "stored-access-token" not in event_text
     assert "stored-refresh-token" not in event_text
     assert session["sessionId"] not in service._sessions
+    assert replacement_session["sessionId"] != session["sessionId"]
+    assert replacement_redirect.status_code == 307
+    replacement_params = parse_qs(urlparse(replacement_redirect.headers["location"]).query)
+    assert replacement_params["state"] == [service._sessions[replacement_session["sessionId"]].state]
+    assert replacement_params["show_dialog"] == ["true"]
+    assert service._sessions[replacement_session["sessionId"]].code_verifier
 
 
 def test_playback_token_endpoint_returns_short_lived_access_token_only_for_authenticated_premium(tmp_path):

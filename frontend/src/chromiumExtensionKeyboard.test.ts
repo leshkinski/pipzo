@@ -21,6 +21,7 @@ type KeyboardTestApi = {
   isConnectedTarget: (element: unknown) => boolean;
   isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
+  isSpotifyAccountsPage: () => boolean;
   nextState: (
     state: { mode: string; shift: boolean; caps: boolean },
     command: { kind: string },
@@ -243,5 +244,17 @@ describe("Chromium extension keyboard", () => {
     expect(stylesheet).toContain(".wifi-password-eye");
     expect(stylesheet).toContain(".wifi-password-eye.is-visible::after");
     expect(source).toContain("onTogglePasswordVisibility");
+  });
+
+  it("installs Spotify-only scroll controls for external authorization pages", () => {
+    const keyboard = loadKeyboardApi();
+    const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+    const stylesheet = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.css", "utf8");
+
+    expect(keyboard.isSpotifyAccountsPage()).toBe(false);
+    expect(script).toContain("SPOTIFY_SCROLL_ROOT_ID");
+    expect(script).toContain('host === "accounts.spotify.com"');
+    expect(script).toContain("scrollSpotifyPage");
+    expect(stylesheet).toContain("#pipzo-spotify-scroll-controls");
   });
 });

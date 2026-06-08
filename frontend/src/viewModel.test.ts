@@ -602,7 +602,18 @@ describe("kiosk shell view model", () => {
 
     expect(view.title).toBe("Spotify account connected");
     expect(view.accountLabel).toBe("Pipzo");
+    expect(view.detail).toContain("Disconnect or reconnect to switch");
     expect(view.actions).toEqual(["logout", "reconnect"]);
+  });
+
+  it("makes revoked Spotify authorization recovery explicit from Settings", () => {
+    const snapshot = localScenarios.spotify_auth_unavailable.snapshot;
+
+    const view = spotifyAuthViewModel(snapshot);
+
+    expect(view.title).toBe("Spotify reconnect required");
+    expect(view.detail).toContain("different Spotify account");
+    expect(view.actions).toEqual(["start"]);
   });
 
   it("offers retry after expired, failed, or cancelled Spotify sessions", () => {

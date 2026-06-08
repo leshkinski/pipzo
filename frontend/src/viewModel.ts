@@ -981,7 +981,9 @@ export function spotifyAuthViewModel(snapshot: AppSnapshot, session?: SpotifyAut
   if (snapshot.readiness.spotifyAuthorized && snapshot.health.spotifyAuth.status === "connected") {
     return {
       title: "Spotify account connected",
-      detail: accountLabel ? "Pipzo can use this account for playback and library browsing." : "Pipzo can use the connected account for playback and library browsing.",
+      detail: accountLabel
+        ? "Pipzo can use this account for playback and library browsing. Disconnect or reconnect to switch Spotify accounts."
+        : "Pipzo can use the connected account for playback and library browsing. Disconnect or reconnect to switch Spotify accounts.",
       accountLabel: accountLabel ?? undefined,
       tone: "ready",
       actions: ["logout", "reconnect"],
@@ -1019,7 +1021,7 @@ export function spotifyAuthViewModel(snapshot: AppSnapshot, session?: SpotifyAut
   if (snapshot.health.spotifyAuth.status === "reconnect_required" || snapshot.health.spotifyAuth.status === "error") {
     return {
       title: "Spotify reconnect required",
-      detail: "Reconnect locally in Chromium so Pipzo can refresh playback access.",
+      detail: "Reconnect locally in Chromium. Spotify will ask which account to use, so a different Spotify account can be connected.",
       accountLabel: accountLabel ?? undefined,
       tone: "attention",
       actions: ["start"],
