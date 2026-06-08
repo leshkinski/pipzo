@@ -23,6 +23,7 @@ type KeyboardTestApi = {
   isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
   isOtpLikeTarget: (element: unknown) => boolean;
+  isSpotifySixDigitChallengePage: (documentRef: unknown) => boolean;
   isPipzoAppPage: () => boolean;
   isSpotifyAccountsPage: () => boolean;
   keyboardModeForTarget: (element: unknown) => "letters" | "numeric";
@@ -31,14 +32,17 @@ type KeyboardTestApi = {
     command: { kind: string },
   ) => { mode: string; shift: boolean; caps: boolean };
   rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
+  spotifyChallengeTarget: (documentRef: unknown) => unknown | null;
 };
 
 type SessionResetTestApi = {
+  KEYBOARD_ORIGIN_PATTERNS: string[];
   SPOTIFY_BROWSING_ORIGINS: string[];
   SPOTIFY_COOKIE_DOMAIN: string;
   TRUSTED_APP_ORIGINS: Set<string>;
   cookieUrl: (cookie: { domain?: string; path?: string; secure?: boolean }) => string;
   senderIsTrustedApp: (sender: { url?: string }) => boolean;
+  urlIsKeyboardOrigin: (url: string) => boolean;
 };
 
 class FakeInput {
@@ -76,6 +80,7 @@ class FakeTextArea {
 }
 
 class FakeButton {
+  disabled = false;
   dataset: Record<string, string> = {};
   parent: FakeButton | null = null;
 
@@ -86,16 +91,20 @@ class FakeButton {
   }
 }
 
-function loadKeyboardApi(): KeyboardTestApi {
+function loadKeyboardApi(location?: { protocol: string; host: string }): KeyboardTestApi {
   const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
   const context: {
     HTMLInputElement: typeof FakeInput;
+    HTMLButtonElement: typeof FakeButton;
     HTMLTextAreaElement: typeof FakeTextArea;
     __pipzoKeyboardTestApi?: KeyboardTestApi;
+    location?: { protocol: string; host: string };
     globalThis?: unknown;
   } = {
     HTMLInputElement: FakeInput,
+    HTMLButtonElement: FakeButton,
     HTMLTextAreaElement: FakeTextArea,
+    location,
   };
   runInNewContext(source, context);
   if (!context.__pipzoKeyboardTestApi) {
@@ -248,6 +257,49 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.focusNextOtpTarget(first)).toBeNull();
   });
 
+  it("recognizes the live Spotify six-digit challenge page and binds to the active code input", () => {
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
+    const inputs = Array.from({ length: 6 }, (_, index) => {
+      const input = new FakeInput();
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.name = `code-${index}`;
+      return input;
+    });
+    const documentRef = {
+      activeElement: inputs[0],
+      body: { innerText: "Enter the 6-digit code sent to you" },
+      querySelectorAll: (selector: string) => (selector === "input" ? inputs : inputs),
+    };
+
+    expect(keyboard.isSpotifyAccountsPage()).toBe(true);
+    expect(keyboard.isSpotifySixDigitChallengePage(documentRef)).toBe(true);
+    expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(inputs[0]);
+    expect(keyboard.keyboardModeForTarget(keyboard.spotifyChallengeTarget(documentRef))).toBe("numeric");
+  });
+
+  it("falls back to the first empty OTP input when a visual Spotify code box receives focus", () => {
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
+    const visualBoxes = Array.from({ length: 6 }, () => new FakeButton());
+    const filled = new FakeInput();
+    filled.inputMode = "numeric";
+    filled.maxLength = 1;
+    filled.name = "code-0";
+    filled.value = "1";
+    const empty = new FakeInput();
+    empty.inputMode = "numeric";
+    empty.maxLength = 1;
+    empty.name = "code-1";
+    const documentRef = {
+      activeElement: visualBoxes[0],
+      body: { innerText: "Enter the 6 digit code sent to you" },
+      querySelectorAll: (selector: string) => (selector === "input" ? [filled, empty] : [...visualBoxes, filled, empty]),
+    };
+
+    expect(keyboard.isSpotifySixDigitChallengePage(documentRef)).toBe(true);
+    expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(empty);
+  });
+
   it("labels locked shift as CAPS in the letter layout", () => {
     const keyboard = loadKeyboardApi();
     const rows = keyboard.rowLabels({ mode: "letters", shift: false, caps: true });
@@ -377,8 +429,10 @@ describe("Chromium extension keyboard", () => {
     const resetWorker = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-session-reset.js", "utf8");
     const app = readFileSync("src/App.tsx", "utf8");
 
-    expect(manifest).toContain('"permissions": ["browsingData", "cookies"]');
+    expect(manifest).toContain('"permissions": ["browsingData", "cookies", "scripting"]');
     expect(manifest).toContain('"host_permissions"');
+    expect(manifest).toContain('"http://127.0.0.1:8000/*"');
+    expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");
@@ -389,6 +443,8 @@ describe("Chromium extension keyboard", () => {
     expect(resetWorker).toContain("senderIsTrustedApp");
     expect(resetWorker).toContain("chrome.cookies.getAll");
     expect(resetWorker).toContain("chrome.browsingData.remove");
+    expect(resetWorker).toContain("executeScript({ target, files: [KEYBOARD_SCRIPT_FILE] }");
+    expect(resetWorker).toContain("chrome.tabs.onUpdated");
     expect(app).toContain("requestSpotifyBrowserSessionReset");
     expect(app).toContain("resetSpotifyBrowserSessionForSwitch");
     expect(app).toContain("resetSpotifyBrowserSession");
@@ -415,5 +471,20 @@ describe("Chromium extension keyboard", () => {
     expect(reset.senderIsTrustedApp({ url: "http://evil.example/" })).toBe(false);
     expect(reset.cookieUrl({ domain: ".spotify.com", path: "/", secure: true })).toBe("https://spotify.com/");
     expect(reset.cookieUrl({ domain: "accounts.spotify.com", path: "/login", secure: true })).toBe("https://accounts.spotify.com/login");
+  });
+
+  it("limits dynamic keyboard injection to the existing local app and Spotify account origins", () => {
+    const reset = loadSessionResetApi();
+
+    expect(reset.KEYBOARD_ORIGIN_PATTERNS).toEqual([
+      "http://127.0.0.1:8000/*",
+      "http://localhost:8000/*",
+      "https://accounts.spotify.com/*",
+    ]);
+    expect(reset.urlIsKeyboardOrigin("http://127.0.0.1:8000/settings/spotify")).toBe(true);
+    expect(reset.urlIsKeyboardOrigin("http://localhost:8000/")).toBe(true);
+    expect(reset.urlIsKeyboardOrigin("https://accounts.spotify.com/login")).toBe(true);
+    expect(reset.urlIsKeyboardOrigin("https://open.spotify.com/")).toBe(false);
+    expect(reset.urlIsKeyboardOrigin("https://example.test/")).toBe(false);
   });
 });

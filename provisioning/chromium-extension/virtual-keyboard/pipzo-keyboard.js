@@ -102,6 +102,36 @@
     return Number(element.maxLength) === 1;
   }
 
+  function isSpotifySixDigitChallengePage(documentRef) {
+    if (!isSpotifyAccountsPage()) return false;
+    const text = documentRef?.body?.innerText || "";
+    if (!/6[-\s]?digit code/i.test(text)) return false;
+    const inputs = Array.from(documentRef.querySelectorAll?.("input") || []);
+    const otpInputs = inputs.filter((input) => isEditableTarget(input) && isOtpLikeTarget(input));
+    if (otpInputs.length >= 6) return true;
+    const digitBoxControls = Array.from(
+      documentRef.querySelectorAll?.("input,button,[role='textbox'],[role='spinbutton'],[contenteditable='true']") || [],
+    ).filter((element) => {
+      if (element instanceof HTMLInputElement) return isEditableTarget(element);
+      if (element instanceof HTMLButtonElement) return !element.disabled;
+      if (element?.isContentEditable) return true;
+      const role = normalizedAttr(element, "role");
+      return role === "textbox" || role === "spinbutton";
+    });
+    return digitBoxControls.length >= 6;
+  }
+
+  function spotifyChallengeTarget(documentRef) {
+    if (!isSpotifySixDigitChallengePage(documentRef)) return null;
+    const active = documentRef.activeElement;
+    if (isEditableTarget(active)) return active;
+    const candidates = Array.from(documentRef.querySelectorAll?.("input") || []);
+    return candidates.find((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate) && !candidate.value)
+      || candidates.find((candidate) => isEditableTarget(candidate) && isNumericTarget(candidate))
+      || candidates.find((candidate) => isEditableTarget(candidate))
+      || null;
+  }
+
   function keyboardModeForTarget(element) {
     return isNumericTarget(element) ? "numeric" : "letters";
   }
@@ -501,6 +531,25 @@
     showKeyboard(documentRef, target);
   }
 
+  function showSpotifyChallengeKeyboard(documentRef) {
+    const target = spotifyChallengeTarget(documentRef);
+    if (target) {
+      showKeyboardForTarget(documentRef, target);
+      return true;
+    }
+    if (!isSpotifySixDigitChallengePage(documentRef)) return false;
+    state.target = null;
+    state.mode = "numeric";
+    state.shift = false;
+    state.caps = false;
+    const root = ensureRoot(documentRef);
+    if (!root) return false;
+    renderKeyboard(root);
+    root.hidden = false;
+    syncKeyboardInset(documentRef, root);
+    return true;
+  }
+
   function checkActiveElement(documentRef) {
     const active = documentRef.activeElement;
     if (isEditableTarget(active)) showKeyboard(documentRef, active);
@@ -533,6 +582,7 @@
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
       if (!target) {
+        if (showSpotifyChallengeKeyboard(documentRef)) return;
         if (dismissTargetFromEvent(event)) hideKeyboard();
         return;
       }
@@ -545,6 +595,7 @@
     documentRef.addEventListener("focusin", (event) => {
       const target = event.target;
       if (isEditableTarget(target)) showKeyboard(documentRef, target);
+      else showSpotifyChallengeKeyboard(documentRef);
     });
     documentRef.defaultView?.addEventListener("pagehide", hideKeyboard);
     documentRef.defaultView?.addEventListener("popstate", hideKeyboard);
@@ -571,6 +622,10 @@
       }
     }
     scheduleActiveElementChecks(documentRef);
+    if (isSpotifySixDigitChallengePage(documentRef)) {
+      globalScope.setTimeout(() => showSpotifyChallengeKeyboard(documentRef), 0);
+      globalScope.setTimeout(() => showSpotifyChallengeKeyboard(documentRef), 600);
+    }
   }
 
   globalScope.__pipzoKeyboardTestApi = {
@@ -585,10 +640,12 @@
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
     isOtpLikeTarget,
+    isSpotifySixDigitChallengePage,
     keyboardModeForTarget,
     isPipzoAppPage,
     nextState,
     isSpotifyAccountsPage,
+    spotifyChallengeTarget,
     rowLabels,
   };
 
