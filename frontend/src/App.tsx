@@ -130,6 +130,12 @@ type TouchFeedback = {
   label: string;
 };
 
+type SpotifyBrowserSessionResetResult = {
+  ok: boolean;
+  clearedCookies?: number;
+  error?: string;
+};
+
 type SpotifyAuthControls = {
   session: SpotifyAuthSession | null;
   busy: boolean;
@@ -141,6 +147,65 @@ type SpotifyAuthControls = {
   onLogout: () => void;
   onReconnect: () => void;
 };
+
+const spotifySessionResetRequestEvent = "pipzo:spotify-session-reset-request";
+const spotifySessionResetResponseEvent = "pipzo:spotify-session-reset-response";
+
+function requestSpotifyBrowserSessionReset(timeoutMs = 3_000): Promise<SpotifyBrowserSessionResetResult> {
+  if (typeof document === "undefined") {
+    return Promise.resolve({ ok: false, error: "document_unavailable" });
+  }
+  const requestId = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `spotify-reset-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: number | undefined;
+
+    function cleanup() {
+      document.removeEventListener(spotifySessionResetResponseEvent, handleResponse);
+      if (timer !== undefined) window.clearTimeout(timer);
+      delete document.documentElement.dataset.pipzoSpotifySessionResetRequestId;
+      delete document.documentElement.dataset.pipzoSpotifySessionResetResponseId;
+      delete document.documentElement.dataset.pipzoSpotifySessionResetOk;
+      delete document.documentElement.dataset.pipzoSpotifySessionResetClearedCookies;
+      delete document.documentElement.dataset.pipzoSpotifySessionResetError;
+    }
+
+    function finish(result: SpotifyBrowserSessionResetResult) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    function handleResponse(event: Event) {
+      const detail = (event as CustomEvent<SpotifyBrowserSessionResetResult & { requestId?: string }>).detail;
+      const dataset = document.documentElement.dataset;
+      const responseId = detail?.requestId ?? dataset.pipzoSpotifySessionResetResponseId;
+      if (responseId !== requestId) return;
+      finish({
+        ok: detail?.ok ?? dataset.pipzoSpotifySessionResetOk === "true",
+        clearedCookies: detail?.clearedCookies ?? (dataset.pipzoSpotifySessionResetClearedCookies ? Number(dataset.pipzoSpotifySessionResetClearedCookies) : undefined),
+        error: detail?.error ?? dataset.pipzoSpotifySessionResetError,
+      });
+    }
+
+    timer = window.setTimeout(() => finish({ ok: false, error: "extension_timeout" }), timeoutMs);
+    document.addEventListener(spotifySessionResetResponseEvent, handleResponse);
+    document.documentElement.dataset.pipzoSpotifySessionResetRequestId = requestId;
+    document.dispatchEvent(new CustomEvent(spotifySessionResetRequestEvent, { detail: { requestId } }));
+  });
+}
+
+function spotifyBrowserSessionResetStatus(result: SpotifyBrowserSessionResetResult): string {
+  if (result.ok) return "Spotify browser sign-in cleared.";
+  if (result.error === "extension_timeout" || result.error === "extension_unavailable") {
+    return "Spotify browser sign-in could not be cleared from this Chromium window.";
+  }
+  return "Spotify browser sign-in reset did not complete.";
+}
 
 type WifiControls = {
   networks: WifiNetwork[];
@@ -1537,10 +1602,18 @@ export function App() {
     }
   }
 
-  async function startSpotifyAuth() {
+  async function startSpotifyAuth(options?: { resetBrowserSession?: boolean }) {
     setSpotifyAuthBusy(true);
-    setSpotifyAuthMessage("Starting local Spotify setup.");
+    const shouldResetBrowserSession = options?.resetBrowserSession ?? Boolean(snapshot.health.spotifyAuth.accountDisplayName);
+    setSpotifyAuthMessage(shouldResetBrowserSession ? "Clearing Spotify browser sign-in." : "Starting local Spotify setup.");
     try {
+      if (shouldResetBrowserSession) {
+        const resetResult = await requestSpotifyBrowserSessionReset();
+        if (!resetResult.ok) {
+          setSpotifyAuthMessage(`${spotifyBrowserSessionResetStatus(resetResult)} Pipzo will not start account switching until the browser session is cleared.`);
+          return false;
+        }
+      }
       const session = await createSpotifyAuthSession();
       setSpotifyAuthSession(session);
       setSpotifyAuthMessage("Spotify setup is ready in this Chromium window.");
@@ -1650,8 +1723,15 @@ export function App() {
       }));
       await refreshSnapshot().catch(() => undefined);
       openSettingsPage("spotify");
-      setSpotifyAuthMessage("Spotify disconnected. Start Spotify setup to choose a different account.");
-      return true;
+      setSpotifyAuthMessage("Clearing Spotify browser sign-in.");
+      const resetResult = await requestSpotifyBrowserSessionReset();
+      const resetMessage = spotifyBrowserSessionResetStatus(resetResult);
+      setSpotifyAuthMessage(
+        resetResult.ok
+          ? "Spotify disconnected. Browser sign-in cleared, so the next authorization can use a different account."
+          : `Spotify disconnected. ${resetMessage} Start Spotify setup only after this is fixed if you need a different account.`,
+      );
+      return resetResult.ok;
     } catch {
       setSpotifyAuthMessage("Spotify account could not be disconnected. Try again.");
       return false;
@@ -1663,9 +1743,9 @@ export function App() {
   async function reconnectSpotify() {
     const loggedOut = await logoutSpotify();
     if (loggedOut) {
-      const started = await startSpotifyAuth();
+      const started = await startSpotifyAuth({ resetBrowserSession: false });
       if (started) {
-        setSpotifyAuthMessage("Spotify setup is ready. Open authorization to choose the account Pipzo should use.");
+        setSpotifyAuthMessage("Spotify setup is ready. Open authorization and sign in with the account Pipzo should use.");
       }
     }
   }

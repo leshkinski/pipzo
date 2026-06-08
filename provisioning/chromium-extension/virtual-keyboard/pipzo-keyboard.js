@@ -3,6 +3,8 @@
 
   const ROOT_ID = "pipzo-extension-keyboard";
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
+  const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
+  const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
   const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
   const STALE_TARGET_CHECK_DELAY_MS = 500;
@@ -41,6 +43,12 @@
   function isSpotifyAccountsPage() {
     const locationRef = globalScope.location;
     return locationRef?.protocol === "https:" && locationRef?.host === "accounts.spotify.com";
+  }
+
+  function isPipzoAppPage() {
+    const locationRef = globalScope.location;
+    if (locationRef?.protocol !== "http:") return false;
+    return locationRef.host === "127.0.0.1:8000" || locationRef.host === "localhost:8000";
   }
 
   function isConnectedTarget(element) {
@@ -334,6 +342,51 @@
     documentRef.body.appendChild(root);
   }
 
+  function dispatchSpotifySessionResetResponse(documentRef, detail) {
+    if (documentRef.documentElement) {
+      documentRef.documentElement.dataset.pipzoSpotifySessionResetResponseId = detail.requestId ?? "";
+      documentRef.documentElement.dataset.pipzoSpotifySessionResetOk = detail.ok ? "true" : "false";
+      if (typeof detail.clearedCookies === "number") {
+        documentRef.documentElement.dataset.pipzoSpotifySessionResetClearedCookies = String(detail.clearedCookies);
+      } else {
+        delete documentRef.documentElement.dataset.pipzoSpotifySessionResetClearedCookies;
+      }
+      if (detail.error) {
+        documentRef.documentElement.dataset.pipzoSpotifySessionResetError = detail.error;
+      } else {
+        delete documentRef.documentElement.dataset.pipzoSpotifySessionResetError;
+      }
+    }
+    documentRef.dispatchEvent(new CustomEvent(SPOTIFY_SESSION_RESET_RESPONSE, { detail }));
+  }
+
+  function installSpotifySessionResetBridge(documentRef) {
+    if (!isPipzoAppPage()) return;
+    if (documentRef.__pipzoSpotifySessionResetBridgeInstalled) return;
+    documentRef.__pipzoSpotifySessionResetBridgeInstalled = true;
+    documentRef.addEventListener(SPOTIFY_SESSION_RESET_REQUEST, (event) => {
+      const requestId = event.detail?.requestId ?? documentRef.documentElement?.dataset?.pipzoSpotifySessionResetRequestId;
+      const sendMessage = globalScope.chrome?.runtime?.sendMessage;
+      if (typeof sendMessage !== "function") {
+        dispatchSpotifySessionResetResponse(documentRef, { requestId, ok: false, error: "extension_unavailable" });
+        return;
+      }
+      sendMessage({ type: "pipzo.clearSpotifySession" }, (response) => {
+        const runtimeError = globalScope.chrome?.runtime?.lastError?.message;
+        if (runtimeError) {
+          dispatchSpotifySessionResetResponse(documentRef, { requestId, ok: false, error: "extension_unavailable" });
+          return;
+        }
+        dispatchSpotifySessionResetResponse(documentRef, {
+          requestId,
+          ok: Boolean(response?.ok),
+          clearedCookies: typeof response?.clearedCookies === "number" ? response.clearedCookies : undefined,
+          error: response?.error,
+        });
+      });
+    });
+  }
+
   function markInstalled(documentRef) {
     if (documentRef.documentElement) {
       documentRef.documentElement.dataset.pipzoKeyboardExtension = "ready";
@@ -380,6 +433,7 @@
     markInstalled(documentRef);
     ensureRoot(documentRef);
     ensureSpotifyScrollControls(documentRef);
+    installSpotifySessionResetBridge(documentRef);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
       if (!target) {
@@ -433,6 +487,7 @@
     isConnectedTarget,
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
+    isPipzoAppPage,
     nextState,
     isSpotifyAccountsPage,
     rowLabels,

@@ -21,12 +21,21 @@ type KeyboardTestApi = {
   isConnectedTarget: (element: unknown) => boolean;
   isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
+  isPipzoAppPage: () => boolean;
   isSpotifyAccountsPage: () => boolean;
   nextState: (
     state: { mode: string; shift: boolean; caps: boolean },
     command: { kind: string },
   ) => { mode: string; shift: boolean; caps: boolean };
   rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
+};
+
+type SessionResetTestApi = {
+  SPOTIFY_BROWSING_ORIGINS: string[];
+  SPOTIFY_COOKIE_DOMAIN: string;
+  TRUSTED_APP_ORIGINS: Set<string>;
+  cookieUrl: (cookie: { domain?: string; path?: string; secure?: boolean }) => string;
+  senderIsTrustedApp: (sender: { url?: string }) => boolean;
 };
 
 class FakeInput {
@@ -69,6 +78,24 @@ function loadKeyboardApi(): KeyboardTestApi {
     throw new Error("keyboard test API was not exposed");
   }
   return context.__pipzoKeyboardTestApi;
+}
+
+function loadSessionResetApi(): SessionResetTestApi {
+  const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-session-reset.js", "utf8");
+  const context: {
+    URL: typeof URL;
+    __pipzoSessionResetTestApi?: SessionResetTestApi;
+    chrome: { runtime: Record<string, unknown> };
+    globalThis?: unknown;
+  } = {
+    URL,
+    chrome: { runtime: {} },
+  };
+  runInNewContext(source, context);
+  if (!context.__pipzoSessionResetTestApi) {
+    throw new Error("session reset test API was not exposed");
+  }
+  return context.__pipzoSessionResetTestApi;
 }
 
 describe("Chromium extension keyboard", () => {
@@ -256,5 +283,47 @@ describe("Chromium extension keyboard", () => {
     expect(script).toContain('host === "accounts.spotify.com"');
     expect(script).toContain("scrollSpotifyPage");
     expect(stylesheet).toContain("#pipzo-spotify-scroll-controls");
+  });
+
+  it("declares a minimal Spotify session reset extension surface", () => {
+    const manifest = readFileSync("../provisioning/chromium-extension/virtual-keyboard/manifest.json", "utf8");
+    const bridge = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+    const resetWorker = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-session-reset.js", "utf8");
+    const app = readFileSync("src/App.tsx", "utf8");
+
+    expect(manifest).toContain('"permissions": ["browsingData", "cookies"]');
+    expect(manifest).toContain('"host_permissions"');
+    expect(manifest).toContain('"https://*.spotify.com/*"');
+    expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
+    expect(bridge).toContain("pipzo:spotify-session-reset-request");
+    expect(bridge).toContain("pipzo:spotify-session-reset-response");
+    expect(bridge).toContain("isPipzoAppPage");
+    expect(resetWorker).toContain("SPOTIFY_COOKIE_DOMAIN");
+    expect(resetWorker).toContain('"spotify.com"');
+    expect(resetWorker).toContain("senderIsTrustedApp");
+    expect(resetWorker).toContain("chrome.cookies.getAll");
+    expect(resetWorker).toContain("chrome.browsingData.remove");
+    expect(app).toContain("requestSpotifyBrowserSessionReset");
+    expect(app).toContain("Pipzo will not start account switching until the browser session is cleared.");
+  });
+
+  it("limits Spotify browser session clearing to local Pipzo app senders and Spotify-owned data", () => {
+    const reset = loadSessionResetApi();
+
+    expect(reset.SPOTIFY_COOKIE_DOMAIN).toBe("spotify.com");
+    expect(reset.SPOTIFY_BROWSING_ORIGINS).toEqual([
+      "https://accounts.spotify.com",
+      "https://open.spotify.com",
+      "https://www.spotify.com",
+      "https://spotify.com",
+    ]);
+    expect(reset.TRUSTED_APP_ORIGINS.has("http://127.0.0.1:8000")).toBe(true);
+    expect(reset.TRUSTED_APP_ORIGINS.has("http://localhost:8000")).toBe(true);
+    expect(reset.senderIsTrustedApp({ url: "http://127.0.0.1:8000/settings/spotify" })).toBe(true);
+    expect(reset.senderIsTrustedApp({ url: "http://localhost:8000/" })).toBe(true);
+    expect(reset.senderIsTrustedApp({ url: "https://accounts.spotify.com/authorize" })).toBe(false);
+    expect(reset.senderIsTrustedApp({ url: "http://evil.example/" })).toBe(false);
+    expect(reset.cookieUrl({ domain: ".spotify.com", path: "/", secure: true })).toBe("https://spotify.com/");
+    expect(reset.cookieUrl({ domain: "accounts.spotify.com", path: "/login", secure: true })).toBe("https://accounts.spotify.com/login");
   });
 });

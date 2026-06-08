@@ -113,7 +113,7 @@ elif grep -q '^PIPZO_CHROMIUM_MODE=app-maximized$' "$ENV_DIR/kiosk.env"; then
   echo "For the V1 product runtime, set PIPZO_CHROMIUM_MODE=kiosk and restart pipzo-kiosk.service." >&2
 fi
 if ! grep -q '^PIPZO_CHROMIUM_EXTENSION_DIR=' "$ENV_DIR/kiosk.env"; then
-  printf '\n# First-party local extension keyboard for true-kiosk setup input.\nPIPZO_CHROMIUM_EXTENSION_DIR=%s/provisioning/chromium-extension/virtual-keyboard\n' "$APP_DIR" >> "$ENV_DIR/kiosk.env"
+  printf '\n# First-party local extension keyboard and Spotify session reset helper for true-kiosk setup input.\nPIPZO_CHROMIUM_EXTENSION_DIR=%s/provisioning/chromium-extension/virtual-keyboard\n' "$APP_DIR" >> "$ENV_DIR/kiosk.env"
 fi
 
 python3 -m venv "$VENV_DIR"

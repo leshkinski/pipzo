@@ -108,13 +108,23 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     extension_dir = REPO_ROOT / "provisioning/chromium-extension/virtual-keyboard"
     manifest = json.loads((extension_dir / "manifest.json").read_text())
     content_script = (extension_dir / "pipzo-keyboard.js").read_text()
+    session_reset_worker = (extension_dir / "pipzo-session-reset.js").read_text()
     stylesheet = (extension_dir / "pipzo-keyboard.css").read_text()
 
     assert manifest["manifest_version"] == 3
-    assert set(manifest) == {"manifest_version", "name", "version", "description", "content_scripts"}
-    assert "permissions" not in manifest
-    assert "host_permissions" not in manifest
-    assert "background" not in manifest
+    assert set(manifest) == {
+        "manifest_version",
+        "name",
+        "version",
+        "description",
+        "permissions",
+        "host_permissions",
+        "background",
+        "content_scripts",
+    }
+    assert manifest["permissions"] == ["browsingData", "cookies"]
+    assert manifest["host_permissions"] == ["https://*.spotify.com/*"]
+    assert manifest["background"] == {"service_worker": "pipzo-session-reset.js"}
     assert "externally_connectable" not in manifest
 
     scripts = manifest["content_scripts"]
@@ -130,11 +140,22 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert script["run_at"] == "document_start"
     assert script["all_frames"] is True
 
-    forbidden_tokens = ["fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "chrome.runtime", "sendMessage", "analytics"]
+    forbidden_tokens = ["fetch(", "XMLHttpRequest", "sessionStorage", "analytics"]
     for token in forbidden_tokens:
         assert token not in content_script
+        assert token not in session_reset_worker
     assert "pointerdown" in content_script
     assert "touchstart" in content_script
     assert "dataset.pipzoKeyboardExtension" in content_script
+    assert "pipzo:spotify-session-reset-request" in content_script
+    assert "pipzo:spotify-session-reset-response" in content_script
+    assert "runtime?.sendMessage" in content_script
     assert "https://accounts.spotify.com/*" not in content_script
+    assert "TRUSTED_APP_ORIGINS" in session_reset_worker
+    assert '"http://127.0.0.1:8000"' in session_reset_worker
+    assert '"http://localhost:8000"' in session_reset_worker
+    assert "SPOTIFY_COOKIE_DOMAIN = \"spotify.com\"" in session_reset_worker
+    assert "chrome.cookies.getAll" in session_reset_worker
+    assert "chrome.browsingData.remove" in session_reset_worker
+    assert "onMessageExternal" not in session_reset_worker
     assert "#pipzo-extension-keyboard" in stylesheet
