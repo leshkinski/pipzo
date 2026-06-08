@@ -104,6 +104,25 @@ def test_kiosk_launcher_loads_first_party_keyboard_extension_without_changing_tr
     assert 'chown -R root:root "$APP_DIR"' in installer
 
 
+def test_installer_provisions_bounded_kiosk_browser_session_reset_helper():
+    installer = (REPO_ROOT / "provisioning/scripts/install-app.sh").read_text()
+    helper = (REPO_ROOT / "provisioning/scripts/reset-kiosk-browser-session.sh").read_text()
+    backend_env = (REPO_ROOT / "provisioning/env/pipzo.env.example").read_text()
+
+    assert "reset-kiosk-browser-session.sh" in installer
+    assert "/usr/local/bin/pipzo-reset-kiosk-browser-session" in installer
+    assert "PIPZO_KIOSK_BROWSER_SESSION_RESET_COMMAND=/usr/local/bin/pipzo-reset-kiosk-browser-session" in installer
+    assert "PIPZO_KIOSK_BROWSER_SESSION_RESET_COMMAND=/usr/local/bin/pipzo-reset-kiosk-browser-session" in backend_env
+    assert 'ENV_FILE="${PIPZO_KIOSK_ENV_FILE:-/etc/pipzo/kiosk.env}"' in helper
+    assert 'PROFILE_PATH="${PIPZO_CHROMIUM_PROFILE:-$HOME/.local/share/pipzo/chromium-profile}"' in helper
+    assert 'Refusing to reset unexpected Chromium profile path' in helper
+    assert "rm -rf -- \"$PROFILE_PATH\"" in helper
+    assert "systemctl --user stop pipzo-kiosk.service" in helper
+    assert "systemctl --user start pipzo-kiosk.service" in helper
+    assert "spotify" not in helper.lower()
+    assert "cookie" not in helper.lower()
+
+
 def test_keyboard_extension_manifest_is_narrow_and_static():
     extension_dir = REPO_ROOT / "provisioning/chromium-extension/virtual-keyboard"
     manifest = json.loads((extension_dir / "manifest.json").read_text())

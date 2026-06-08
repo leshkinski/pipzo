@@ -101,6 +101,9 @@ else
   chown root:"$SERVICE_GROUP" "$ENV_DIR/pipzo.env"
   chmod 0640 "$ENV_DIR/pipzo.env"
 fi
+if ! grep -q '^PIPZO_KIOSK_BROWSER_SESSION_RESET_COMMAND=' "$ENV_DIR/pipzo.env"; then
+  printf '\n# Fixed helper for Settings -> Spotify account switching Chromium profile reset.\nPIPZO_KIOSK_BROWSER_SESSION_RESET_COMMAND=/usr/local/bin/pipzo-reset-kiosk-browser-session\n' >> "$ENV_DIR/pipzo.env"
+fi
 
 if [[ ! -f "$ENV_DIR/kiosk.env" ]]; then
   sed \
@@ -134,6 +137,7 @@ chown -R root:root "$VENV_DIR"
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"
 
 install -m 0755 "$APP_DIR/provisioning/scripts/kiosk-launcher.sh" /usr/local/bin/pipzo-kiosk
+install -m 0755 "$APP_DIR/provisioning/scripts/reset-kiosk-browser-session.sh" /usr/local/bin/pipzo-reset-kiosk-browser-session
 if [[ -d /etc/polkit-1/rules.d ]]; then
   sed "s|__PIPZO_SERVICE_USER__|$SERVICE_USER|g" \
     "$APP_DIR/provisioning/polkit/50-pipzo-networkmanager.rules" > /tmp/50-pipzo-networkmanager.rules

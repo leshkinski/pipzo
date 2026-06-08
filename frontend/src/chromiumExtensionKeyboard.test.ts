@@ -304,7 +304,11 @@ describe("Chromium extension keyboard", () => {
     expect(resetWorker).toContain("chrome.cookies.getAll");
     expect(resetWorker).toContain("chrome.browsingData.remove");
     expect(app).toContain("requestSpotifyBrowserSessionReset");
+    expect(app).toContain("resetSpotifyBrowserSessionForSwitch");
+    expect(app).toContain("resetSpotifyBrowserSession");
+    expect(app).toContain("confirm: true");
     expect(app).toContain("Pipzo will not start account switching until the browser session is cleared.");
+    expect(app).toContain("Pipzo will reopen with a fresh browser session.");
   });
 
   it("limits Spotify browser session clearing to local Pipzo app senders and Spotify-owned data", () => {

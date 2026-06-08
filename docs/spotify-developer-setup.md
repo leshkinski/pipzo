@@ -126,6 +126,7 @@ Local storage behavior:
 - The SQLite DB and token key are a pair for preserving Spotify auth. Back up both together if preserving the connection matters.
 - Losing, deleting, corrupting, or replacing the token key makes existing encrypted tokens unreadable. Pipzo fails safe into reconnect-required auth state.
 - Logout and app reset delete the encrypted Spotify auth record and clear pending auth sessions, but leave the local token key in place.
+- Settings account switching also invokes the provisioned kiosk browser-session reset helper in hardware mode. That helper restarts the Pipzo Chromium kiosk with a fresh Pipzo browser profile, preserving backend SQLite/app state while removing Chromium-held Spotify web login state.
 - Deleting both the DB token record and token key is safe, but the user must reconnect Spotify.
 
 Generated local files under `data/`, `.env`, `.env.*`, `*.key`, `*.sqlite`, and `*.sqlite3` are ignored.

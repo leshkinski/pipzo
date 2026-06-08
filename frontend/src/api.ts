@@ -14,6 +14,7 @@ import type {
   LibraryPlayRequest,
   PlaybackQueueResponse,
   LibrarySearchResponse,
+  KioskBrowserSessionResetRequest,
   NetworkConnectRequest,
   NetworkForgetRequest,
   PlaybackControlRequest,
@@ -203,4 +204,8 @@ export function cancelSpotifyAuthSession(sessionId: string): Promise<SpotifyAuth
 
 export function logoutSpotifyAuth(): Promise<HealthState["spotifyAuth"]> {
   return request<HealthState["spotifyAuth"]>("/api/v1/spotify/auth/logout", { method: "POST" });
+}
+
+export function resetSpotifyBrowserSession(body: KioskBrowserSessionResetRequest): Promise<ActionResult> {
+  return request<ActionResult>("/api/v1/spotify/browser-session/reset", { method: "POST", body: JSON.stringify(body) });
 }

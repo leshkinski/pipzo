@@ -29,6 +29,7 @@ import {
   rebootDevice,
   retryInternetProbe,
   reconnectSpeaker,
+  resetSpotifyBrowserSession,
   runSetupPlaybackTest,
   scanSpeakers,
   scanNetwork,
@@ -205,6 +206,24 @@ function spotifyBrowserSessionResetStatus(result: SpotifyBrowserSessionResetResu
     return "Spotify browser sign-in could not be cleared from this Chromium window.";
   }
   return "Spotify browser sign-in reset did not complete.";
+}
+
+async function resetSpotifyBrowserSessionForSwitch(): Promise<SpotifyBrowserSessionResetResult> {
+  const extensionResult = await requestSpotifyBrowserSessionReset();
+  if (extensionResult.ok) {
+    try {
+      await resetSpotifyBrowserSession({ confirm: true });
+    } catch {
+      return extensionResult;
+    }
+    return { ok: true, clearedCookies: extensionResult.clearedCookies, error: "profile_reset_requested" };
+  }
+  try {
+    await resetSpotifyBrowserSession({ confirm: true });
+    return { ok: true, error: "profile_reset_requested" };
+  } catch {
+    return extensionResult;
+  }
 }
 
 type WifiControls = {
@@ -1608,9 +1627,13 @@ export function App() {
     setSpotifyAuthMessage(shouldResetBrowserSession ? "Clearing Spotify browser sign-in." : "Starting local Spotify setup.");
     try {
       if (shouldResetBrowserSession) {
-        const resetResult = await requestSpotifyBrowserSessionReset();
+        const resetResult = await resetSpotifyBrowserSessionForSwitch();
         if (!resetResult.ok) {
           setSpotifyAuthMessage(`${spotifyBrowserSessionResetStatus(resetResult)} Pipzo will not start account switching until the browser session is cleared.`);
+          return false;
+        }
+        if (resetResult.error === "profile_reset_requested") {
+          setSpotifyAuthMessage("Spotify browser sign-in reset started. Pipzo will reopen with a fresh browser session.");
           return false;
         }
       }
@@ -1723,15 +1746,15 @@ export function App() {
       }));
       await refreshSnapshot().catch(() => undefined);
       openSettingsPage("spotify");
-      setSpotifyAuthMessage("Clearing Spotify browser sign-in.");
-      const resetResult = await requestSpotifyBrowserSessionReset();
+      setSpotifyAuthMessage("Resetting Spotify browser sign-in.");
+      const resetResult = await resetSpotifyBrowserSessionForSwitch();
       const resetMessage = spotifyBrowserSessionResetStatus(resetResult);
       setSpotifyAuthMessage(
         resetResult.ok
-          ? "Spotify disconnected. Browser sign-in cleared, so the next authorization can use a different account."
+          ? "Spotify disconnected. Browser sign-in reset started. Pipzo will reopen ready for a different account."
           : `Spotify disconnected. ${resetMessage} Start Spotify setup only after this is fixed if you need a different account.`,
       );
-      return resetResult.ok;
+      return resetResult.ok && resetResult.error !== "profile_reset_requested";
     } catch {
       setSpotifyAuthMessage("Spotify account could not be disconnected. Try again.");
       return false;

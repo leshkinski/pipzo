@@ -11,10 +11,16 @@ from fastapi.staticfiles import StaticFiles
 from .adapters import create_app_state_adapter
 from .adapters.bluez import BlueZCommandError, BlueZUnavailable, BluetoothctlAdapter
 from .adapters.device_power import DevicePowerCommandError, DevicePowerUnavailable, SystemdDevicePowerAdapter
+from .adapters.kiosk_browser_session import (
+    KioskBrowserSessionResetAdapter as SystemKioskBrowserSessionResetAdapter,
+    KioskBrowserSessionResetError,
+    KioskBrowserSessionResetUnavailable,
+)
 from .adapters.network_manager import NetworkCommandError, NetworkManagerUnavailable, NmcliNetworkAdapter
 from .adapters.production import (
     BlueZAdapter,
     DevicePowerAdapter,
+    KioskBrowserSessionResetAdapter,
     NetworkManagerAdapter,
     ProductionAdapterNotImplemented,
     ProductionAdapters,
@@ -34,6 +40,7 @@ from .contract import (
     DisplayHealth,
     DisplayPatch,
     HealthResponse,
+    KioskBrowserSessionResetRequest,
     LibraryCategoryId,
     LibraryCategoryResponse,
     LibraryHomeResponse,
@@ -127,6 +134,7 @@ def create_app(
     bluetooth_adapter_override: Optional[BlueZAdapter] = None,
     volume_adapter_override: Optional[VolumeAdapter] = None,
     device_power_adapter_override: Optional[DevicePowerAdapter] = None,
+    kiosk_browser_session_reset_adapter_override: Optional[KioskBrowserSessionResetAdapter] = None,
 ) -> FastAPI:
     mock_store = MockScenarioStore()
     event_hub = EventHub()
@@ -152,6 +160,11 @@ def create_app(
 
     def device_power_adapter() -> DevicePowerAdapter:
         return device_power_adapter_override or SystemdDevicePowerAdapter()
+
+    def kiosk_browser_session_reset_adapter(settings: Settings) -> KioskBrowserSessionResetAdapter:
+        return kiosk_browser_session_reset_adapter_override or SystemKioskBrowserSessionResetAdapter(
+            settings.pipzo_kiosk_browser_session_reset_command,
+        )
 
     def settings_store() -> AppSettingsStore:
         return AppSettingsStore(resolve_settings().db_path)
@@ -622,6 +635,35 @@ def create_app(
     @app.post("/api/v1/spotify/auth/logout", response_model=SpotifyAuthHealth)
     def spotify_auth_logout(settings: Settings = Depends(get_settings)) -> SpotifyAuthHealth:
         return clear_spotify_auth_state(settings, spotify_auth_sessions, event_hub, mock_store)
+
+    @app.post("/api/v1/spotify/browser-session/reset", response_model=ActionResult)
+    def spotify_browser_session_reset(
+        body: KioskBrowserSessionResetRequest,
+        settings: Settings = Depends(get_settings),
+    ) -> ActionResult:
+        if settings.app_mode == "mock":
+            now = utc_now()
+            return ActionResult(
+                id="spotify-browser-session-reset-mock",
+                domain="settings",
+                action="reset_spotify_browser_session",
+                state=RecoveryActionState.SUCCEEDED,
+                mock=True,
+                started_at=now,
+                completed_at=now,
+            )
+        try:
+            return kiosk_browser_session_reset_adapter(settings).reset()
+        except KioskBrowserSessionResetUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="kiosk_browser_session_reset_unavailable",
+            ) from exc
+        except KioskBrowserSessionResetError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="kiosk_browser_session_reset_failed",
+            ) from exc
 
     @app.get("/api/v1/spotify/playback/token", response_model=SpotifyPlaybackToken)
     def spotify_playback_token(settings: Settings = Depends(get_settings)) -> SpotifyPlaybackToken:

@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         validation_alias="PIPZO_INTERNET_PROBE_URL",
     )
     pipzo_audio_user: str = Field(default="", validation_alias="PIPZO_AUDIO_USER")
+    pipzo_kiosk_browser_session_reset_command: str = Field(
+        default="/usr/local/bin/pipzo-reset-kiosk-browser-session",
+        validation_alias="PIPZO_KIOSK_BROWSER_SESSION_RESET_COMMAND",
+    )
     spotify_auth_session_ttl_seconds: int = Field(
         default=600,
         ge=1,
@@ -85,6 +89,7 @@ class Settings(BaseSettings):
         "pipzo_frontend_dist",
         "pipzo_internet_probe_url",
         "pipzo_audio_user",
+        "pipzo_kiosk_browser_session_reset_command",
         "spotify_token_storage_protection",
         "pipzo_token_key_path",
         mode="before",

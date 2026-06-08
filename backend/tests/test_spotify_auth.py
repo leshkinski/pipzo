@@ -22,7 +22,7 @@ from pipzo_api.spotify_auth import (
     should_refresh_spotify_access_token,
 )
 from pipzo_api.spotify_store import StoredSpotifyAccount, StoredSpotifyAuthRecord, SpotifyAuthStore
-from pipzo_api.contract import VolumeHealth, VolumeReason
+from pipzo_api.contract import ActionResult, RecoveryActionState, VolumeHealth, VolumeReason, utc_now
 from pipzo_api.adapters.volume import VolumeUnavailable
 
 
@@ -316,6 +316,24 @@ class FakeVolumeAdapter:
             raise VolumeUnavailable(self.unavailable_reason)
         self.health = VolumeHealth(status="os_only", value=value, muted=muted)
         return self.health
+
+
+class FakeKioskBrowserSessionResetAdapter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def reset(self) -> ActionResult:
+        self.calls += 1
+        now = utc_now()
+        return ActionResult(
+            id="spotify-browser-session-reset",
+            domain="settings",
+            action="reset_spotify_browser_session",
+            state=RecoveryActionState.SUCCEEDED,
+            mock=False,
+            started_at=now,
+            completed_at=now,
+        )
 
 
 def make_client(
@@ -907,6 +925,42 @@ def test_spotify_logout_deletes_tokens_clears_pending_sessions_and_emits_safe_st
     assert replacement_params["state"] == [service._sessions[replacement_session["sessionId"]].state]
     assert replacement_params["show_dialog"] == ["true"]
     assert service._sessions[replacement_session["sessionId"]].code_verifier
+
+
+def test_spotify_browser_session_reset_uses_bounded_kiosk_helper_in_hardware_mode(tmp_path):
+    settings = make_settings(tmp_path, app_mode="hardware")
+    reset_adapter = FakeKioskBrowserSessionResetAdapter()
+
+    with make_client(settings, kiosk_browser_session_reset_adapter_override=reset_adapter) as client:
+        response = client.post("/api/v1/spotify/browser-session/reset", json={"confirm": True})
+
+    assert response.status_code == 200
+    assert reset_adapter.calls == 1
+    assert response.json()["action"] == "reset_spotify_browser_session"
+    assert response.json()["domain"] == "settings"
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["mock"] is False
+
+
+def test_spotify_browser_session_reset_is_mocked_without_platform_helper(tmp_path):
+    settings = make_settings(tmp_path, app_mode="mock")
+
+    with make_client(settings) as client:
+        response = client.post("/api/v1/spotify/browser-session/reset", json={"confirm": True})
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "reset_spotify_browser_session"
+    assert response.json()["state"] == "succeeded"
+    assert response.json()["mock"] is True
+
+
+def test_spotify_browser_session_reset_requires_explicit_confirmation(tmp_path):
+    settings = make_settings(tmp_path, app_mode="mock")
+
+    with make_client(settings) as client:
+        response = client.post("/api/v1/spotify/browser-session/reset", json={})
+
+    assert response.status_code == 422
 
 
 def test_playback_token_endpoint_returns_short_lived_access_token_only_for_authenticated_premium(tmp_path):

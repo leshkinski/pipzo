@@ -86,6 +86,11 @@ class KioskAdapter(Protocol):
         raise ProductionAdapterNotImplemented("Kiosk adapter is not implemented")
 
 
+class KioskBrowserSessionResetAdapter(Protocol):
+    def reset(self) -> ActionResult:
+        raise ProductionAdapterNotImplemented("Kiosk browser-session reset adapter is not implemented")
+
+
 class MissingNetworkManagerAdapter:
     def probe(self) -> None:
         raise ProductionAdapterNotImplemented("NetworkManager adapter is not implemented")

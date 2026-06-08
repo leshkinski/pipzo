@@ -288,6 +288,10 @@ export type DevicePowerActionRequest = {
   confirm: true;
 };
 
+export type KioskBrowserSessionResetRequest = {
+  confirm: true;
+};
+
 export type PlaybackControlRequest = {
   action: "play" | "pause" | "next" | "previous" | "stop" | "seek_start" | "shuffle_on" | "shuffle_off" | "repeat_context" | "repeat_off";
   deviceId?: string;
