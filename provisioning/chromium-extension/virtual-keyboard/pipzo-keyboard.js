@@ -5,7 +5,9 @@
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
   const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
   const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
-  const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search"]);
+  const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search", "number", "tel"]);
+  const NUMERIC_INPUT_TYPES = new Set(["number", "tel"]);
+  const NUMERIC_INPUT_MODES = new Set(["numeric", "decimal", "tel"]);
   const ACTIVE_ELEMENT_CHECK_DELAYS_MS = [0, 150, 500, 1200];
   const STALE_TARGET_CHECK_DELAY_MS = 500;
   const SHIFTED_NUMBER_KEYS = {
@@ -31,6 +33,17 @@
     ["-", "_", "=", "+", "[", "]", "{", "}"],
     [";", ":", "'", "\"", ",", ".", "/", "?"],
     ["`", "~", "<", ">", "\\", "|"],
+  ];
+  const NUMERIC_ROWS = [
+    ["1", "2", "3"],
+    ["4", "5", "6"],
+    ["7", "8", "9"],
+    [
+      { label: "Clear", kind: "clear" },
+      "0",
+      { label: "Backspace", kind: "backspace" },
+      { label: "Done", kind: "done", primary: true },
+    ],
   ];
 
   const state = {
@@ -62,6 +75,37 @@
     return !element.disabled && !element.readOnly && EDITABLE_INPUT_TYPES.has(element.type || "text");
   }
 
+  function normalizedAttr(element, name, propertyName = name) {
+    const propertyValue = element?.[propertyName];
+    if (typeof propertyValue === "string" && propertyValue) return propertyValue.toLowerCase();
+    if (typeof element?.getAttribute === "function") {
+      const attrValue = element.getAttribute(name);
+      if (typeof attrValue === "string") return attrValue.toLowerCase();
+    }
+    return "";
+  }
+
+  function isNumericTarget(element) {
+    if (!(element instanceof HTMLInputElement)) return false;
+    if (NUMERIC_INPUT_TYPES.has(element.type || "text")) return true;
+    if (NUMERIC_INPUT_MODES.has(normalizedAttr(element, "inputmode", "inputMode"))) return true;
+    if (normalizedAttr(element, "autocomplete") === "one-time-code") return true;
+    const pattern = normalizedAttr(element, "pattern");
+    return /\\d|\[0-9\]|\[\\d\]/.test(pattern);
+  }
+
+  function isOtpLikeTarget(element) {
+    if (!isNumericTarget(element)) return false;
+    if (normalizedAttr(element, "autocomplete") === "one-time-code") return true;
+    const name = `${normalizedAttr(element, "name")} ${normalizedAttr(element, "id")}`;
+    if (/\b(otp|code|verification|pin)\b/.test(name)) return true;
+    return Number(element.maxLength) === 1;
+  }
+
+  function keyboardModeForTarget(element) {
+    return isNumericTarget(element) ? "numeric" : "letters";
+  }
+
   function editableTargetFromEvent(event) {
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
     for (const candidate of path) {
@@ -86,6 +130,7 @@
   }
 
   function displayKey(key, currentState) {
+    if (currentState.mode === "numeric") return key;
     if (currentState.mode !== "letters") return key;
     if (currentState.shift && Object.prototype.hasOwnProperty.call(SHIFTED_NUMBER_KEYS, key)) {
       return SHIFTED_NUMBER_KEYS[key];
@@ -105,6 +150,7 @@
   }
 
   function commandRows(currentState) {
+    if (currentState.mode === "numeric") return NUMERIC_ROWS;
     const commandRow = [
       { label: "Clear", kind: "clear" },
       { label: currentState.mode === "letters" ? "Symbols" : "Letters", kind: "mode" },
@@ -136,6 +182,11 @@
 
   function nextState(currentState, command) {
     const updated = { ...currentState };
+    if (updated.mode === "numeric") {
+      updated.shift = false;
+      updated.caps = false;
+      return updated;
+    }
     if (command.kind === "shift") {
       if (updated.caps) {
         updated.caps = false;
@@ -160,6 +211,7 @@
   function insertedText(command, currentState) {
     if (command.kind === "space") return " ";
     if (command.kind !== "text") return "";
+    if (currentState.mode === "numeric" && !/^[0-9]$/.test(command.value)) return "";
     return displayKey(command.value, currentState);
   }
 
@@ -184,6 +236,7 @@
   }
 
   function setTargetValue(target, command) {
+    state.mode = keyboardModeForTarget(target);
     const result = applyCommandValue(
       target.value || "",
       target.selectionStart,
@@ -193,9 +246,47 @@
     );
     target.value = result.value;
     if (typeof target.setSelectionRange === "function") {
-      target.setSelectionRange(result.caret, result.caret);
+      try {
+        target.setSelectionRange(result.caret, result.caret);
+      } catch {
+        // Some numeric input types reject selection APIs even though value mutation works.
+      }
     }
     dispatchInputEvents(target);
+    if (command.kind === "text" && /^[0-9]$/.test(command.value) && shouldAdvanceOtpTarget(target, result)) {
+      focusNextOtpTarget(target);
+    }
+  }
+
+  function shouldAdvanceOtpTarget(target, result) {
+    if (!isOtpLikeTarget(target)) return false;
+    const maxLength = Number(target.maxLength);
+    if (Number.isInteger(maxLength) && maxLength > 0) return result.value.length >= maxLength;
+    return result.value.length >= 1;
+  }
+
+  function focusNextOtpTarget(target) {
+    const candidates = [];
+    if (target?.ownerDocument && typeof target.ownerDocument.querySelectorAll === "function") {
+      candidates.push(...target.ownerDocument.querySelectorAll("input"));
+    } else {
+      let next = target?.nextElementSibling;
+      while (next) {
+        candidates.push(next);
+        next = next.nextElementSibling;
+      }
+    }
+    const startIndex = candidates.indexOf(target);
+    const following = startIndex >= 0 ? candidates.slice(startIndex + 1) : candidates;
+    const nextTarget = following.find((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate) && !candidate.value);
+    if (typeof nextTarget?.focus === "function") {
+      try {
+        nextTarget.focus({ preventScroll: true });
+      } catch {
+        nextTarget.focus();
+      }
+    }
+    return nextTarget || null;
   }
 
   function buildButton(documentRef, label, command, options = {}) {
@@ -249,6 +340,11 @@
 
   function showKeyboard(documentRef, target) {
     state.target = target;
+    state.mode = keyboardModeForTarget(target);
+    if (state.mode === "numeric") {
+      state.shift = false;
+      state.caps = false;
+    }
     const root = ensureRoot(documentRef);
     if (!root) return;
     renderKeyboard(root);
@@ -484,9 +580,12 @@
     editableTargetFromEvent,
     displayKey,
     hideIfTargetLeftPage,
+    focusNextOtpTarget,
     isConnectedTarget,
     isEditableTarget,
     isEditableInputType: (type) => EDITABLE_INPUT_TYPES.has(type),
+    isOtpLikeTarget,
+    keyboardModeForTarget,
     isPipzoAppPage,
     nextState,
     isSpotifyAccountsPage,

@@ -18,11 +18,14 @@ type KeyboardTestApi = {
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
   editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
   hideIfTargetLeftPage: (documentRef: unknown) => void;
+  focusNextOtpTarget: (element: unknown) => unknown | null;
   isConnectedTarget: (element: unknown) => boolean;
   isEditableTarget: (element: unknown) => boolean;
   isEditableInputType: (type: string) => boolean;
+  isOtpLikeTarget: (element: unknown) => boolean;
   isPipzoAppPage: () => boolean;
   isSpotifyAccountsPage: () => boolean;
+  keyboardModeForTarget: (element: unknown) => "letters" | "numeric";
   nextState: (
     state: { mode: string; shift: boolean; caps: boolean },
     command: { kind: string },
@@ -39,10 +42,31 @@ type SessionResetTestApi = {
 };
 
 class FakeInput {
+  autocomplete = "";
   disabled = false;
+  inputMode = "";
   isConnected = true;
+  maxLength = -1;
+  name = "";
+  pattern = "";
   readOnly = false;
   type = "text";
+  value = "";
+  nextElementSibling: FakeInput | null = null;
+
+  focusCalls = 0;
+
+  focus(): void {
+    this.focusCalls += 1;
+  }
+
+  dispatchEvent(): boolean {
+    return true;
+  }
+
+  setSelectionRange(): void {
+    return;
+  }
 }
 
 class FakeTextArea {
@@ -144,9 +168,36 @@ describe("Chromium extension keyboard", () => {
       shift: false,
       caps: false,
     });
-    expect(["text", "password", "email", "search"].every((type) => keyboard.isEditableInputType(type))).toBe(true);
+    expect(["text", "password", "email", "search", "number", "tel"].every((type) => keyboard.isEditableInputType(type))).toBe(true);
     expect(keyboard.isEditableInputType("checkbox")).toBe(false);
-    expect(keyboard.isEditableInputType("number")).toBe(false);
+  });
+
+  it("recognizes Spotify one-time-code and numeric verification fields", () => {
+    const keyboard = loadKeyboardApi();
+    const oneTimeCode = new FakeInput();
+    oneTimeCode.autocomplete = "one-time-code";
+
+    const inputModeNumeric = new FakeInput();
+    inputModeNumeric.inputMode = "numeric";
+
+    const telField = new FakeInput();
+    telField.type = "tel";
+
+    const numberField = new FakeInput();
+    numberField.type = "number";
+
+    const oneDigitField = new FakeInput();
+    oneDigitField.inputMode = "numeric";
+    oneDigitField.maxLength = 1;
+    oneDigitField.name = "otp-0";
+
+    expect(keyboard.isEditableTarget(oneTimeCode)).toBe(true);
+    expect(keyboard.keyboardModeForTarget(oneTimeCode)).toBe("numeric");
+    expect(keyboard.keyboardModeForTarget(inputModeNumeric)).toBe("numeric");
+    expect(keyboard.keyboardModeForTarget(telField)).toBe("numeric");
+    expect(keyboard.keyboardModeForTarget(numberField)).toBe("numeric");
+    expect(keyboard.isOtpLikeTarget(oneDigitField)).toBe(true);
+    expect(keyboard.isOtpLikeTarget(telField)).toBe(false);
   });
 
   it("lays out ergonomic letter rows with inline shift, backspace, and symbols near clear", () => {
@@ -160,6 +211,41 @@ describe("Chromium extension keyboard", () => {
       ["z", "x", "c", "v", "b", "n", "m"],
       ["Clear", "Symbols", "Space", "Done"],
     ]);
+  });
+
+  it("uses a compact numeric keypad for code-entry fields", () => {
+    const keyboard = loadKeyboardApi();
+    const rows = keyboard.rowLabels({ mode: "numeric", shift: false, caps: false });
+
+    expect(rows).toEqual([
+      ["1", "2", "3"],
+      ["4", "5", "6"],
+      ["7", "8", "9"],
+      ["Clear", "0", "Backspace", "Done"],
+    ]);
+    expect(keyboard.nextState({ mode: "numeric", shift: false, caps: false }, { kind: "mode" })).toEqual({
+      mode: "numeric",
+      shift: false,
+      caps: false,
+    });
+  });
+
+  it("can advance across Spotify-style one-character OTP inputs", () => {
+    const keyboard = loadKeyboardApi();
+    const first = new FakeInput();
+    const second = new FakeInput();
+    first.inputMode = "numeric";
+    first.maxLength = 1;
+    first.name = "otp-0";
+    second.inputMode = "numeric";
+    second.maxLength = 1;
+    second.name = "otp-1";
+    first.nextElementSibling = second;
+
+    expect(keyboard.focusNextOtpTarget(first)).toBe(second);
+    expect(second.focusCalls).toBe(1);
+    second.value = "7";
+    expect(keyboard.focusNextOtpTarget(first)).toBeNull();
   });
 
   it("labels locked shift as CAPS in the letter layout", () => {
