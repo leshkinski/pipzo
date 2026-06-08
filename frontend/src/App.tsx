@@ -432,10 +432,10 @@ export function App() {
   }, [selectedSurface]);
 
   useEffect(() => {
-    if (snapshot.health.spotifyAuth.status === "connected") {
+    if (snapshot.health.spotifyAuth.status === "connected" && spotifyAuthSession?.status !== "connected") {
       setSpotifyAuthSession(null);
     }
-  }, [snapshot.health.spotifyAuth.status]);
+  }, [snapshot.health.spotifyAuth.status, spotifyAuthSession?.status]);
 
   useEffect(() => {
     function wake() {
@@ -1574,8 +1574,8 @@ export function App() {
       if (options?.cancelled?.()) return;
       setSpotifyAuthSession(session);
       if (session.status === "connected") {
-        await refreshSnapshot();
-        setSpotifyAuthMessage("Spotify account connected.");
+        await runPostSpotifyAuthReadiness();
+        setSpotifyAuthMessage("Spotify account connected. Pipzo is getting this device ready.");
       } else if (!options?.quiet) {
         setSpotifyAuthMessage("Spotify setup status updated.");
       }
@@ -1604,6 +1604,27 @@ export function App() {
       setSpotifyAuthMessage("Spotify setup could not be cancelled. Check status and try again.");
     } finally {
       setSpotifyAuthBusy(false);
+    }
+  }
+
+  async function runPostSpotifyAuthReadiness() {
+    const latest = await refreshSnapshot();
+    scheduleSnapshotRefreshes([750, 2_000, 5_000]);
+    const deviceId = spotifySdkState.deviceId ?? latest.health.playbackDevice.deviceId;
+    if (!deviceId || dataSource !== "backend") {
+      return;
+    }
+    try {
+      const result = await transferSpotifyPlayback({ deviceId, play: false });
+      setSpotifySdkState((current) => ({
+        ...current,
+        transferred: result.state === "succeeded" || current.transferred,
+        status: result.state === "succeeded" ? "ready" : current.status,
+        error: result.state === "succeeded" ? undefined : result.reason,
+      }));
+      scheduleSnapshotRefreshes([500, 1_500, 4_000]);
+    } catch {
+      setSpotifySdkState((current) => ({ ...current, error: "spotify_transfer_failed" }));
     }
   }
 
@@ -2725,13 +2746,7 @@ function SettingsSurface({
       )}
       {page === "spotify" && (
         <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
-          <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" />
-          <SpotifyPlaybackPanel
-            playbackGateDetail={playbackGateDetail}
-            spotifySdk={spotifySdk}
-            onActivateSpotify={onActivateSpotify}
-            playbackTest={playbackTest}
-          />
+          <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" onFinishSetup={onActivateSpotify} />
         </SettingsSubPageSummary>
       )}
       {page === "audio" && (
@@ -2745,6 +2760,13 @@ function SettingsSurface({
           <ScreenBrightnessPanel display={snapshot.health.display} onChange={onDisplayChange} />
           <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
           <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
+          <SpotifyPlaybackPanel
+            playbackGateDetail={playbackGateDetail}
+            spotifySdk={spotifySdk}
+            onActivateSpotify={onActivateSpotify}
+            playbackTest={playbackTest}
+            recoveryOnly
+          />
           <DevicePowerPanel controls={devicePower} />
         </SettingsSubPageSummary>
       )}
@@ -3327,13 +3349,16 @@ function SpotifyAuthPanel({
   snapshot,
   controls,
   context,
+  onFinishSetup,
 }: {
   snapshot: AppSnapshot;
   controls: SpotifyAuthControls;
   context: "setup" | "settings";
+  onFinishSetup?: () => void;
 }) {
   const view = spotifyAuthViewModel(snapshot, controls.session);
-  const isConnected = view.tone === "ready";
+  const accountFallback = view.tone === "ready" ? "Connected" : "Not connected";
+  const startLabel = snapshot.health.spotifyAuth.status === "reconnect_required" || snapshot.health.spotifyAuth.status === "error" ? "Reconnect Spotify" : "Connect Spotify";
 
   return (
     <section className={`spotify-panel spotify-${view.tone}`} aria-label="Spotify account setup">
@@ -3343,26 +3368,23 @@ function SpotifyAuthPanel({
         <p>{view.detail}</p>
         <div className="spotify-status">
           <span>Account</span>
-          <strong>{view.accountLabel ?? (isConnected ? "Connected" : "Not connected")}</strong>
+          <strong>{view.accountLabel ?? accountFallback}</strong>
         </div>
         <div className="spotify-status">
           <span>Status</span>
           <strong>{controls.session ? labelFromId(controls.session.status) : labelFromId(snapshot.health.spotifyAuth.status)}</strong>
         </div>
         <p className="subtle">{controls.message}</p>
-        {context === "settings" && !isConnected && (
-          <p className="subtle">Spotify authorization must preserve the fullscreen appliance runtime.</p>
-        )}
       </div>
       <div className="spotify-actions">
         {view.actions.includes("start") && (
           <button disabled={controls.busy} type="button" onClick={controls.onStart}>
-            Start Spotify account setup
+            {startLabel}
           </button>
         )}
         {view.actions.includes("open") && (
           <button disabled={controls.busy} type="button" onClick={controls.onOpen}>
-            Open Spotify authorization
+            Open Spotify
           </button>
         )}
         {view.actions.includes("refresh") && (
@@ -3380,14 +3402,19 @@ function SpotifyAuthPanel({
             Try again
           </button>
         )}
-        {view.actions.includes("logout") && (
-          <button disabled={controls.busy} type="button" onClick={controls.onLogout}>
-            Disconnect account
-          </button>
-        )}
         {view.actions.includes("reconnect") && (
           <button disabled={controls.busy} type="button" onClick={controls.onReconnect}>
             Switch account
+          </button>
+        )}
+        {view.actions.includes("finish") && onFinishSetup && (
+          <button disabled={controls.busy} type="button" onClick={onFinishSetup}>
+            {view.title === "Spotify playback is not ready yet" ? "Try again" : "Finish setup on this device"}
+          </button>
+        )}
+        {view.actions.includes("logout") && (
+          <button className="destructive-secondary" disabled={controls.busy} type="button" onClick={controls.onLogout}>
+            Disconnect account
           </button>
         )}
       </div>
@@ -3400,28 +3427,22 @@ function SpotifyPlaybackPanel({
   playbackGateDetail,
   onActivateSpotify,
   playbackTest,
-  takeoverLabel = "Activate player",
+  takeoverLabel = "Finish setup on this device",
+  recoveryOnly = false,
 }: {
   spotifySdk: SpotifySdkState;
   playbackGateDetail: string;
   onActivateSpotify: () => void;
   playbackTest?: SetupPlaybackControls;
   takeoverLabel?: string;
+  recoveryOnly?: boolean;
 }) {
   return (
-    <section className={`spotify-panel playback-${spotifySdk.status}`} aria-label="Spotify browser playback">
+    <section className={`spotify-panel playback-${spotifySdk.status}`} aria-label="Spotify playback recovery">
       <div>
-        <p className="eyebrow">Browser playback</p>
-        <h2>{labelFromId(spotifySdk.status)}</h2>
-        <p>{spotifySdkStatusLabel(spotifySdk)}</p>
-        <div className="spotify-status">
-          <span>Device</span>
-          <strong>{spotifySdk.deviceId ?? "Not registered"}</strong>
-        </div>
-        <div className="spotify-status">
-          <span>Transfer</span>
-          <strong>{spotifySdk.transferred ? "Selected" : "Pending"}</strong>
-        </div>
+        <p className="eyebrow">Playback recovery</p>
+        <h2>{recoveryOnly ? "Spotify playback setup" : labelFromId(spotifySdk.status)}</h2>
+        <p>{recoveryOnly ? "Use this only if music does not start after the Spotify account is connected." : spotifySdkStatusLabel(spotifySdk)}</p>
         <p className="subtle">{playbackGateDetail}</p>
       </div>
       <div className="spotify-actions">
@@ -3430,7 +3451,7 @@ function SpotifyPlaybackPanel({
         </button>
         {playbackTest && (
           <button disabled={playbackTest.busy || spotifySdk.status !== "ready" || !spotifySdk.transferred} type="button" onClick={playbackTest.onConfirm}>
-            Confirm playback test
+            Confirm sound works
           </button>
         )}
       </div>

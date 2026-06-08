@@ -310,8 +310,8 @@ describe("kiosk shell view model", () => {
     expect(rows.find((row) => row.id === "device")).toMatchObject({
       status: "Playback test needed",
       tone: "action_needed",
-      targetPage: "spotify",
-      actionLabel: "Open playback",
+      targetPage: "device",
+      actionLabel: "Open device",
     });
   });
 
@@ -484,7 +484,7 @@ describe("kiosk shell view model", () => {
     const view = spotifyAuthViewModel(snapshot);
 
     expect(view.title).toBe("Connect Spotify");
-    expect(view.detail).toContain("local setup");
+    expect(view.detail).toContain("Spotify Premium account");
     expect(view.actions).toEqual(["start"]);
   });
 
@@ -577,7 +577,7 @@ describe("kiosk shell view model", () => {
     ]);
   });
 
-  it("offers open, poll, and cancel controls while local Spotify auth is waiting", () => {
+  it("offers open, poll, and cancel controls while Spotify auth is in progress", () => {
     const snapshot = localScenarios.first_boot_empty.snapshot;
     const session: SpotifyAuthSession = {
       sessionId: "safe-session-id",
@@ -591,29 +591,98 @@ describe("kiosk shell view model", () => {
 
     const view = spotifyAuthViewModel(snapshot, session);
 
-    expect(view.title).toBe("Waiting for Spotify authorization");
+    expect(view.title).toBe("Finish connecting Spotify");
+    expect(view.detail).toContain("Sign in and approve Pipzo");
     expect(view.actions).toEqual(["open", "refresh", "cancel"]);
   });
 
-  it("shows safe account metadata and reconnect controls when Spotify is connected", () => {
+  it("shows safe account metadata and makes switching the primary connected-state action", () => {
     const snapshot = localScenarios.ready_healthy.snapshot;
 
     const view = spotifyAuthViewModel(snapshot);
 
-    expect(view.title).toBe("Spotify account connected");
+    expect(view.title).toBe("Spotify connected");
     expect(view.accountLabel).toBe("Pipzo");
-    expect(view.detail).toContain("Disconnect or reconnect to switch");
-    expect(view.actions).toEqual(["logout", "reconnect"]);
+    expect(view.detail).toContain("Switch accounts");
+    expect(view.actions).toEqual(["reconnect", "logout"]);
   });
 
-  it("makes revoked Spotify authorization recovery explicit from Settings", () => {
-    const snapshot = localScenarios.spotify_auth_unavailable.snapshot;
+  it("makes revoked Spotify authorization recovery explicit and reusable from Settings", () => {
+    const snapshot = {
+      ...localScenarios.spotify_auth_unavailable.snapshot,
+      health: {
+        ...localScenarios.spotify_auth_unavailable.snapshot.health,
+        spotifyAuth: {
+          ...localScenarios.spotify_auth_unavailable.snapshot.health.spotifyAuth,
+          accountDisplayName: "Alexei",
+        },
+      },
+    };
 
     const view = spotifyAuthViewModel(snapshot);
 
-    expect(view.title).toBe("Spotify reconnect required");
-    expect(view.detail).toContain("different Spotify account");
-    expect(view.actions).toEqual(["start"]);
+    expect(view.title).toBe("Spotify needs attention");
+    expect(view.detail).toContain("Reconnect or switch accounts");
+    expect(view.accountLabel).toBe("Alexei");
+    expect(view.actions).toEqual(["start", "reconnect", "logout"]);
+  });
+
+  it("shows post-auth success without a playback setup ceremony when the device is ready", () => {
+    const snapshot = localScenarios.ready_healthy.snapshot;
+    const session: SpotifyAuthSession = {
+      sessionId: "safe-session-id",
+      status: "connected",
+      createdAt: "2026-05-29T12:00:00.000Z",
+      expiresAt: "2026-05-29T12:10:00.000Z",
+      startUrl: "http://127.0.0.1:8000/api/v1/spotify/auth/start/safe-session-id",
+      failureReason: null,
+      accountDisplayName: "Daughter",
+    };
+
+    const view = spotifyAuthViewModel(snapshot, session);
+
+    expect(view.title).toBe("Spotify is ready");
+    expect(view.detail).toContain("ready to play");
+    expect(view.accountLabel).toBe("Daughter");
+    expect(view.actions).toEqual([]);
+  });
+
+  it("shows one plain final device-readiness action when post-auth playback needs a user gesture", () => {
+    const snapshot = {
+      ...localScenarios.ready_healthy.snapshot,
+      health: {
+        ...localScenarios.ready_healthy.snapshot.health,
+        playbackDevice: { status: "transfer_required" as const, reason: "device_not_registered" as const },
+      },
+    };
+    const session: SpotifyAuthSession = {
+      sessionId: "safe-session-id",
+      status: "connected",
+      createdAt: "2026-05-29T12:00:00.000Z",
+      expiresAt: "2026-05-29T12:10:00.000Z",
+      startUrl: "http://127.0.0.1:8000/api/v1/spotify/auth/start/safe-session-id",
+      failureReason: null,
+      accountDisplayName: "Daughter",
+    };
+
+    const view = spotifyAuthViewModel(snapshot, session);
+
+    expect(view.title).toBe("One last step");
+    expect(view.detail).toContain("finish setting up Spotify playback on this device");
+    expect(view.actions).toEqual(["finish"]);
+  });
+
+  it("keeps Settings Spotify account-first and demotes playback recovery to Device", () => {
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    const spotifyPage = appSource.slice(appSource.indexOf('{page === "spotify"'), appSource.indexOf('{page === "audio"'));
+    const devicePage = appSource.slice(appSource.indexOf('{page === "device"'), appSource.indexOf("function settingsPageTitle"));
+
+    expect(spotifyPage).toContain("<SpotifyAuthPanel");
+    expect(spotifyPage).not.toContain("<SpotifyPlaybackPanel");
+    expect(devicePage).toContain("<SpotifyPlaybackPanel");
+    expect(appSource).not.toContain("Browser playback");
+    expect(appSource).not.toContain("Activate player");
+    expect(appSource).toContain("Finish setup on this device");
   });
 
   it("offers retry after expired, failed, or cancelled Spotify sessions", () => {

@@ -216,16 +216,28 @@ function internetSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
 function spotifySettingsStatusRow(snapshot: AppSnapshot, authSession?: SpotifyAuthSession | null): SettingsStatusRow {
   const auth = snapshot.health.spotifyAuth;
   const activeSession = authSession && ["waiting", "callback_received"].includes(authSession.status);
+  const justConnected = authSession?.status === "connected";
   const setupRequired = isSetupGated(snapshot) && !snapshot.readiness.spotifyAuthorized;
+  const accountLabel = auth.accountDisplayName ?? authSession?.accountDisplayName ?? "Spotify account";
   if (activeSession || auth.status === "waiting") {
     return {
       id: "spotify",
       title: "Spotify",
       status: "In progress",
-      detail: "Finish in this browser window",
+      detail: "Finish connecting Spotify in this browser",
       tone: "warning",
       targetPage: "spotify",
-      actionLabel: "Open",
+      actionLabel: "Open Spotify",
+    };
+  }
+  if (justConnected && auth.status === "connected") {
+    return {
+      id: "spotify",
+      title: "Spotify",
+      status: "Connected",
+      detail: "Spotify is ready",
+      tone: "ready",
+      targetPage: "spotify",
     };
   }
   if (setupRequired) {
@@ -244,7 +256,7 @@ function spotifySettingsStatusRow(snapshot: AppSnapshot, authSession?: SpotifyAu
       id: "spotify",
       title: "Spotify",
       status: "Connected",
-      detail: auth.accountDisplayName ?? "Spotify account ready",
+      detail: accountLabel,
       tone: "ready",
       targetPage: "spotify",
     };
@@ -254,8 +266,8 @@ function spotifySettingsStatusRow(snapshot: AppSnapshot, authSession?: SpotifyAu
     title: "Spotify",
     status: "Reconnect needed",
     detail: auth.reason === "token_refresh_failed" || auth.reason === "revoked"
-      ? "Playback is blocked until Spotify is reconnected"
-      : "Reconnect to approve updated Spotify access",
+      ? "Reconnect or switch accounts"
+      : "Reconnect Spotify to continue",
     tone: "error",
     targetPage: "spotify",
     actionLabel: "Reconnect",
@@ -315,10 +327,10 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
       id: "device",
       title: "Device",
       status: "Playback test needed",
-      detail: "Activate Pipzo playback and confirm sound",
+      detail: "Confirm Pipzo can play sound",
       tone: "action_needed",
-      targetPage: "spotify",
-      actionLabel: "Open playback",
+      targetPage: "device",
+      actionLabel: "Open device",
     };
   }
   if (playback.status === "starting" || playback.status === "registering") {
@@ -346,11 +358,11 @@ function deviceSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
     return {
       id: "device",
       title: "Device",
-      status: "Playback not selected",
-      detail: "Open browser playback controls",
+      status: "Almost ready",
+      detail: "Finish setup on this device",
       tone: "warning",
-      targetPage: "spotify",
-      actionLabel: "Open playback",
+      targetPage: "device",
+      actionLabel: "Finish setup",
     };
   }
   return {
@@ -965,7 +977,7 @@ export function shouldEnterIdleMode(snapshot: AppSnapshot, lastActivityAtMs: num
   return nowMs - lastActivityAtMs >= timeoutMs;
 }
 
-export type SpotifyAuthAction = "start" | "open" | "refresh" | "cancel" | "retry" | "logout" | "reconnect";
+export type SpotifyAuthAction = "start" | "open" | "refresh" | "cancel" | "retry" | "logout" | "reconnect" | "finish";
 
 export type SpotifyAuthViewModel = {
   title: string;
@@ -977,23 +989,53 @@ export type SpotifyAuthViewModel = {
 
 export function spotifyAuthViewModel(snapshot: AppSnapshot, session?: SpotifyAuthSession | null): SpotifyAuthViewModel {
   const accountLabel = session?.accountDisplayName ?? snapshot.health.spotifyAuth.accountDisplayName;
+  const playback = snapshot.health.playbackDevice;
+  const finalGestureRequired = playback.status === "transfer_required" || playback.reason === "device_not_registered" || playback.reason === "sdk_not_ready";
+
+  if (session?.status === "connected" && snapshot.health.spotifyAuth.status === "connected") {
+    if (finalGestureRequired) {
+      return {
+        title: "One last step",
+        detail: "Tap once to finish setting up Spotify playback on this device.",
+        accountLabel: accountLabel ?? undefined,
+        tone: "waiting",
+        actions: ["finish"],
+      };
+    }
+    if (playback.status === "error") {
+      return {
+        title: "Spotify playback is not ready yet",
+        detail: "Your account is connected, but Pipzo could not finish preparing playback on this device.",
+        accountLabel: accountLabel ?? undefined,
+        tone: "attention",
+        actions: ["finish"],
+      };
+    }
+    return {
+      title: "Spotify is ready",
+      detail: "Pipzo is ready to play from this account.",
+      accountLabel: accountLabel ?? undefined,
+      tone: "ready",
+      actions: [],
+    };
+  }
 
   if (snapshot.readiness.spotifyAuthorized && snapshot.health.spotifyAuth.status === "connected") {
     return {
-      title: "Spotify account connected",
+      title: "Spotify connected",
       detail: accountLabel
-        ? "Pipzo can use this account for playback and library browsing. Disconnect or reconnect to switch Spotify accounts."
-        : "Pipzo can use the connected account for playback and library browsing. Disconnect or reconnect to switch Spotify accounts.",
+        ? "Pipzo is using this Spotify account. Switch accounts if this device should use someone else's Spotify Premium account."
+        : "Pipzo is using the connected Spotify account. Switch accounts if this device should use someone else's Spotify Premium account.",
       accountLabel: accountLabel ?? undefined,
       tone: "ready",
-      actions: ["logout", "reconnect"],
+      actions: ["reconnect", "logout"],
     };
   }
 
   if (session?.status === "waiting" || session?.status === "callback_received") {
     return {
-      title: session.status === "callback_received" ? "Finishing Spotify setup" : "Waiting for Spotify authorization",
-      detail: "Use this Chromium window to sign in and approve Pipzo, then return here when Spotify sends you back.",
+      title: "Finish connecting Spotify",
+      detail: "Sign in and approve Pipzo in this browser, then return here automatically.",
       accountLabel: accountLabel ?? undefined,
       tone: "waiting",
       actions: ["open", "refresh", "cancel"],
@@ -1020,17 +1062,19 @@ export function spotifyAuthViewModel(snapshot: AppSnapshot, session?: SpotifyAut
 
   if (snapshot.health.spotifyAuth.status === "reconnect_required" || snapshot.health.spotifyAuth.status === "error") {
     return {
-      title: "Spotify reconnect required",
-      detail: "Reconnect locally in Chromium. Spotify will ask which account to use, so a different Spotify account can be connected.",
+      title: "Spotify needs attention",
+      detail: snapshot.health.spotifyAuth.reason === "token_refresh_failed" || snapshot.health.spotifyAuth.reason === "revoked"
+        ? "This Spotify connection is no longer valid. Reconnect or switch accounts."
+        : "Pipzo needs permission to keep using Spotify on this device.",
       accountLabel: accountLabel ?? undefined,
       tone: "attention",
-      actions: ["start"],
+      actions: accountLabel ? ["start", "reconnect", "logout"] : ["start"],
     };
   }
 
   return {
     title: "Connect Spotify",
-    detail: "Start local setup on this device. Pipzo uses Authorization Code with PKCE in Chromium.",
+    detail: "Connect a Spotify Premium account for music, playlists, and liked songs on Pipzo.",
     accountLabel: accountLabel ?? undefined,
     tone: "attention",
     actions: ["start"],

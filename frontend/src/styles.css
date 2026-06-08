@@ -1808,6 +1808,12 @@ label.touch-pressed {
   font-weight: 800;
 }
 
+.spotify-actions button.destructive-secondary {
+  border-color: #c58b84;
+  background: #f4e2df;
+  color: #6c241d;
+}
+
 .wifi-heading,
 .wifi-form,
 .speaker-heading,
