@@ -869,6 +869,18 @@
     return true;
   }
 
+  function handlePageActivation(documentRef, event) {
+    const target = editableTargetFromEvent(event);
+    if (!target) {
+      if (dismissTargetFromEvent(event)) hideKeyboard();
+      else if (isSpotifyAuthPage()) hideKeyboard();
+      return false;
+    }
+    showKeyboardForTarget(documentRef, target);
+    globalScope.setTimeout(() => showKeyboardForTarget(documentRef, target), 0);
+    return true;
+  }
+
   function checkActiveElement(documentRef) {
     const active = documentRef.activeElement;
     if (isEditableTarget(active)) showKeyboard(documentRef, active);
@@ -904,14 +916,7 @@
     scheduleExtensionDiagnostic(documentRef);
     scheduleExtensionDiagnostic(documentRef, 700);
     const handleActivation = (event) => {
-      const target = editableTargetFromEvent(event);
-      if (!target) {
-        if (showSpotifyChallengeKeyboard(documentRef)) return;
-        if (dismissTargetFromEvent(event)) hideKeyboard();
-        return;
-      }
-      showKeyboardForTarget(documentRef, target);
-      globalScope.setTimeout(() => showKeyboardForTarget(documentRef, target), 0);
+      handlePageActivation(documentRef, event);
     };
     documentRef.addEventListener("pointerdown", handleActivation, true);
     documentRef.addEventListener("touchstart", handleActivation, true);
@@ -919,6 +924,7 @@
     documentRef.addEventListener("focusin", (event) => {
       const target = event.target;
       if (isEditableTarget(target)) showKeyboard(documentRef, target);
+      else if (isSpotifyAuthPage()) hideKeyboard();
       else showSpotifyChallengeKeyboard(documentRef);
     });
     documentRef.defaultView?.addEventListener("pagehide", hideKeyboard);
@@ -972,6 +978,7 @@
     keyboardModeForTarget,
     commandFromButton,
     handleKeyboardActivation,
+    handlePageActivation,
     isPipzoAppPage,
     isSpotifyAuthPage,
     nextState,

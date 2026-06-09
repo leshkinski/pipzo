@@ -19,6 +19,7 @@ type KeyboardTestApi = {
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
   editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
   handleKeyboardActivation: (event: FakeDomEvent) => boolean;
+  handlePageActivation: (documentRef: Record<string, unknown>, event: FakeDomEvent) => boolean;
   hideIfTargetLeftPage: (documentRef: unknown) => void;
   focusNextOtpTarget: (element: unknown) => unknown | null;
   isConnectedTarget: (element: unknown) => boolean;
@@ -182,6 +183,7 @@ function loadKeyboardApi(
     location?: { protocol: string; host: string; pathname?: string };
     performance: { now: () => number };
     PointerEvent?: unknown;
+    setTimeout: () => number;
     globalThis?: unknown;
   } = {
     HTMLInputElement: FakeInput,
@@ -194,6 +196,7 @@ function loadKeyboardApi(
     document: documentRef,
     location,
     performance: { now: () => Date.now() },
+    setTimeout: () => 0,
   };
   runInNewContext(source, context);
   if (!context.__pipzoKeyboardTestApi) {
@@ -666,6 +669,38 @@ describe("Chromium extension keyboard", () => {
 
     passwordField.disabled = true;
     expect(keyboard.isEditableTarget(passwordField)).toBe(false);
+  });
+
+  it("does not auto-open or intercept the keyboard for non-editable Spotify consent controls", () => {
+    const consentButton = new FakeButton();
+    consentButton.textContent = "Agree";
+    const keyboardRoot = { hidden: false };
+    const documentRef = {
+      activeElement: consentButton,
+      addEventListener: () => undefined,
+      body: { innerText: "Enter the 6-digit code sent to you" },
+      documentElement: { dataset: {}, style: { setProperty: () => undefined } },
+      getElementById: (id: string) => (id === "pipzo-extension-keyboard" ? keyboardRoot : null),
+      querySelectorAll: (selector: string) => (selector === "input" ? [] : []),
+      readyState: "loading",
+    };
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com", pathname: "/authorize" }, documentRef);
+    const event = new FakeDomEvent("pointerdown", consentButton, [consentButton], 0);
+
+    expect(keyboard.handlePageActivation(documentRef, event)).toBe(false);
+
+    expect(keyboardRoot.hidden).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(event.propagationStopped).toBe(false);
+    expect(event.immediatePropagationStopped).toBe(false);
+  });
+
+  it("keeps Spotify challenge auto-open out of non-editable pointer and focus handlers", () => {
+    const script = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
+
+    expect(script).toContain("function handlePageActivation(documentRef, event)");
+    expect(script).toContain("else if (isSpotifyAuthPage()) hideKeyboard();");
+    expect(script).not.toContain("if (showSpotifyChallengeKeyboard(documentRef)) return;");
   });
 
   it("uses data-driven key row columns so every letter row stays horizontal", () => {
