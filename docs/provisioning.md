@@ -6,7 +6,8 @@ They are safe to review on non-Pi development machines. The install scripts inte
 
 ## Runtime Contract
 
-- App checkout: `/opt/pipzo/app`
+- Source Git checkout on the Pi: `~/pipzo`
+- Installed runtime app tree: `/opt/pipzo/app`
 - Python virtualenv: `/opt/pipzo/venv`
 - Backend service user: the kiosk desktop user by default, or `--service-user USER`
 - Kiosk desktop user: the invoking sudo user by default, or `--kiosk-user USER`
@@ -25,8 +26,9 @@ Generated DB/key files stay outside the repo in `/var/lib/pipzo` on the Pi and r
 On Raspberry Pi OS Desktop:
 
 ```bash
+cd ~
 git clone https://github.com/leshkinski/pipzo.git
-cd pipzo
+cd ~/pipzo
 sudo provisioning/scripts/setup-packages.sh
 sudo provisioning/scripts/install-app.sh --kiosk-user "$USER"
 sudoedit /etc/pipzo/pipzo.env
@@ -36,7 +38,7 @@ systemctl --user restart pipzo-kiosk.service
 
 Set `SPOTIFY_CLIENT_ID` in `/etc/pipzo/pipzo.env`. Do not add Spotify client secrets; Pipzo uses Authorization Code with PKCE.
 
-The installer copies the checkout to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. With the normal `--kiosk-user USER` V1 path, the backend service deliberately runs as the kiosk desktop user so `wpctl` can access that user's active PipeWire/WirePlumber session without broad socket chmods or sudo workarounds. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
+The installer copies the source checkout from `~/pipzo` to `/opt/pipzo/app`, creates or updates `/opt/pipzo/venv`, installs the backend package, runs `npm ci`, builds the frontend into `/opt/pipzo/app/frontend/dist`, installs systemd units, and enables the backend service. `/opt/pipzo/app` is the installed runtime tree and normally has no `.git`; run `git pull`, branch changes, and commit checks from `~/pipzo`, then rerun the installer to refresh `/opt/pipzo/app`. With the normal `--kiosk-user USER` V1 path, the backend service deliberately runs as the kiosk desktop user so `wpctl` can access that user's active PipeWire/WirePlumber session without broad socket chmods or sudo workarounds. It enables the kiosk user service when the target user's user-systemd runtime is active; otherwise it prints the exact `systemctl --user` command to run after logging in as that user.
 
 `setup-packages.sh` installs NetworkManager, polkit, BlueZ, and Raspberry Pi OS labwc on-screen keyboard packages when apt exposes them. On Raspberry Pi OS it also installs `pi-bluetooth` when that package is available. `install-app.sh` installs `/etc/polkit-1/rules.d/50-pipzo-networkmanager.rules` for the configured backend service user, so Wi-Fi setup operations through `nmcli` keep the same bounded non-interactive authorization path after migrating from the legacy `pipzo` service user to the kiosk user. It also installs `/etc/polkit-1/rules.d/50-pipzo-power.rules` for confirmed app-initiated reboot and power-off actions through systemd-logind. The power rule allows only `org.freedesktop.login1.reboot`, `org.freedesktop.login1.reboot-multiple-sessions`, `org.freedesktop.login1.power-off`, and `org.freedesktop.login1.power-off-multiple-sessions` for the configured backend service user; it does not allow suspend, halt, kexec, or ignore-inhibit variants. The backend service keeps `NoNewPrivileges=true`, so hardware power-control adapters should use fixed-argument `systemctl reboot` and `systemctl poweroff` calls without sudo or shell expansion. It also installs `/usr/local/bin/pipzo-reset-kiosk-browser-session`, a fixed helper used by Settings -> Spotify account switching to stop only `pipzo-kiosk.service`, delete only the configured Pipzo Chromium profile under the kiosk user's `.local/share/pipzo/chromium-profile`, recreate it, and restart only `pipzo-kiosk.service`. The helper does not inspect cookies, tokens, or browser databases; it resets the whole kiosk browser profile so stale Spotify web login state cannot survive account switching. It also adds the backend service user to the `bluetooth` group when the group exists, so BlueZ/bluetoothctl speaker operations keep the normal Raspberry Pi OS Bluetooth access path.
 
@@ -53,7 +55,7 @@ Wi-Fi internet reachability uses `PIPZO_INTERNET_PROBE_URL`, defaulting to `http
 From an updated clone:
 
 ```bash
-cd pipzo
+cd ~/pipzo
 git pull --ff-only
 sudo provisioning/scripts/install-app.sh --kiosk-user "$USER"
 sudo systemctl restart pipzo-backend.service
@@ -179,7 +181,7 @@ If taps work but direct finger panning does not scroll Pipzo regions, first conf
 Run the local event probe from an updated checkout on the Pi:
 
 ```bash
-cd /opt/pipzo/app
+cd ~/pipzo
 PROBE_URL="file:///opt/pipzo/app/provisioning/touch-event-probe.html"
 sudo sh -c "grep -q '^PIPZO_CHROMIUM_EXTRA_FLAGS=' /etc/pipzo/kiosk.env || printf '\nPIPZO_CHROMIUM_EXTRA_FLAGS=\n' >> /etc/pipzo/kiosk.env"
 sudo sed -i "s|^PIPZO_KIOSK_URL=.*|PIPZO_KIOSK_URL=$PROBE_URL|" /etc/pipzo/kiosk.env
