@@ -3488,7 +3488,11 @@ function SettingsWifiPanel({
   const connectHelp = !controls.selectedSsid ? view.connectHelp : connectBlocked ? "Enter the Wi-Fi password before Connect is available." : needsPassword ? view.connectHelp : null;
   const scanLabel = controls.busy && controls.message.toLowerCase().includes("scanning") ? "Scanning" : "Scan networks";
   const connectLabel = controls.busy && controls.message.toLowerCase().includes("connecting") ? "Connecting" : "Connect";
-  const showConnectFirst = view.actions.includes("connect") && Boolean(controls.selectedSsid);
+  const showConnectInPasswordPanel = view.showPasswordInput && view.actions.includes("connect");
+  const showConnectFirst = view.actions.includes("connect") && Boolean(controls.selectedSsid) && !showConnectInPasswordPanel;
+  const selectedNetworkDetail = selectedNetwork
+    ? `${labelFromId(selectedNetwork.security)} / ${selectedNetwork.signal}% signal`
+    : "Choose a nearby network";
 
   return (
     <section className={`wifi-panel settings-wifi-panel wifi-${view.tone}`} aria-label="Wi-Fi settings">
@@ -3545,7 +3549,7 @@ function SettingsWifiPanel({
             {scanLabel}
           </button>
         )}
-        {view.actions.includes("connect") && !showConnectFirst && (
+        {view.actions.includes("connect") && !showConnectFirst && !showConnectInPasswordPanel && (
           <button disabled={controls.busy || !controls.selectedSsid || connectBlocked} type="button" onClick={controls.onConnect}>
             {connectLabel}
           </button>
@@ -3598,37 +3602,49 @@ function SettingsWifiPanel({
       )}
 
       {view.showPasswordInput && (
-      <div className="wifi-form network-password-panel">
-        <label>
-          <span>Password</span>
-          <div className="wifi-password-control">
-            <input
-              autoComplete="current-password"
-              disabled={!needsPassword || !controls.selectedSsid}
-              inputMode="text"
-              placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
-              type={controls.passwordVisible ? "text" : "password"}
-              value={controls.password}
-              onChange={(event) => controls.onPassword(event.target.value)}
-            />
-            <button
-              aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
-              aria-pressed={controls.passwordVisible}
-              title={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
-              disabled={!needsPassword || !controls.selectedSsid}
-              type="button"
-              onClick={controls.onTogglePasswordVisibility}
-            >
-              <span className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"} aria-hidden="true" />
-            </button>
+        <div className="wifi-form network-password-panel">
+          <div className="network-password-summary">
+            <span>Selected network</span>
+            <strong>{controls.selectedSsid || "No network selected"}</strong>
+            <small>{selectedNetworkDetail}</small>
           </div>
-          {connectHelp && (
-            <span className="network-connect-help">
-              {connectHelp}
-            </span>
+          <label>
+            <span>Password</span>
+            <div className="wifi-password-control">
+              <input
+                autoComplete="current-password"
+                disabled={!needsPassword || !controls.selectedSsid}
+                inputMode="text"
+                placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
+                type={controls.passwordVisible ? "text" : "password"}
+                value={controls.password}
+                onChange={(event) => controls.onPassword(event.target.value)}
+              />
+              <button
+                aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+                aria-pressed={controls.passwordVisible}
+                title={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+                disabled={!needsPassword || !controls.selectedSsid}
+                type="button"
+                onClick={controls.onTogglePasswordVisibility}
+              >
+                <span className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"} aria-hidden="true" />
+              </button>
+            </div>
+            {connectHelp && (
+              <span className="network-connect-help">
+                {connectHelp}
+              </span>
+            )}
+          </label>
+          {showConnectInPasswordPanel && (
+            <div className="network-password-actions">
+              <button disabled={controls.busy || !controls.selectedSsid || connectBlocked} type="button" onClick={controls.onConnect}>
+                {connectLabel}
+              </button>
+            </div>
           )}
-        </label>
-      </div>
+        </div>
       )}
     </section>
   );

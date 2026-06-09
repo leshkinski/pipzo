@@ -2183,9 +2183,73 @@ label.touch-pressed {
   align-self: end;
 }
 
+.network-password-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid #d5cec0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fffdf7;
+  color: #17211c;
+}
+
+.network-password-summary span,
+.network-password-summary small {
+  color: #65716b;
+  font-weight: 800;
+}
+
+.network-password-summary strong,
+.network-password-summary small {
+  overflow-wrap: anywhere;
+}
+
+.network-password-actions {
+  display: grid;
+}
+
+.network-password-actions button {
+  min-height: 58px;
+}
+
 .network-connect-help {
   color: #7a2d28;
   font-weight: 800;
+}
+
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-status-card,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-flow-card,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-actions,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-step-panel,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-list-panel {
+  display: none;
+}
+
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-panel {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: min(620px, 100%);
+  align-self: start;
+  justify-self: stretch;
+  gap: 8px;
+  border-color: rgba(246, 240, 223, 0.18);
+  background: rgba(246, 240, 223, 0.08);
+}
+
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-summary,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .wifi-form input,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .wifi-password-control button,
+.app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-actions button {
+  min-height: 50px;
 }
 
 @media (min-width: 901px) and (max-height: 760px) {
@@ -2229,6 +2293,10 @@ label.touch-pressed {
 
   .settings-wifi-panel .network-password-panel {
     width: min(460px, 100%);
+  }
+
+  .app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-panel {
+    width: min(560px, 100%);
   }
 }
 

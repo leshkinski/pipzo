@@ -949,6 +949,21 @@ describe("kiosk shell view model", () => {
     expect(appSource).toContain('!["range", "checkbox", "radio", "button", "submit", "reset"].includes(element.type)');
   });
 
+  it("keeps Settings Wi-Fi password entry keyboard-first on the kiosk screen", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+    expect(appSource).toContain("network-password-summary");
+    expect(appSource).toContain("showConnectInPasswordPanel");
+    expect(appSource).toContain("showConnectFirst = view.actions.includes(\"connect\") && Boolean(controls.selectedSsid) && !showConnectInPasswordPanel");
+    expect(css).toContain(".app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel)");
+    expect(css).toContain("> .network-list-panel");
+    expect(css).toContain("display: none");
+    expect(css).toContain(".app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-panel");
+    expect(css).toContain("position: sticky");
+    expect(css).toContain("width: min(560px, 100%)");
+  });
+
   it("keeps V1 daily library browsing free of text search controls", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
