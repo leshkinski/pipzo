@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -235,6 +235,49 @@ class WarningCode(str, Enum):
     STALE_CONTENT = "stale_content"
     KIOSK_RECOVERED = "kiosk_recovered"
     DIAGNOSTICS_LIMITED = "diagnostics_limited"
+
+
+class ExtensionDiagnosticOriginClass(str, Enum):
+    LOCAL_PIPZO = "local_pipzo"
+    SPOTIFY_ACCOUNTS = "spotify_accounts"
+    OTHER_SPOTIFY = "other_spotify"
+    OTHER = "other"
+    UNKNOWN = "unknown"
+
+
+class ExtensionDiagnosticSource(str, Enum):
+    CONTENT_SCRIPT = "content_script"
+    SERVICE_WORKER = "service_worker"
+
+
+class ExtensionDiagnosticEvent(ContractModel):
+    source: ExtensionDiagnosticSource
+    origin_class: ExtensionDiagnosticOriginClass
+    path: str = Field(default="/", max_length=160)
+    top_frame: Optional[bool] = None
+    manifest_version: Optional[str] = Field(default=None, max_length=32)
+    keyboard_root_present: Optional[bool] = None
+    keyboard_visible: Optional[bool] = None
+    launcher_present: Optional[bool] = None
+    scroll_controls_present: Optional[bool] = None
+    editable_present: Optional[bool] = None
+    otp_like_present: Optional[bool] = None
+    tab_status: Optional[str] = Field(default=None, max_length=32)
+    injection_attempted: Optional[bool] = None
+    generated_at: Optional[datetime] = None
+
+    @field_validator("path")
+    @classmethod
+    def redact_path(cls, value: str) -> str:
+        path = value.split("?", 1)[0].split("#", 1)[0] or "/"
+        if not path.startswith("/"):
+            return "/"
+        return path[:160]
+
+
+class ExtensionDiagnosticsSnapshot(ContractModel):
+    generated_at: datetime
+    events: List[ExtensionDiagnosticEvent]
 
 
 Reason = Union[NetworkReason, SpeakerReason, SpotifyAuthReason, PlaybackDeviceReason, VolumeReason, DisplayReason]

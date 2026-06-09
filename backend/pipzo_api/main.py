@@ -39,6 +39,8 @@ from .contract import (
     DevicePowerActionRequest,
     DisplayHealth,
     DisplayPatch,
+    ExtensionDiagnosticEvent,
+    ExtensionDiagnosticsSnapshot,
     HealthResponse,
     KioskBrowserSessionResetRequest,
     LibraryCategoryId,
@@ -124,6 +126,8 @@ from .spotify_catalog import (
 from .spotify_store import SpotifyAuthStore, SpotifyAuthTokenStorageError
 
 _LAST_KNOWN_NOW_PLAYING_BY_DB: dict[str, NowPlayingSummary] = {}
+_EXTENSION_DIAGNOSTIC_EVENTS: list[ExtensionDiagnosticEvent] = []
+_EXTENSION_DIAGNOSTIC_LIMIT = 40
 
 
 def create_app(
@@ -136,6 +140,7 @@ def create_app(
     device_power_adapter_override: Optional[DevicePowerAdapter] = None,
     kiosk_browser_session_reset_adapter_override: Optional[KioskBrowserSessionResetAdapter] = None,
 ) -> FastAPI:
+    _EXTENSION_DIAGNOSTIC_EVENTS.clear()
     mock_store = MockScenarioStore()
     event_hub = EventHub()
     spotify_auth_sessions = spotify_auth_sessions_override or SpotifyAuthSessionService()
@@ -218,6 +223,17 @@ def create_app(
     @app.get("/api/v1/health", response_model=HealthResponse)
     def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
         return HealthResponse(mode=settings.app_mode, checked_at=utc_now())
+
+    @app.post("/api/v1/diagnostics/extension", response_model=ExtensionDiagnosticsSnapshot)
+    def extension_diagnostic_event(body: ExtensionDiagnosticEvent) -> ExtensionDiagnosticsSnapshot:
+        event = body.model_copy(update={"generated_at": body.generated_at or utc_now()})
+        _EXTENSION_DIAGNOSTIC_EVENTS.append(event)
+        del _EXTENSION_DIAGNOSTIC_EVENTS[:-_EXTENSION_DIAGNOSTIC_LIMIT]
+        return ExtensionDiagnosticsSnapshot(generated_at=utc_now(), events=list(_EXTENSION_DIAGNOSTIC_EVENTS))
+
+    @app.get("/api/v1/diagnostics/extension", response_model=ExtensionDiagnosticsSnapshot)
+    def extension_diagnostics() -> ExtensionDiagnosticsSnapshot:
+        return ExtensionDiagnosticsSnapshot(generated_at=utc_now(), events=list(_EXTENSION_DIAGNOSTIC_EVENTS))
 
     @app.get("/api/v1/app/state", response_model=AppSnapshot)
     def app_state(settings: Settings = Depends(get_settings)) -> AppSnapshot:

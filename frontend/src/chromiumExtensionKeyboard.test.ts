@@ -34,6 +34,7 @@ type KeyboardTestApi = {
   rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
   spotifyChallengeTarget: (documentRef: unknown) => unknown | null;
   spotifyFallbackTarget: (documentRef: unknown) => unknown | null;
+  sendExtensionDiagnostic: (documentRef: unknown) => void;
 };
 
 type SessionResetTestApi = {
@@ -44,6 +45,8 @@ type SessionResetTestApi = {
   cookieUrl: (cookie: { domain?: string; path?: string; secure?: boolean }) => string;
   senderIsTrustedApp: (sender: { url?: string }) => boolean;
   urlIsKeyboardOrigin: (url: string) => boolean;
+  originClass: (url: string) => string;
+  redactedPath: (url: string) => string;
 };
 
 class FakeInput {
@@ -502,6 +505,7 @@ describe("Chromium extension keyboard", () => {
     expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
+    expect(manifest).toContain('"version": "0.1.4"');
     expect(manifest).toContain('"match_about_blank": true');
     expect(manifest).toContain('"match_origin_as_fallback": true');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");
@@ -513,6 +517,12 @@ describe("Chromium extension keyboard", () => {
     expect(resetWorker).toContain("chrome.cookies.getAll");
     expect(resetWorker).toContain("chrome.browsingData.remove");
     expect(resetWorker).toContain("executeScript({ target, files: [KEYBOARD_SCRIPT_FILE] }");
+    expect(resetWorker).toContain("DIAGNOSTIC_ENDPOINT");
+    expect(resetWorker).toContain("http://127.0.0.1:8000/api/v1/diagnostics/extension");
+    expect(resetWorker).toContain("originClass");
+    expect(resetWorker).toContain("redactedPath");
+    expect(bridge).toContain("DIAGNOSTIC_MESSAGE_TYPE");
+    expect(bridge).toContain("sendExtensionDiagnostic");
     expect(resetWorker).toContain("chrome.tabs.onUpdated");
     expect(app).toContain("requestSpotifyBrowserSessionReset");
     expect(app).toContain("resetSpotifyBrowserSessionForSwitch");
@@ -555,5 +565,9 @@ describe("Chromium extension keyboard", () => {
     expect(reset.urlIsKeyboardOrigin("https://accounts.spotify.com/login")).toBe(true);
     expect(reset.urlIsKeyboardOrigin("https://open.spotify.com/")).toBe(false);
     expect(reset.urlIsKeyboardOrigin("https://example.test/")).toBe(false);
+    expect(reset.originClass("http://127.0.0.1:8000/settings/spotify?code=secret")).toBe("local_pipzo");
+    expect(reset.originClass("https://accounts.spotify.com/login?continue=secret")).toBe("spotify_accounts");
+    expect(reset.originClass("https://open.spotify.com/")).toBe("other_spotify");
+    expect(reset.redactedPath("https://accounts.spotify.com/login?continue=secret#frag")).toBe("/login");
   });
 });

@@ -235,6 +235,31 @@ export type DiagnosticsSummary = {
   generatedAt: string;
 };
 
+export type ExtensionDiagnosticOriginClass = "local_pipzo" | "spotify_accounts" | "other_spotify" | "other" | "unknown";
+export type ExtensionDiagnosticSource = "content_script" | "service_worker";
+
+export type ExtensionDiagnosticEvent = {
+  source: ExtensionDiagnosticSource;
+  originClass: ExtensionDiagnosticOriginClass;
+  path: string;
+  topFrame?: boolean | null;
+  manifestVersion?: string | null;
+  keyboardRootPresent?: boolean | null;
+  keyboardVisible?: boolean | null;
+  launcherPresent?: boolean | null;
+  scrollControlsPresent?: boolean | null;
+  editablePresent?: boolean | null;
+  otpLikePresent?: boolean | null;
+  tabStatus?: string | null;
+  injectionAttempted?: boolean | null;
+  generatedAt?: string | null;
+};
+
+export type ExtensionDiagnosticsSnapshot = {
+  generatedAt: string;
+  events: ExtensionDiagnosticEvent[];
+};
+
 export type RecoveryActionKind =
   | "connect_wifi"
   | "forget_wifi"

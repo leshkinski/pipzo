@@ -6,6 +6,7 @@ import type {
   CurrentTrackLikeStatus,
   DevicePowerActionRequest,
   DisplayPatch,
+  ExtensionDiagnosticsSnapshot,
   HealthState,
   HealthResponse,
   LibraryCategoryId,
@@ -49,6 +50,10 @@ export function fetchAppState(): Promise<AppSnapshot> {
 
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/api/v1/health");
+}
+
+export function fetchExtensionDiagnostics(): Promise<ExtensionDiagnosticsSnapshot> {
+  return request<ExtensionDiagnosticsSnapshot>("/api/v1/diagnostics/extension");
 }
 
 export function fetchBackendScenarios(): Promise<ScenarioSummary[]> {

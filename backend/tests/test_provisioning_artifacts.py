@@ -165,10 +165,12 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert script["match_about_blank"] is True
     assert script["match_origin_as_fallback"] is True
 
-    forbidden_tokens = ["fetch(", "XMLHttpRequest", "sessionStorage", "analytics"]
+    forbidden_tokens = ["XMLHttpRequest", "sessionStorage", "analytics"]
     for token in forbidden_tokens:
         assert token not in content_script
         assert token not in session_reset_worker
+    assert "fetch(" not in content_script
+    assert "DIAGNOSTIC_ENDPOINT = \"http://127.0.0.1:8000/api/v1/diagnostics/extension\"" in session_reset_worker
     assert "pointerdown" in content_script
     assert "touchstart" in content_script
     assert "dataset.pipzoKeyboardExtension" in content_script

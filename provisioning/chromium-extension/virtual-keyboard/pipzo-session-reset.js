@@ -2,6 +2,8 @@
   "use strict";
 
   const REQUEST_TYPE = "pipzo.clearSpotifySession";
+  const DIAGNOSTIC_MESSAGE_TYPE = "pipzo.extensionDiagnostic";
+  const DIAGNOSTIC_ENDPOINT = "http://127.0.0.1:8000/api/v1/diagnostics/extension";
   const SPOTIFY_COOKIE_DOMAIN = "spotify.com";
   const SPOTIFY_BROWSING_ORIGINS = [
     "https://accounts.spotify.com",
@@ -48,6 +50,72 @@
     }
   }
 
+  function redactedPath(url) {
+    try {
+      const parsed = new URL(url ?? "");
+      return parsed.pathname || "/";
+    } catch {
+      return "/";
+    }
+  }
+
+  function originClass(url) {
+    try {
+      const parsed = new URL(url ?? "");
+      if (TRUSTED_APP_ORIGINS.has(parsed.origin)) return "local_pipzo";
+      if (parsed.protocol === "https:" && parsed.host === "accounts.spotify.com") return "spotify_accounts";
+      if (parsed.protocol === "https:" && parsed.host.endsWith(".spotify.com")) return "other_spotify";
+      return "other";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  function manifestVersion() {
+    try {
+      return globalScope.chrome?.runtime?.getManifest?.()?.version;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function postDiagnostic(event) {
+    if (typeof globalScope.fetch !== "function") return;
+    const body = {
+      source: event.source,
+      originClass: event.originClass,
+      path: event.path || "/",
+      topFrame: event.topFrame,
+      manifestVersion: event.manifestVersion || manifestVersion(),
+      keyboardRootPresent: event.keyboardRootPresent,
+      keyboardVisible: event.keyboardVisible,
+      launcherPresent: event.launcherPresent,
+      scrollControlsPresent: event.scrollControlsPresent,
+      editablePresent: event.editablePresent,
+      otpLikePresent: event.otpLikePresent,
+      tabStatus: event.tabStatus,
+      injectionAttempted: event.injectionAttempted,
+    };
+    fetch(DIAGNOSTIC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => undefined);
+  }
+
+  function postTabDiagnostic(tab, changeInfo = {}) {
+    const url = changeInfo.url || tab?.url;
+    if (!urlIsKeyboardOrigin(url)) return;
+    postDiagnostic({
+      source: "service_worker",
+      originClass: originClass(url),
+      path: redactedPath(url),
+      manifestVersion: manifestVersion(),
+      tabStatus: changeInfo.status || tab?.status,
+      injectionAttempted: true,
+    });
+  }
+
   function injectKeyboardIntoTab(tabId, url) {
     if (!Number.isInteger(tabId) || !urlIsKeyboardOrigin(url)) return;
     const target = { tabId, allFrames: true };
@@ -71,7 +139,10 @@
     query({ url: KEYBOARD_ORIGIN_PATTERNS }, (tabs) => {
       chromeLastError();
       if (!Array.isArray(tabs)) return;
-      tabs.forEach((tab) => injectKeyboardIntoTab(tab.id, tab.url));
+      tabs.forEach((tab) => {
+        postTabDiagnostic(tab);
+        injectKeyboardIntoTab(tab.id, tab.url);
+      });
     });
   }
 
@@ -142,6 +213,20 @@
 
   if (globalScope.chrome?.runtime?.onMessage) {
     globalScope.chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message?.type === DIAGNOSTIC_MESSAGE_TYPE) {
+        const senderUrl = sender?.url || "";
+        if (urlIsKeyboardOrigin(senderUrl)) {
+          postDiagnostic({
+            ...message.event,
+            source: "content_script",
+            originClass: originClass(senderUrl),
+            path: redactedPath(senderUrl),
+            manifestVersion: manifestVersion(),
+          });
+        }
+        sendResponse({ ok: true });
+        return false;
+      }
       if (message?.type !== REQUEST_TYPE) return false;
       if (!senderIsTrustedApp(sender)) {
         sendResponse({ ok: false, error: "untrusted_sender" });
@@ -159,6 +244,7 @@
       const url = changeInfo?.url || tab?.url;
       const status = changeInfo?.status;
       if (url || status === "loading" || status === "complete") {
+        postTabDiagnostic(tab, changeInfo);
         injectKeyboardIntoTab(tabId, url);
       }
     });
@@ -182,5 +268,7 @@
     cookieUrl,
     senderIsTrustedApp,
     urlIsKeyboardOrigin,
+    originClass,
+    redactedPath,
   };
 })(globalThis);

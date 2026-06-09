@@ -5,6 +5,7 @@ import {
   cancelSpotifyAuthSession,
   controlPlayback,
   createSpotifyAuthSession,
+  fetchExtensionDiagnostics,
   fetchAppState,
   fetchBackendScenarios,
   fetchHealth,
@@ -36,7 +37,7 @@ import {
   connectNetwork,
   transferSpotifyPlayback,
 } from "./api";
-import type { AppSettingsPatch, AppSnapshot, DevicePowerAction, DisplayStatus, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WarningCode, WifiNetwork } from "./contracts";
+import type { AppSettingsPatch, AppSnapshot, DevicePowerAction, DisplayStatus, ExtensionDiagnosticsSnapshot, LibraryCategoryId, LibraryHomeResponse, LibraryItem, PlaybackQueueResponse, ScenarioSummary, SpeakerDevice, SpotifyAuthSession, SurfaceId, WarningCode, WifiNetwork } from "./contracts";
 import { localLibraryHome, localScenarioSnapshot, localScenarioSummaries } from "./localScenarios";
 import {
   createSpotifyWebPlayer,
@@ -285,6 +286,13 @@ type DevicePowerControls = {
   onConfirm: (action: DevicePowerAction) => void;
 };
 
+type ExtensionDiagnosticControls = {
+  busy: boolean;
+  message: string;
+  snapshot: ExtensionDiagnosticsSnapshot | null;
+  onRefresh: () => void;
+};
+
 type SetupPlaybackControls = {
   busy: boolean;
   message: string;
@@ -414,6 +422,9 @@ export function App() {
   const [likeMessage, setLikeMessage] = useState("Save the current song.");
   const [currentTrackLiked, setCurrentTrackLiked] = useState(false);
   const [devicePowerConfirmation, setDevicePowerConfirmation] = useState<DevicePowerConfirmation>({ action: null, state: "idle" });
+  const [extensionDiagnostics, setExtensionDiagnostics] = useState<ExtensionDiagnosticsSnapshot | null>(null);
+  const [extensionDiagnosticsBusy, setExtensionDiagnosticsBusy] = useState(false);
+  const [extensionDiagnosticsMessage, setExtensionDiagnosticsMessage] = useState("Extension diagnostics have not been checked yet.");
   const [playbackQueue, setPlaybackQueue] = useState<PlaybackQueueResponse>(() => ({
     current: null,
     items: [],
@@ -1970,6 +1981,29 @@ export function App() {
     }
   }
 
+  async function refreshExtensionDiagnostics() {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    setExtensionDiagnosticsBusy(true);
+    setExtensionDiagnosticsMessage("Checking extension diagnostics.");
+    try {
+      const diagnostics = dataSource === "backend"
+        ? await fetchExtensionDiagnostics()
+        : { generatedAt: new Date().toISOString(), events: [] };
+      setExtensionDiagnostics(diagnostics);
+      const localSeen = diagnostics.events.some((event) => event.originClass === "local_pipzo" && event.source === "content_script");
+      const spotifyContentSeen = diagnostics.events.some((event) => event.originClass === "spotify_accounts" && event.source === "content_script");
+      const spotifyTabSeen = diagnostics.events.some((event) => event.originClass === "spotify_accounts" && event.source === "service_worker");
+      setExtensionDiagnosticsMessage(
+        `Local ${localSeen ? "seen" : "not seen"}; Spotify page ${spotifyContentSeen ? "seen" : "not seen"}; Spotify tab ${spotifyTabSeen ? "seen" : "not seen"}.`,
+      );
+    } catch {
+      setExtensionDiagnosticsMessage("Extension diagnostics could not be loaded.");
+    } finally {
+      setExtensionDiagnosticsBusy(false);
+    }
+  }
+
   async function drainVolumeRequests(initialRequest: QueuedVolumePatch) {
     volumeInFlightRef.current = true;
     let nextRequest: QueuedVolumePatch | null = initialRequest;
@@ -2134,6 +2168,12 @@ export function App() {
     onRequest: requestDevicePowerAction,
     onCancel: cancelDevicePowerAction,
     onConfirm: confirmDevicePowerAction,
+  };
+  const extensionDiagnosticControls = {
+    busy: extensionDiagnosticsBusy,
+    message: extensionDiagnosticsMessage,
+    snapshot: extensionDiagnostics,
+    onRefresh: refreshExtensionDiagnostics,
   };
   const libraryControls = {
     home: libraryHome,
@@ -2319,6 +2359,7 @@ export function App() {
               volume={volumeControls}
               playbackTest={setupPlaybackControls}
               devicePower={devicePowerControls}
+              extensionDiagnostics={extensionDiagnosticControls}
             />
           )}
         </section>
@@ -2819,6 +2860,7 @@ function SettingsSurface({
   volume,
   playbackTest,
   devicePower,
+  extensionDiagnostics,
 }: {
   snapshot: AppSnapshot;
   page: SettingsPageId;
@@ -2835,6 +2877,7 @@ function SettingsSurface({
   volume: VolumeControls;
   playbackTest: SetupPlaybackControls;
   devicePower: DevicePowerControls;
+  extensionDiagnostics: ExtensionDiagnosticControls;
 }) {
   const rows = settingsStatusRows(snapshot, spotifyAuth.session);
   return (
@@ -2870,6 +2913,7 @@ function SettingsSurface({
             playbackTest={playbackTest}
             recoveryOnly
           />
+          <ExtensionDiagnosticsPanel controls={extensionDiagnostics} />
           <DevicePowerPanel controls={devicePower} />
         </SettingsSubPageSummary>
       )}
@@ -2979,6 +3023,48 @@ function ScreenBrightnessPanel({
           <option value="unavailable">Unavailable</option>
         </select>
       </label>
+    </section>
+  );
+}
+
+function ExtensionDiagnosticsPanel({ controls }: { controls: ExtensionDiagnosticControls }) {
+  const events = controls.snapshot?.events ?? [];
+  const localHeartbeat = [...events].reverse().find((event) => event.originClass === "local_pipzo" && event.source === "content_script");
+  const spotifyHeartbeat = [...events].reverse().find((event) => event.originClass === "spotify_accounts" && event.source === "content_script");
+  const spotifyTab = [...events].reverse().find((event) => event.originClass === "spotify_accounts" && event.source === "service_worker");
+  const latest = [...events].reverse()[0];
+  const rows = [
+    ["Local app script", localHeartbeat ? "Seen" : "Not seen"],
+    ["Spotify page script", spotifyHeartbeat ? "Seen" : "Not seen"],
+    ["Spotify tab observed", spotifyTab ? "Seen" : "Not seen"],
+    ["Latest path", latest ? `${labelFromId(latest.originClass)} ${latest.path}` : "None"],
+    ["Version", latest?.manifestVersion || "Unknown"],
+  ];
+
+  return (
+    <section className="extension-diagnostics-panel" aria-label="Extension diagnostics">
+      <div>
+        <p className="eyebrow">Extension diagnostics</p>
+        <h2>Keyboard runtime</h2>
+        <p>{controls.message}</p>
+      </div>
+      <div className="extension-diagnostics-grid">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      {latest && (
+        <p className="subtle">
+          Last signal: {labelFromId(latest.source)}; keyboard {latest.keyboardRootPresent ? "present" : "not present"}; launcher{" "}
+          {latest.launcherPresent ? "present" : "not present"}.
+        </p>
+      )}
+      <button disabled={controls.busy} type="button" onClick={controls.onRefresh}>
+        {controls.busy ? "Checking" : "Refresh diagnostics"}
+      </button>
     </section>
   );
 }

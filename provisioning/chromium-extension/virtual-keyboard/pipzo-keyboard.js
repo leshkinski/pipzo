@@ -4,6 +4,7 @@
   const ROOT_ID = "pipzo-extension-keyboard";
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
   const SPOTIFY_ACCOUNT_LAUNCHER_ID = "pipzo-spotify-account-keyboard-launcher";
+  const DIAGNOSTIC_MESSAGE_TYPE = "pipzo.extensionDiagnostic";
   const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
   const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search", "number", "tel"]);
@@ -547,6 +548,33 @@
     });
   }
 
+  function hasOtpLikeTarget(documentRef) {
+    const candidates = Array.from(documentRef.querySelectorAll?.("input") || []);
+    return candidates.some((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate));
+  }
+
+  function sendExtensionDiagnostic(documentRef) {
+    const sendMessage = globalScope.chrome?.runtime?.sendMessage;
+    if (typeof sendMessage !== "function") return;
+    const keyboardRoot = documentRef.getElementById(ROOT_ID);
+    const event = {
+      topFrame: globalScope.top === globalScope.self,
+      keyboardRootPresent: Boolean(keyboardRoot),
+      keyboardVisible: Boolean(keyboardRoot && !keyboardRoot.hidden),
+      launcherPresent: Boolean(documentRef.getElementById(SPOTIFY_ACCOUNT_LAUNCHER_ID)),
+      scrollControlsPresent: Boolean(documentRef.getElementById(SPOTIFY_SCROLL_ROOT_ID)),
+      editablePresent: Boolean(documentRef.querySelector?.("input,textarea,[contenteditable='true']")),
+      otpLikePresent: hasOtpLikeTarget(documentRef),
+    };
+    sendMessage({ type: DIAGNOSTIC_MESSAGE_TYPE, event }, () => {
+      globalScope.chrome?.runtime?.lastError?.message;
+    });
+  }
+
+  function scheduleExtensionDiagnostic(documentRef, delay = 0) {
+    globalScope.setTimeout(() => sendExtensionDiagnostic(documentRef), delay);
+  }
+
   function markInstalled(documentRef) {
     if (documentRef.documentElement) {
       documentRef.documentElement.dataset.pipzoKeyboardExtension = "ready";
@@ -633,6 +661,8 @@
     ensureSpotifyScrollControls(documentRef);
     ensureSpotifyAccountLauncher(documentRef);
     installSpotifySessionResetBridge(documentRef);
+    scheduleExtensionDiagnostic(documentRef);
+    scheduleExtensionDiagnostic(documentRef, 700);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
       if (!target) {
@@ -672,6 +702,7 @@
         ensureSpotifyScrollControls(documentRef);
         ensureSpotifyAccountLauncher(documentRef);
         scheduleStaleTargetCheck(documentRef);
+        scheduleExtensionDiagnostic(documentRef, 100);
       });
       if (documentRef.documentElement) {
         observer.observe(documentRef.documentElement, { childList: true, subtree: true });
@@ -704,6 +735,7 @@
     spotifyChallengeTarget,
     spotifyFallbackTarget,
     rowLabels,
+    sendExtensionDiagnostic,
   };
 
   if (globalScope.document?.readyState === "loading") {

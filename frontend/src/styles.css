@@ -66,6 +66,7 @@ label,
 .speaker-panel,
 .volume-panel,
 .screen-brightness-panel,
+.extension-diagnostics-panel,
 .device-power-panel,
 .sleep-timer,
 .idle-settings,
@@ -1627,6 +1628,14 @@ label.touch-pressed {
   padding: 20px;
 }
 
+.extension-diagnostics-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(320px, 1fr) minmax(160px, 0.35fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+}
+
 .wifi-panel,
 .speaker-panel,
 .volume-panel,
@@ -1716,6 +1725,7 @@ label.touch-pressed {
 .speaker-panel h2,
 .volume-panel h2,
 .screen-brightness-panel h2,
+.extension-diagnostics-panel h2,
 .sleep-timer h2 {
   margin: 4px 0 6px;
   font-size: 24px;
@@ -1727,10 +1737,44 @@ label.touch-pressed {
 .speaker-panel p,
 .volume-panel p,
 .screen-brightness-panel p,
+.extension-diagnostics-panel p,
 .sleep-timer p {
   margin: 6px 0;
   color: #65716b;
   line-height: 1.35;
+}
+
+.extension-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.extension-diagnostics-grid div {
+  display: grid;
+  gap: 4px;
+  min-height: 62px;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f4f1ea;
+}
+
+.extension-diagnostics-grid span {
+  color: #65716b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.extension-diagnostics-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.extension-diagnostics-panel button {
+  min-height: 58px;
+  padding: 0 14px;
+  font-weight: 800;
+  text-align: left;
 }
 
 .screen-brightness-panel label {
@@ -2242,6 +2286,7 @@ label.touch-pressed {
   .speaker-panel,
   .volume-panel,
   .screen-brightness-panel,
+  .extension-diagnostics-panel,
   .device-power-panel,
   .settings-subpage-summary,
   .settings-status-row,
