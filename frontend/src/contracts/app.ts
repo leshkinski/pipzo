@@ -247,6 +247,7 @@ export type ExtensionDiagnosticEvent = {
   keyboardRootPresent?: boolean | null;
   keyboardVisible?: boolean | null;
   launcherPresent?: boolean | null;
+  recoveryControlsPresent?: boolean | null;
   scrollControlsPresent?: boolean | null;
   editablePresent?: boolean | null;
   otpLikePresent?: boolean | null;

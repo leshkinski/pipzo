@@ -156,7 +156,7 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert script["matches"] == [
         "http://127.0.0.1:8000/*",
         "http://localhost:8000/*",
-        "https://accounts.spotify.com/*",
+        "https://*.spotify.com/*",
     ]
     assert script["js"] == ["pipzo-keyboard.js"]
     assert script["css"] == ["pipzo-keyboard.css"]
@@ -175,8 +175,10 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert "touchstart" in content_script
     assert "dataset.pipzoKeyboardExtension" in content_script
     assert "SPOTIFY_ACCOUNT_LAUNCHER_ID" in content_script
+    assert "SPOTIFY_RECOVERY_ROOT_ID" in content_script
     assert "showSpotifyAccountKeyboard" in content_script
     assert "spotifyFallbackTarget" in content_script
+    assert "isSpotifyAuthPage" in content_script
     assert "pipzo:spotify-session-reset-request" in content_script
     assert "pipzo:spotify-session-reset-response" in content_script
     assert "runtime?.sendMessage" in content_script

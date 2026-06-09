@@ -3030,8 +3030,12 @@ function ScreenBrightnessPanel({
 function ExtensionDiagnosticsPanel({ controls }: { controls: ExtensionDiagnosticControls }) {
   const events = controls.snapshot?.events ?? [];
   const localHeartbeat = [...events].reverse().find((event) => event.originClass === "local_pipzo" && event.source === "content_script");
-  const spotifyHeartbeat = [...events].reverse().find((event) => event.originClass === "spotify_accounts" && event.source === "content_script");
-  const spotifyTab = [...events].reverse().find((event) => event.originClass === "spotify_accounts" && event.source === "service_worker");
+  const spotifyHeartbeat = [...events].reverse().find(
+    (event) => (event.originClass === "spotify_accounts" || event.originClass === "other_spotify") && event.source === "content_script",
+  );
+  const spotifyTab = [...events].reverse().find(
+    (event) => (event.originClass === "spotify_accounts" || event.originClass === "other_spotify") && event.source === "service_worker",
+  );
   const latest = [...events].reverse()[0];
   const rows = [
     ["Local app script", localHeartbeat ? "Seen" : "Not seen"],
@@ -3059,7 +3063,7 @@ function ExtensionDiagnosticsPanel({ controls }: { controls: ExtensionDiagnostic
       {latest && (
         <p className="subtle">
           Last signal: {labelFromId(latest.source)}; keyboard {latest.keyboardRootPresent ? "present" : "not present"}; launcher{" "}
-          {latest.launcherPresent ? "present" : "not present"}.
+          {latest.launcherPresent ? "present" : "not present"}; recovery {latest.recoveryControlsPresent ? "present" : "not present"}.
         </p>
       )}
       <button disabled={controls.busy} type="button" onClick={controls.onRefresh}>

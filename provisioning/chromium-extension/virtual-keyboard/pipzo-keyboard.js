@@ -4,9 +4,11 @@
   const ROOT_ID = "pipzo-extension-keyboard";
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
   const SPOTIFY_ACCOUNT_LAUNCHER_ID = "pipzo-spotify-account-keyboard-launcher";
+  const SPOTIFY_RECOVERY_ROOT_ID = "pipzo-spotify-auth-recovery";
   const DIAGNOSTIC_MESSAGE_TYPE = "pipzo.extensionDiagnostic";
   const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
   const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
+  const PIPZO_SPOTIFY_SETTINGS_URL = "http://127.0.0.1:8000/settings/spotify";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search", "number", "tel"]);
   const NUMERIC_INPUT_TYPES = new Set(["number", "tel"]);
   const NUMERIC_INPUT_MODES = new Set(["numeric", "decimal", "tel"]);
@@ -60,6 +62,14 @@
     return locationRef?.protocol === "https:" && locationRef?.host === "accounts.spotify.com";
   }
 
+  function isSpotifyAuthPage() {
+    const locationRef = globalScope.location;
+    if (isSpotifyAccountsPage()) return true;
+    if (locationRef?.protocol !== "https:" || !locationRef?.host?.endsWith(".spotify.com")) return false;
+    const path = locationRef.pathname || "/";
+    return /\/(?:authorize|login|auth|account|oauth|challenge|verification|verify)(?:\/|$)/i.test(path);
+  }
+
   function isPipzoAppPage() {
     const locationRef = globalScope.location;
     if (locationRef?.protocol !== "http:") return false;
@@ -106,7 +116,7 @@
 
   function isSpotifySixDigitChallengePage(documentRef) {
     if (!documentRef?.querySelectorAll) return false;
-    const spotifyTopPage = isSpotifyAccountsPage();
+    const spotifyTopPage = isSpotifyAuthPage();
     const text = documentRef?.body?.innerText || "";
     const hasChallengeText = /(?:6|six)[-\s]?digit|verification code|login code|security code|enter(?:\s+the)?\s+code/i.test(text);
     const inputs = Array.from(documentRef.querySelectorAll?.("input") || []);
@@ -465,7 +475,7 @@
   }
 
   function ensureSpotifyScrollControls(documentRef) {
-    if (!isSpotifyAccountsPage()) return;
+    if (!isSpotifyAuthPage()) return;
     if (!documentRef.body) return;
     if (documentRef.getElementById(SPOTIFY_SCROLL_ROOT_ID)) return;
     const root = documentRef.createElement("div");
@@ -490,7 +500,7 @@
   }
 
   function ensureSpotifyAccountLauncher(documentRef) {
-    if (!isSpotifyAccountsPage()) return;
+    if (!isSpotifyAuthPage()) return;
     if (!documentRef.body) return;
     if (documentRef.getElementById(SPOTIFY_ACCOUNT_LAUNCHER_ID)) return;
     const button = documentRef.createElement("button");
@@ -501,6 +511,35 @@
     button.addEventListener("pointerdown", (event) => event.preventDefault());
     button.addEventListener("click", () => showSpotifyAccountKeyboard(documentRef));
     documentRef.body.appendChild(button);
+  }
+
+  function returnToPipzo() {
+    globalScope.location.assign(PIPZO_SPOTIFY_SETTINGS_URL);
+  }
+
+  function ensureSpotifyRecoveryControls(documentRef) {
+    if (!isSpotifyAuthPage()) return;
+    if (!documentRef.body) return;
+    if (documentRef.getElementById(SPOTIFY_RECOVERY_ROOT_ID)) return;
+    const root = documentRef.createElement("div");
+    root.id = SPOTIFY_RECOVERY_ROOT_ID;
+
+    const launcher = documentRef.createElement("button");
+    launcher.type = "button";
+    launcher.textContent = "123";
+    launcher.setAttribute("aria-label", "Show Pipzo keyboard");
+    launcher.addEventListener("pointerdown", (event) => event.preventDefault());
+    launcher.addEventListener("click", () => showSpotifyAccountKeyboard(documentRef));
+
+    const back = documentRef.createElement("button");
+    back.type = "button";
+    back.textContent = "Back to Pipzo";
+    back.setAttribute("aria-label", "Return to Pipzo Spotify settings");
+    back.addEventListener("pointerdown", (event) => event.preventDefault());
+    back.addEventListener("click", returnToPipzo);
+
+    root.append(launcher, back);
+    documentRef.body.appendChild(root);
   }
 
   function dispatchSpotifySessionResetResponse(documentRef, detail) {
@@ -562,6 +601,7 @@
       keyboardRootPresent: Boolean(keyboardRoot),
       keyboardVisible: Boolean(keyboardRoot && !keyboardRoot.hidden),
       launcherPresent: Boolean(documentRef.getElementById(SPOTIFY_ACCOUNT_LAUNCHER_ID)),
+      recoveryControlsPresent: Boolean(documentRef.getElementById(SPOTIFY_RECOVERY_ROOT_ID)),
       scrollControlsPresent: Boolean(documentRef.getElementById(SPOTIFY_SCROLL_ROOT_ID)),
       editablePresent: Boolean(documentRef.querySelector?.("input,textarea,[contenteditable='true']")),
       otpLikePresent: hasOtpLikeTarget(documentRef),
@@ -613,7 +653,7 @@
   }
 
   function showSpotifyAccountKeyboard(documentRef) {
-    if (!isSpotifyAccountsPage()) return false;
+    if (!isSpotifyAuthPage()) return false;
     const target = spotifyFallbackTarget(documentRef);
     if (target) {
       showKeyboardForTarget(documentRef, target);
@@ -655,11 +695,13 @@
 
   function install(documentRef) {
     if (!documentRef || documentRef.__pipzoKeyboardInstalled) return;
+    if (!isPipzoAppPage() && !isSpotifyAuthPage() && !isSpotifySixDigitChallengePage(documentRef)) return;
     documentRef.__pipzoKeyboardInstalled = true;
     markInstalled(documentRef);
     ensureRoot(documentRef);
     ensureSpotifyScrollControls(documentRef);
     ensureSpotifyAccountLauncher(documentRef);
+    ensureSpotifyRecoveryControls(documentRef);
     installSpotifySessionResetBridge(documentRef);
     scheduleExtensionDiagnostic(documentRef);
     scheduleExtensionDiagnostic(documentRef, 700);
@@ -701,6 +743,7 @@
       const observer = new globalScope.MutationObserver(() => {
         ensureSpotifyScrollControls(documentRef);
         ensureSpotifyAccountLauncher(documentRef);
+        ensureSpotifyRecoveryControls(documentRef);
         scheduleStaleTargetCheck(documentRef);
         scheduleExtensionDiagnostic(documentRef, 100);
       });
@@ -730,6 +773,7 @@
     isSpotifySixDigitChallengePage,
     keyboardModeForTarget,
     isPipzoAppPage,
+    isSpotifyAuthPage,
     nextState,
     isSpotifyAccountsPage,
     spotifyChallengeTarget,

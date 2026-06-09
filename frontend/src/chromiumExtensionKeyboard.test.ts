@@ -25,6 +25,7 @@ type KeyboardTestApi = {
   isOtpLikeTarget: (element: unknown) => boolean;
   isSpotifySixDigitChallengePage: (documentRef: unknown) => boolean;
   isPipzoAppPage: () => boolean;
+  isSpotifyAuthPage: () => boolean;
   isSpotifyAccountsPage: () => boolean;
   keyboardModeForTarget: (element: unknown) => "letters" | "numeric";
   nextState: (
@@ -95,14 +96,14 @@ class FakeButton {
   }
 }
 
-function loadKeyboardApi(location?: { protocol: string; host: string }): KeyboardTestApi {
+function loadKeyboardApi(location?: { protocol: string; host: string; pathname?: string }): KeyboardTestApi {
   const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
   const context: {
     HTMLInputElement: typeof FakeInput;
     HTMLButtonElement: typeof FakeButton;
     HTMLTextAreaElement: typeof FakeTextArea;
     __pipzoKeyboardTestApi?: KeyboardTestApi;
-    location?: { protocol: string; host: string };
+    location?: { protocol: string; host: string; pathname?: string };
     globalThis?: unknown;
   } = {
     HTMLInputElement: FakeInput,
@@ -484,13 +485,28 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.isSpotifyAccountsPage()).toBe(false);
     expect(script).toContain("SPOTIFY_SCROLL_ROOT_ID");
     expect(script).toContain("SPOTIFY_ACCOUNT_LAUNCHER_ID");
+    expect(script).toContain("SPOTIFY_RECOVERY_ROOT_ID");
+    expect(script).toContain("PIPZO_SPOTIFY_SETTINGS_URL");
     expect(script).toContain('host === "accounts.spotify.com"');
+    expect(script).toContain("isSpotifyAuthPage");
     expect(script).toContain("scrollSpotifyPage");
     expect(script).toContain("ensureSpotifyAccountLauncher");
+    expect(script).toContain("ensureSpotifyRecoveryControls");
     expect(script).toContain("showSpotifyAccountKeyboard");
     expect(script).toContain("spotifyFallbackTarget");
     expect(stylesheet).toContain("#pipzo-spotify-scroll-controls");
     expect(stylesheet).toContain("#pipzo-spotify-account-keyboard-launcher");
+    expect(stylesheet).toContain("#pipzo-spotify-auth-recovery");
+  });
+
+  it("recognizes Spotify auth-like subdomain pages without enabling general open.spotify overlays", () => {
+    const accounts = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com", pathname: "/login" });
+    const login = loadKeyboardApi({ protocol: "https:", host: "www.spotify.com", pathname: "/login" });
+    const open = loadKeyboardApi({ protocol: "https:", host: "open.spotify.com", pathname: "/playlist/abc" });
+
+    expect(accounts.isSpotifyAuthPage()).toBe(true);
+    expect(login.isSpotifyAuthPage()).toBe(true);
+    expect(open.isSpotifyAuthPage()).toBe(false);
   });
 
   it("declares a minimal Spotify session reset extension surface", () => {
@@ -505,7 +521,7 @@ describe("Chromium extension keyboard", () => {
     expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
-    expect(manifest).toContain('"version": "0.1.4"');
+    expect(manifest).toContain('"version": "0.1.5"');
     expect(manifest).toContain('"match_about_blank": true');
     expect(manifest).toContain('"match_origin_as_fallback": true');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");
@@ -523,6 +539,7 @@ describe("Chromium extension keyboard", () => {
     expect(resetWorker).toContain("redactedPath");
     expect(bridge).toContain("DIAGNOSTIC_MESSAGE_TYPE");
     expect(bridge).toContain("sendExtensionDiagnostic");
+    expect(bridge).toContain("recoveryControlsPresent");
     expect(resetWorker).toContain("chrome.tabs.onUpdated");
     expect(app).toContain("requestSpotifyBrowserSessionReset");
     expect(app).toContain("resetSpotifyBrowserSessionForSwitch");
@@ -552,18 +569,18 @@ describe("Chromium extension keyboard", () => {
     expect(reset.cookieUrl({ domain: "accounts.spotify.com", path: "/login", secure: true })).toBe("https://accounts.spotify.com/login");
   });
 
-  it("limits dynamic keyboard injection to the existing local app and Spotify account origins", () => {
+  it("limits dynamic keyboard injection to the existing local app and Spotify origins", () => {
     const reset = loadSessionResetApi();
 
     expect(reset.KEYBOARD_ORIGIN_PATTERNS).toEqual([
       "http://127.0.0.1:8000/*",
       "http://localhost:8000/*",
-      "https://accounts.spotify.com/*",
+      "https://*.spotify.com/*",
     ]);
     expect(reset.urlIsKeyboardOrigin("http://127.0.0.1:8000/settings/spotify")).toBe(true);
     expect(reset.urlIsKeyboardOrigin("http://localhost:8000/")).toBe(true);
     expect(reset.urlIsKeyboardOrigin("https://accounts.spotify.com/login")).toBe(true);
-    expect(reset.urlIsKeyboardOrigin("https://open.spotify.com/")).toBe(false);
+    expect(reset.urlIsKeyboardOrigin("https://open.spotify.com/")).toBe(true);
     expect(reset.urlIsKeyboardOrigin("https://example.test/")).toBe(false);
     expect(reset.originClass("http://127.0.0.1:8000/settings/spotify?code=secret")).toBe("local_pipzo");
     expect(reset.originClass("https://accounts.spotify.com/login?continue=secret")).toBe("spotify_accounts");

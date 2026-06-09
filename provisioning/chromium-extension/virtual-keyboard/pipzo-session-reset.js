@@ -17,7 +17,7 @@
   const KEYBOARD_ORIGIN_PATTERNS = [
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*",
-    "https://accounts.spotify.com/*",
+    "https://*.spotify.com/*",
   ];
 
   function chromeLastError() {
@@ -44,7 +44,7 @@
     try {
       const parsed = new URL(url ?? "");
       if (parsed.origin === "http://127.0.0.1:8000" || parsed.origin === "http://localhost:8000") return true;
-      return parsed.protocol === "https:" && parsed.host === "accounts.spotify.com";
+      return parsed.protocol === "https:" && parsed.host.endsWith(".spotify.com");
     } catch {
       return false;
     }
@@ -90,6 +90,7 @@
       keyboardRootPresent: event.keyboardRootPresent,
       keyboardVisible: event.keyboardVisible,
       launcherPresent: event.launcherPresent,
+      recoveryControlsPresent: event.recoveryControlsPresent,
       scrollControlsPresent: event.scrollControlsPresent,
       editablePresent: event.editablePresent,
       otpLikePresent: event.otpLikePresent,

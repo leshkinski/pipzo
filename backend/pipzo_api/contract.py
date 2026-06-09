@@ -259,6 +259,7 @@ class ExtensionDiagnosticEvent(ContractModel):
     keyboard_root_present: Optional[bool] = None
     keyboard_visible: Optional[bool] = None
     launcher_present: Optional[bool] = None
+    recovery_controls_present: Optional[bool] = None
     scroll_controls_present: Optional[bool] = None
     editable_present: Optional[bool] = None
     otp_like_present: Optional[bool] = None
