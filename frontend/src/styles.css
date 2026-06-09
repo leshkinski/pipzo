@@ -2225,6 +2225,10 @@ label.touch-pressed {
   padding: 12px;
 }
 
+.app.keyboard-active.keyboard-surface-settings:has(.settings-wifi-panel .network-password-panel) {
+  padding-bottom: 16px;
+}
+
 .app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-status-card,
 .app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-flow-card,
 .app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel) > .network-actions,

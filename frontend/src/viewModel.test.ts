@@ -959,6 +959,8 @@ describe("kiosk shell view model", () => {
     expect(css).toContain(".app.keyboard-active.keyboard-surface-settings .settings-wifi-panel:has(.network-password-panel)");
     expect(css).toContain("> .network-list-panel");
     expect(css).toContain("display: none");
+    expect(css).toContain(".app.keyboard-active.keyboard-surface-settings:has(.settings-wifi-panel .network-password-panel)");
+    expect(css).toContain("padding-bottom: 16px");
     expect(css).toContain(".app.keyboard-active.keyboard-surface-settings .settings-wifi-panel .network-password-panel");
     expect(css).toContain("position: sticky");
     expect(css).toContain("width: min(560px, 100%)");
