@@ -3,7 +3,7 @@
 
   const ROOT_ID = "pipzo-extension-keyboard";
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
-  const SPOTIFY_CODE_LAUNCHER_ID = "pipzo-spotify-code-launcher";
+  const SPOTIFY_ACCOUNT_LAUNCHER_ID = "pipzo-spotify-account-keyboard-launcher";
   const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
   const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search", "number", "tel"]);
@@ -132,6 +132,17 @@
     const candidates = Array.from(documentRef.querySelectorAll?.("input") || []);
     return candidates.find((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate) && !candidate.value)
       || candidates.find((candidate) => isEditableTarget(candidate) && isNumericTarget(candidate))
+      || candidates.find((candidate) => isEditableTarget(candidate))
+      || null;
+  }
+
+  function spotifyFallbackTarget(documentRef) {
+    const challengeTarget = spotifyChallengeTarget(documentRef);
+    if (challengeTarget) return challengeTarget;
+    const active = documentRef.activeElement;
+    if (isEditableTarget(active)) return active;
+    const candidates = Array.from(documentRef.querySelectorAll?.("input,textarea") || []);
+    return candidates.find((candidate) => isEditableTarget(candidate) && !candidate.value)
       || candidates.find((candidate) => isEditableTarget(candidate))
       || null;
   }
@@ -477,17 +488,17 @@
     documentRef.body.appendChild(root);
   }
 
-  function ensureSpotifyCodeLauncher(documentRef) {
-    if (!isSpotifySixDigitChallengePage(documentRef)) return;
+  function ensureSpotifyAccountLauncher(documentRef) {
+    if (!isSpotifyAccountsPage()) return;
     if (!documentRef.body) return;
-    if (documentRef.getElementById(SPOTIFY_CODE_LAUNCHER_ID)) return;
+    if (documentRef.getElementById(SPOTIFY_ACCOUNT_LAUNCHER_ID)) return;
     const button = documentRef.createElement("button");
-    button.id = SPOTIFY_CODE_LAUNCHER_ID;
+    button.id = SPOTIFY_ACCOUNT_LAUNCHER_ID;
     button.type = "button";
     button.textContent = "123";
-    button.setAttribute("aria-label", "Show Pipzo numeric keypad");
+    button.setAttribute("aria-label", "Show Pipzo keyboard");
     button.addEventListener("pointerdown", (event) => event.preventDefault());
-    button.addEventListener("click", () => showSpotifyChallengeKeyboard(documentRef));
+    button.addEventListener("click", () => showSpotifyAccountKeyboard(documentRef));
     documentRef.body.appendChild(button);
   }
 
@@ -573,6 +584,25 @@
     return true;
   }
 
+  function showSpotifyAccountKeyboard(documentRef) {
+    if (!isSpotifyAccountsPage()) return false;
+    const target = spotifyFallbackTarget(documentRef);
+    if (target) {
+      showKeyboardForTarget(documentRef, target);
+      return true;
+    }
+    state.target = null;
+    state.mode = isSpotifySixDigitChallengePage(documentRef) ? "numeric" : "letters";
+    state.shift = false;
+    state.caps = false;
+    const root = ensureRoot(documentRef);
+    if (!root) return false;
+    renderKeyboard(root);
+    root.hidden = false;
+    syncKeyboardInset(documentRef, root);
+    return true;
+  }
+
   function checkActiveElement(documentRef) {
     const active = documentRef.activeElement;
     if (isEditableTarget(active)) showKeyboard(documentRef, active);
@@ -601,7 +631,7 @@
     markInstalled(documentRef);
     ensureRoot(documentRef);
     ensureSpotifyScrollControls(documentRef);
-    ensureSpotifyCodeLauncher(documentRef);
+    ensureSpotifyAccountLauncher(documentRef);
     installSpotifySessionResetBridge(documentRef);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
@@ -640,7 +670,7 @@
     if (typeof globalScope.MutationObserver === "function") {
       const observer = new globalScope.MutationObserver(() => {
         ensureSpotifyScrollControls(documentRef);
-        ensureSpotifyCodeLauncher(documentRef);
+        ensureSpotifyAccountLauncher(documentRef);
         scheduleStaleTargetCheck(documentRef);
       });
       if (documentRef.documentElement) {
@@ -672,6 +702,7 @@
     nextState,
     isSpotifyAccountsPage,
     spotifyChallengeTarget,
+    spotifyFallbackTarget,
     rowLabels,
   };
 

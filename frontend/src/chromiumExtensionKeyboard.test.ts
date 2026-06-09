@@ -33,6 +33,7 @@ type KeyboardTestApi = {
   ) => { mode: string; shift: boolean; caps: boolean };
   rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
   spotifyChallengeTarget: (documentRef: unknown) => unknown | null;
+  spotifyFallbackTarget: (documentRef: unknown) => unknown | null;
 };
 
 type SessionResetTestApi = {
@@ -297,6 +298,28 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(inputs[0]);
   });
 
+  it("falls back to active or first editable Spotify account fields without code-page assumptions", () => {
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
+    const filled = new FakeInput();
+    filled.type = "email";
+    filled.value = "user@example.test";
+    const empty = new FakeInput();
+    empty.type = "text";
+    const password = new FakeInput();
+    password.type = "password";
+    const documentRef = {
+      activeElement: password,
+      body: { innerText: "Log in to Spotify" },
+      querySelectorAll: (selector: string) => (selector === "input,textarea" ? [filled, empty, password] : []),
+    };
+
+    expect(keyboard.isSpotifyAccountsPage()).toBe(true);
+    expect(keyboard.spotifyFallbackTarget(documentRef)).toBe(password);
+
+    const noActiveDocumentRef = { ...documentRef, activeElement: {} };
+    expect(keyboard.spotifyFallbackTarget(noActiveDocumentRef)).toBe(empty);
+  });
+
   it("recognizes related-frame code challenges from their OTP shape", () => {
     const keyboard = loadKeyboardApi({ protocol: "about:", host: "" });
     const inputs = Array.from({ length: 6 }, (_, index) => {
@@ -457,12 +480,14 @@ describe("Chromium extension keyboard", () => {
 
     expect(keyboard.isSpotifyAccountsPage()).toBe(false);
     expect(script).toContain("SPOTIFY_SCROLL_ROOT_ID");
-    expect(script).toContain("SPOTIFY_CODE_LAUNCHER_ID");
+    expect(script).toContain("SPOTIFY_ACCOUNT_LAUNCHER_ID");
     expect(script).toContain('host === "accounts.spotify.com"');
     expect(script).toContain("scrollSpotifyPage");
-    expect(script).toContain("ensureSpotifyCodeLauncher");
+    expect(script).toContain("ensureSpotifyAccountLauncher");
+    expect(script).toContain("showSpotifyAccountKeyboard");
+    expect(script).toContain("spotifyFallbackTarget");
     expect(stylesheet).toContain("#pipzo-spotify-scroll-controls");
-    expect(stylesheet).toContain("#pipzo-spotify-code-launcher");
+    expect(stylesheet).toContain("#pipzo-spotify-account-keyboard-launcher");
   });
 
   it("declares a minimal Spotify session reset extension surface", () => {

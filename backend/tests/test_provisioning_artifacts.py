@@ -172,7 +172,9 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert "pointerdown" in content_script
     assert "touchstart" in content_script
     assert "dataset.pipzoKeyboardExtension" in content_script
-    assert "SPOTIFY_CODE_LAUNCHER_ID" in content_script
+    assert "SPOTIFY_ACCOUNT_LAUNCHER_ID" in content_script
+    assert "showSpotifyAccountKeyboard" in content_script
+    assert "spotifyFallbackTarget" in content_script
     assert "pipzo:spotify-session-reset-request" in content_script
     assert "pipzo:spotify-session-reset-response" in content_script
     assert "runtime?.sendMessage" in content_script

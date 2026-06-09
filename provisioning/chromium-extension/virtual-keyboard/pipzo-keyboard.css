@@ -120,7 +120,7 @@
   filter: brightness(1.14);
 }
 
-#pipzo-spotify-code-launcher {
+#pipzo-spotify-account-keyboard-launcher {
   position: fixed;
   right: 14px;
   bottom: 14px;
@@ -141,7 +141,7 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
 }
 
-#pipzo-spotify-code-launcher:active {
+#pipzo-spotify-account-keyboard-launcher:active {
   transform: translateY(1px) scale(0.985);
   border-color: rgba(223, 232, 183, 0.78);
   filter: brightness(1.14);
