@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pipzo Touch Keyboard",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "First-party Pipzo touch keyboard and Spotify session reset helper for true kiosk setup.",
   "permissions": ["browsingData", "cookies", "scripting"],
   "host_permissions": [

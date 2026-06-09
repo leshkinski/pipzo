@@ -56,6 +56,7 @@
     shift: false,
     target: null,
   };
+  let lastKeyboardActivation = { commandKey: "", source: "", time: 0 };
 
   function isSpotifyAccountsPage() {
     const locationRef = globalScope.location;
@@ -214,6 +215,32 @@
 
   function commandForKey(key) {
     return typeof key === "string" ? { label: key, kind: "text", value: key } : key;
+  }
+
+  function commandKey(command) {
+    return `${command.kind}:${command.value ?? ""}`;
+  }
+
+  function writeCommandDataset(button, command) {
+    button.dataset.pipzoKeyboardCommandKind = command.kind;
+    if (typeof command.value === "string") {
+      button.dataset.pipzoKeyboardCommandValue = command.value;
+    } else {
+      delete button.dataset.pipzoKeyboardCommandValue;
+    }
+  }
+
+  function commandFromButton(button) {
+    const kind = button?.dataset?.pipzoKeyboardCommandKind;
+    if (!kind) return null;
+    if (kind === "text") return { label: button.textContent || button.dataset.pipzoKeyboardCommandValue || "", kind, value: button.dataset.pipzoKeyboardCommandValue || "" };
+    if (kind === "space") return { label: "Space", kind };
+    if (kind === "backspace") return { label: "Backspace", kind };
+    if (kind === "clear") return { label: "Clear", kind };
+    if (kind === "done") return { label: "Done", kind, primary: true };
+    if (kind === "mode") return { label: "Mode", kind };
+    if (kind === "shift") return { label: "Shift", kind };
+    return null;
   }
 
   function commandRows(currentState) {
@@ -458,10 +485,9 @@
     const button = documentRef.createElement("button");
     button.type = "button";
     button.textContent = label;
+    writeCommandDataset(button, command);
     if (options.active) button.dataset.active = "true";
     if (options.primary) button.dataset.primary = "true";
-    button.addEventListener("pointerdown", (event) => event.preventDefault());
-    button.addEventListener("click", () => handleCommand(command));
     return button;
   }
 
@@ -563,16 +589,79 @@
     }
   }
 
+  function stopKeyboardEvent(event) {
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    if (typeof event.stopPropagation === "function") event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+  }
+
+  function keyboardCommandButtonFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const candidate of path) {
+      if (candidate instanceof HTMLButtonElement && commandFromButton(candidate)) return candidate;
+    }
+    const target = event.target;
+    if (target instanceof HTMLButtonElement && commandFromButton(target)) return target;
+    if (typeof target?.closest === "function") {
+      const closest = target.closest(`#${ROOT_ID} button[data-pipzo-keyboard-command-kind]`);
+      if (closest instanceof HTMLButtonElement && commandFromButton(closest)) return closest;
+    }
+    return null;
+  }
+
+  function shouldIgnoreKeyboardActivation(event) {
+    if (event.type === "pointerdown" && typeof event.button === "number" && event.button !== 0) return true;
+    if (event.type === "mousedown" && typeof globalScope.PointerEvent === "function") return true;
+    return false;
+  }
+
+  function shouldSuppressDuplicateActivation(command, event) {
+    const now = typeof globalScope.performance?.now === "function" ? globalScope.performance.now() : Date.now();
+    const key = commandKey(command);
+    const source = event.type || "";
+    const fallbackAfterPrimary =
+      (source === "click" || source === "mousedown")
+      && (lastKeyboardActivation.source === "pointerdown" || lastKeyboardActivation.source === "touchstart");
+    if (fallbackAfterPrimary && lastKeyboardActivation.commandKey === key && now - lastKeyboardActivation.time < 350) return true;
+    lastKeyboardActivation = { commandKey: key, source, time: now };
+    return false;
+  }
+
+  function handleKeyboardActivation(event) {
+    const button = keyboardCommandButtonFromEvent(event);
+    if (!button) return false;
+    stopKeyboardEvent(event);
+    if (shouldIgnoreKeyboardActivation(event)) return true;
+    const command = commandFromButton(button);
+    if (!command) return true;
+    if (shouldSuppressDuplicateActivation(command, event)) return true;
+    handleCommand(command);
+    return true;
+  }
+
+  function installKeyboardActivationHandlers(root) {
+    if (root.__pipzoKeyboardActivationInstalled) return;
+    root.__pipzoKeyboardActivationInstalled = true;
+    ["pointerdown", "touchstart", "mousedown", "click"].forEach((type) => {
+      root.addEventListener(type, handleKeyboardActivation, true);
+    });
+  }
+
   function ensureRoot(documentRef) {
     let root = documentRef.getElementById(ROOT_ID);
-    if (root) return root;
+    if (root) {
+      installKeyboardActivationHandlers(root);
+      return root;
+    }
     if (!documentRef.body) return null;
     root = documentRef.createElement("div");
     root.id = ROOT_ID;
     root.hidden = true;
     root.setAttribute("role", "group");
     root.setAttribute("aria-label", "Pipzo touch keyboard");
+    root.setAttribute("data-pipzo-keyboard-root", "true");
     documentRef.body.appendChild(root);
+    installKeyboardActivationHandlers(root);
     clearKeyboardInset(documentRef);
     return root;
   }
@@ -881,6 +970,8 @@
     isOtpLikeTarget,
     isSpotifySixDigitChallengePage,
     keyboardModeForTarget,
+    commandFromButton,
+    handleKeyboardActivation,
     isPipzoAppPage,
     isSpotifyAuthPage,
     nextState,

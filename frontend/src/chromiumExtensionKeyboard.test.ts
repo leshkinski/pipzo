@@ -14,9 +14,11 @@ type KeyboardTestApi = {
     state: { mode: string; shift: boolean; caps: boolean },
   ) => { value: string; caret: number };
   commandTarget: (documentRef: { activeElement?: unknown } | null) => unknown | null;
+  commandFromButton: (button: FakeButton) => { kind: string; value?: string } | null;
   dismissTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
   displayKey: (key: string, state: { mode: string; shift: boolean; caps: boolean }) => string;
   editableTargetFromEvent: (event: { target?: unknown; composedPath?: () => unknown[] }) => unknown | null;
+  handleKeyboardActivation: (event: FakeDomEvent) => boolean;
   hideIfTargetLeftPage: (documentRef: unknown) => void;
   focusNextOtpTarget: (element: unknown) => unknown | null;
   isConnectedTarget: (element: unknown) => boolean;
@@ -102,6 +104,7 @@ class FakeButton {
   disabled = false;
   dataset: Record<string, string> = {};
   parent: FakeButton | null = null;
+  textContent = "";
 
   closest(selector: string): FakeButton | null {
     if (selector !== "[data-pipzo-dismiss-keyboard='true']") return null;
@@ -128,7 +131,43 @@ class FakeEvent {
   }
 }
 
-function loadKeyboardApi(location?: { protocol: string; host: string; pathname?: string }): KeyboardTestApi {
+class FakeDomEvent {
+  button?: number;
+  defaultPrevented = false;
+  immediatePropagationStopped = false;
+  propagationStopped = false;
+  target: unknown;
+  type: string;
+  private path: unknown[];
+
+  constructor(type: string, target: unknown, path: unknown[] = [target], button?: number) {
+    this.type = type;
+    this.target = target;
+    this.path = path;
+    this.button = button;
+  }
+
+  composedPath(): unknown[] {
+    return this.path;
+  }
+
+  preventDefault(): void {
+    this.defaultPrevented = true;
+  }
+
+  stopPropagation(): void {
+    this.propagationStopped = true;
+  }
+
+  stopImmediatePropagation(): void {
+    this.immediatePropagationStopped = true;
+  }
+}
+
+function loadKeyboardApi(
+  location?: { protocol: string; host: string; pathname?: string },
+  documentRef?: Record<string, unknown>,
+): KeyboardTestApi {
   const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
   const context: {
     HTMLInputElement: typeof FakeInput;
@@ -139,7 +178,10 @@ function loadKeyboardApi(location?: { protocol: string; host: string; pathname?:
     KeyboardEvent: typeof FakeEvent;
     CompositionEvent: typeof FakeEvent;
     __pipzoKeyboardTestApi?: KeyboardTestApi;
+    document?: Record<string, unknown>;
     location?: { protocol: string; host: string; pathname?: string };
+    performance: { now: () => number };
+    PointerEvent?: unknown;
     globalThis?: unknown;
   } = {
     HTMLInputElement: FakeInput,
@@ -149,7 +191,9 @@ function loadKeyboardApi(location?: { protocol: string; host: string; pathname?:
     InputEvent: FakeEvent,
     KeyboardEvent: FakeEvent,
     CompositionEvent: FakeEvent,
+    document: documentRef,
     location,
+    performance: { now: () => Date.now() },
   };
   runInNewContext(source, context);
   if (!context.__pipzoKeyboardTestApi) {
@@ -174,6 +218,15 @@ function loadSessionResetApi(): SessionResetTestApi {
     throw new Error("session reset test API was not exposed");
   }
   return context.__pipzoSessionResetTestApi;
+}
+
+function fakeLoadingDocument(activeElement: unknown): Record<string, unknown> {
+  return {
+    activeElement,
+    addEventListener: () => undefined,
+    getElementById: () => null,
+    readyState: "loading",
+  };
 }
 
 describe("Chromium extension keyboard", () => {
@@ -339,6 +392,82 @@ describe("Chromium extension keyboard", () => {
       data: "4",
       inputType: "insertText",
     });
+  });
+
+  it("runs keyboard commands from pointer, touch, and click activation paths", () => {
+    (["pointerdown", "touchstart", "click"] as const).forEach((eventType) => {
+      const input = new FakeInput();
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.name = "code-0";
+      const documentRef = fakeLoadingDocument(input);
+      const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" }, documentRef);
+      const button = new FakeButton();
+      button.textContent = "7";
+      button.dataset.pipzoKeyboardCommandKind = "text";
+      button.dataset.pipzoKeyboardCommandValue = "7";
+      const event = new FakeDomEvent(eventType, button, [button], 0);
+
+      expect(keyboard.handleKeyboardActivation(event)).toBe(true);
+
+      expect(input.value).toBe("7");
+      expect(input.events.map((record) => record.type)).toContain("input");
+      expect(event.defaultPrevented).toBe(true);
+      expect(event.propagationStopped).toBe(true);
+      expect(event.immediatePropagationStopped).toBe(true);
+    });
+  });
+
+  it("deduplicates fallback click after pointerdown without losing the first OTP digit", () => {
+    let now = 1000;
+    const input = new FakeInput();
+    input.inputMode = "numeric";
+    input.maxLength = 1;
+    input.name = "code-0";
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" }, fakeLoadingDocument(input));
+    const button = new FakeButton();
+    button.textContent = "8";
+    button.dataset.pipzoKeyboardCommandKind = "text";
+    button.dataset.pipzoKeyboardCommandValue = "8";
+    const originalNow = Date.now;
+    Date.now = () => now;
+    try {
+      expect(keyboard.handleKeyboardActivation(new FakeDomEvent("pointerdown", button, [button], 0))).toBe(true);
+      now += 80;
+      expect(keyboard.handleKeyboardActivation(new FakeDomEvent("click", button, [button], 0))).toBe(true);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(input.value).toBe("8");
+    expect(input.events.filter((record) => record.type === "input")).toHaveLength(1);
+  });
+
+  it("does not suppress a second real tap on the same key", () => {
+    let now = 2000;
+    const input = new FakeInput();
+    input.type = "text";
+    input.selectionStart = 0;
+    input.selectionEnd = 0;
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" }, fakeLoadingDocument(input));
+    const button = new FakeButton();
+    button.textContent = "9";
+    button.dataset.pipzoKeyboardCommandKind = "text";
+    button.dataset.pipzoKeyboardCommandValue = "9";
+    const originalNow = Date.now;
+    Date.now = () => now;
+    try {
+      expect(keyboard.handleKeyboardActivation(new FakeDomEvent("pointerdown", button, [button], 0))).toBe(true);
+      input.selectionStart = input.value.length;
+      input.selectionEnd = input.value.length;
+      now += 120;
+      expect(keyboard.handleKeyboardActivation(new FakeDomEvent("pointerdown", button, [button], 0))).toBe(true);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(input.value).toBe("99");
+    expect(input.events.filter((record) => record.type === "input")).toHaveLength(2);
   });
 
   it("uses the native input value setter so React-controlled OTP fields observe the change", () => {
@@ -662,7 +791,7 @@ describe("Chromium extension keyboard", () => {
     expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
-    expect(manifest).toContain('"version": "0.1.6"');
+    expect(manifest).toContain('"version": "0.1.7"');
     expect(manifest).toContain('"match_about_blank": true');
     expect(manifest).toContain('"match_origin_as_fallback": true');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");
