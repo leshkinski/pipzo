@@ -609,6 +609,24 @@
     return null;
   }
 
+  function isPipzoControlEvent(event) {
+    if (keyboardCommandButtonFromEvent(event)) return true;
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const candidate of path) {
+      if (candidate?.id === ROOT_ID || candidate?.id === SPOTIFY_ACCOUNT_LAUNCHER_ID || candidate?.id === SPOTIFY_RECOVERY_ROOT_ID) return true;
+      if (typeof candidate?.closest === "function") {
+        const control = candidate.closest(`#${ROOT_ID}, #${SPOTIFY_ACCOUNT_LAUNCHER_ID}, #${SPOTIFY_RECOVERY_ROOT_ID}`);
+        if (control) return true;
+      }
+    }
+    const target = event.target;
+    if (target?.id === ROOT_ID || target?.id === SPOTIFY_ACCOUNT_LAUNCHER_ID || target?.id === SPOTIFY_RECOVERY_ROOT_ID) return true;
+    if (typeof target?.closest === "function") {
+      return Boolean(target.closest(`#${ROOT_ID}, #${SPOTIFY_ACCOUNT_LAUNCHER_ID}, #${SPOTIFY_RECOVERY_ROOT_ID}`));
+    }
+    return false;
+  }
+
   function shouldIgnoreKeyboardActivation(event) {
     if (event.type === "pointerdown" && typeof event.button === "number" && event.button !== 0) return true;
     if (event.type === "mousedown" && typeof globalScope.PointerEvent === "function") return true;
@@ -870,6 +888,7 @@
   }
 
   function handlePageActivation(documentRef, event) {
+    if (isPipzoControlEvent(event)) return false;
     const target = editableTargetFromEvent(event);
     if (!target) {
       if (dismissTargetFromEvent(event)) hideKeyboard();
@@ -979,6 +998,7 @@
     commandFromButton,
     handleKeyboardActivation,
     handlePageActivation,
+    isPipzoControlEvent,
     isPipzoAppPage,
     isSpotifyAuthPage,
     nextState,

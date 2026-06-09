@@ -40,6 +40,7 @@ type KeyboardTestApi = {
   spotifyChallengeTarget: (documentRef: unknown) => unknown | null;
   spotifyFallbackTarget: (documentRef: unknown) => unknown | null;
   sendExtensionDiagnostic: (documentRef: unknown) => void;
+  isPipzoControlEvent: (event: FakeDomEvent) => boolean;
 };
 
 type SessionResetTestApi = {
@@ -690,6 +691,33 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.handlePageActivation(documentRef, event)).toBe(false);
 
     expect(keyboardRoot.hidden).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(event.propagationStopped).toBe(false);
+    expect(event.immediatePropagationStopped).toBe(false);
+  });
+
+  it("does not hide the keyboard when a Spotify virtual key press reaches the page activation handler first", () => {
+    const keyButton = new FakeButton();
+    keyButton.textContent = "a";
+    keyButton.dataset.pipzoKeyboardCommandKind = "text";
+    keyButton.dataset.pipzoKeyboardCommandValue = "a";
+    const keyboardRoot = { hidden: false };
+    const documentRef = {
+      activeElement: keyButton,
+      addEventListener: () => undefined,
+      body: { innerText: "Log in to Spotify" },
+      documentElement: { dataset: {}, style: { setProperty: () => undefined } },
+      getElementById: (id: string) => (id === "pipzo-extension-keyboard" ? keyboardRoot : null),
+      querySelectorAll: (selector: string) => (selector === "input" ? [] : []),
+      readyState: "loading",
+    };
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com", pathname: "/login" }, documentRef);
+    const event = new FakeDomEvent("pointerdown", keyButton, [keyButton], 0);
+
+    expect(keyboard.isPipzoControlEvent(event)).toBe(true);
+    expect(keyboard.handlePageActivation(documentRef, event)).toBe(false);
+
+    expect(keyboardRoot.hidden).toBe(false);
     expect(event.defaultPrevented).toBe(false);
     expect(event.propagationStopped).toBe(false);
     expect(event.immediatePropagationStopped).toBe(false);
