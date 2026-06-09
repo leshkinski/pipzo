@@ -1106,6 +1106,10 @@ export type NetworkSettingsViewModel = {
   };
   networkRows: NetworkSettingsNetworkRow[];
   emptyNetworksCopy: string | null;
+  steps: string[];
+  showNetworkList: boolean;
+  showPasswordInput: boolean;
+  connectHelp: string | null;
 };
 
 export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[] = []): WifiSetupViewModel {
@@ -1189,6 +1193,10 @@ export function networkSettingsViewModel(
       caption: "Trying to join the selected network.",
       networkRows,
       emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+      steps: ["Network selected", "Password checked", "Connecting"],
+      showNetworkList: true,
+      showPasswordInput: true,
+      connectHelp: null,
     });
   }
 
@@ -1207,6 +1215,10 @@ export function networkSettingsViewModel(
       caption: "Pipzo is not connected to a Wi-Fi router.",
       networkRows,
       emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+      steps: ["Select network", "Enter password if needed", "Try again"],
+      showNetworkList: true,
+      showPasswordInput: true,
+      connectHelp: badPassword ? "Enter the Wi-Fi password before trying again." : null,
     });
   }
 
@@ -1218,11 +1230,15 @@ export function networkSettingsViewModel(
       tone: "ready",
       ssidLabel: network.ssid ?? "Connected",
       ipAddressLabel: network.ipAddress ?? "Unknown",
-      actions: ["scan", "forget"],
+      actions: ["forget"],
       flowStates: ["success", "success", "success"],
       caption: "Pipzo can reach Spotify.",
       networkRows,
-      emptyNetworksCopy: networks.length === 0 ? "Scan to show nearby Wi-Fi networks." : null,
+      emptyNetworksCopy: null,
+      steps: ["Current network is active", "Use Forget network only when changing Wi-Fi"],
+      showNetworkList: false,
+      showPasswordInput: false,
+      connectHelp: null,
     });
   }
 
@@ -1234,11 +1250,15 @@ export function networkSettingsViewModel(
       tone: "attention",
       ssidLabel: network.ssid ?? "Connected",
       ipAddressLabel: network.ipAddress ?? "Unknown",
-      actions: ["retry", "scan", "forget"],
+      actions: ["retry", "forget"],
       flowStates: ["success", "success", "error"],
       caption: "Wi-Fi is connected, but the internet check failed.",
       networkRows,
-      emptyNetworksCopy: networks.length === 0 ? "Scan to show nearby Wi-Fi networks." : null,
+      emptyNetworksCopy: null,
+      steps: ["Wi-Fi link is active", "Retry internet or forget this network"],
+      showNetworkList: false,
+      showPasswordInput: false,
+      connectHelp: null,
     });
   }
 
@@ -1255,6 +1275,10 @@ export function networkSettingsViewModel(
       caption: "Pipzo is checking the network path.",
       networkRows,
       emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+      steps: ["Wait for network check", "Scan if nothing appears"],
+      showNetworkList: true,
+      showPasswordInput: false,
+      connectHelp: null,
     });
   }
 
@@ -1271,6 +1295,10 @@ export function networkSettingsViewModel(
     caption: "Pipzo is not connected to a Wi-Fi router.",
     networkRows,
     emptyNetworksCopy: hasNetworks ? null : "Scan for nearby Wi-Fi networks.",
+    steps: hasNetworks ? ["Select a network", "Enter password if required", "Connect"] : ["Scan for networks", "Select a network", "Connect"],
+    showNetworkList: true,
+    showPasswordInput: hasNetworks,
+    connectHelp: hasNetworks && !selectedSsid ? "Select a Wi-Fi network first." : "Secured networks need a password before Connect is available.",
   });
 }
 
@@ -1286,6 +1314,10 @@ function networkSettingsView(input: {
   caption: string;
   networkRows: NetworkSettingsNetworkRow[];
   emptyNetworksCopy: string | null;
+  steps: string[];
+  showNetworkList: boolean;
+  showPasswordInput: boolean;
+  connectHelp: string | null;
 }): NetworkSettingsViewModel {
   const [device, router, internet] = input.flowStates;
   return {
@@ -1310,6 +1342,10 @@ function networkSettingsView(input: {
     },
     networkRows: input.networkRows,
     emptyNetworksCopy: input.emptyNetworksCopy,
+    steps: input.steps,
+    showNetworkList: input.showNetworkList,
+    showPasswordInput: input.showPasswordInput,
+    connectHelp: input.connectHelp,
   };
 }
 

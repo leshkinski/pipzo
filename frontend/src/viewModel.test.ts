@@ -543,11 +543,14 @@ describe("kiosk shell view model", () => {
       tone: "ready",
       ssidLabel: "PipzoNet",
       ipAddressLabel: "192.168.1.42",
-      actions: ["scan", "forget"],
+      actions: ["forget"],
+      showNetworkList: false,
+      showPasswordInput: false,
     });
     expect(view.flow.nodes.map((node) => node.state)).toEqual(["success", "success", "success"]);
     expect(view.flow.caption).toBe("Pipzo can reach Spotify.");
     expect(view.networkRows[0]).toMatchObject({ ssid: "PipzoNet", connected: true });
+    expect(view.steps).toEqual(["Current network is active", "Use Forget network only when changing Wi-Fi"]);
   });
 
   it("models local-only Settings Wi-Fi with retry and an internet-path failure", () => {
@@ -560,7 +563,9 @@ describe("kiosk shell view model", () => {
       title: "PipzoNet connected",
       detail: "Wi-Fi is connected, but internet is not reachable.",
       tone: "attention",
-      actions: ["retry", "scan", "forget"],
+      actions: ["retry", "forget"],
+      showNetworkList: false,
+      showPasswordInput: false,
     });
     expect(view.flow.nodes.map((node) => node.state)).toEqual(["success", "success", "error"]);
     expect(view.flow.connectors.map((connector) => connector.state)).toEqual(["success", "error"]);
@@ -574,6 +579,9 @@ describe("kiosk shell view model", () => {
       title: "Connect Wi-Fi",
       actions: ["scan"],
       emptyNetworksCopy: "Scan for nearby Wi-Fi networks.",
+      showNetworkList: true,
+      showPasswordInput: false,
+      steps: ["Scan for networks", "Select a network", "Connect"],
     });
 
     const withNetworks = networkSettingsViewModel(firstBoot, [
@@ -583,6 +591,11 @@ describe("kiosk shell view model", () => {
     expect(withNetworks.actions).toEqual(["scan", "connect"]);
     expect(withNetworks.flow.nodes.map((node) => node.state)).toEqual(["success", "idle", "idle"]);
     expect(withNetworks.networkRows[0]).toMatchObject({ ssid: "PipzoNet", selected: true, connected: false });
+    expect(withNetworks).toMatchObject({
+      showNetworkList: true,
+      showPasswordInput: true,
+      connectHelp: "Secured networks need a password before Connect is available.",
+    });
   });
 
   it("models Settings Wi-Fi connecting and failed join states without backend-only state", () => {
@@ -598,6 +611,7 @@ describe("kiosk shell view model", () => {
       state: "connecting",
       title: "Connecting to PipzoNet",
       actions: ["scan", "connect"],
+      showPasswordInput: true,
     });
     expect(connecting.flow.nodes.map((node) => node.state)).toEqual(["success", "pending", "idle"]);
 
@@ -611,8 +625,18 @@ describe("kiosk shell view model", () => {
       detail: "The password looks wrong. Check it and try again.",
       tone: "error",
       actions: ["scan", "connect"],
+      showPasswordInput: true,
+      connectHelp: "Enter the Wi-Fi password before trying again.",
     });
     expect(badPassword.flow.nodes.map((node) => node.state)).toEqual(["success", "error", "idle"]);
+  });
+
+  it("keeps empty secured Wi-Fi passwords out of the backend connect path", () => {
+    const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('setWifiMessage("Enter the Wi-Fi password before connecting.");');
+    expect(source).toContain("if (needsPassword && wifiPassword.trim().length === 0)");
+    expect(source).toContain("disabled={controls.busy || !controls.selectedSsid || connectBlocked}");
   });
 
   it("describes Bluetooth speaker setup actions from speaker health and scan results", () => {

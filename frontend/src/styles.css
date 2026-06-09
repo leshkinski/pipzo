@@ -1970,13 +1970,15 @@ label.touch-pressed {
 .network-status-card,
 .network-flow-card,
 .network-list-panel,
+.network-step-panel,
 .network-password-panel {
   min-width: 0;
 }
 
 .network-status-card,
 .network-flow-card,
-.network-list-panel {
+.network-list-panel,
+.network-step-panel {
   display: grid;
   gap: 8px;
 }
@@ -2077,6 +2079,36 @@ label.touch-pressed {
   grid-column: 1 / -1;
 }
 
+.network-step-panel {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.network-step-panel span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid #d5cec0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fffdf7;
+  color: #17211c;
+  font-weight: 800;
+}
+
+.network-step-panel b {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #2f6f73;
+  color: #fffdf7;
+  font-size: 13px;
+}
+
 .network-list-heading {
   display: flex;
   justify-content: space-between;
@@ -2147,7 +2179,57 @@ label.touch-pressed {
 
 .network-password-panel {
   grid-column: 1 / -1;
-  max-width: 520px;
+  width: min(520px, 100%);
+  align-self: end;
+}
+
+.network-connect-help {
+  color: #7a2d28;
+  font-weight: 800;
+}
+
+@media (min-width: 901px) and (max-height: 760px) {
+  .settings-wifi-panel {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .settings-wifi-panel .network-status-card,
+  .settings-wifi-panel .network-flow-card {
+    min-height: 132px;
+  }
+
+  .settings-wifi-panel .wifi-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-wifi-panel .network-flow-node {
+    min-height: 66px;
+    padding: 8px 6px;
+  }
+
+  .settings-wifi-panel .network-flow-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .settings-wifi-panel .network-actions button {
+    min-height: 50px;
+  }
+
+  .settings-wifi-panel .network-row {
+    min-height: 58px;
+    padding: 8px 10px;
+  }
+
+  .settings-wifi-panel .network-step-panel span {
+    min-height: 38px;
+    padding: 6px 8px;
+  }
+
+  .settings-wifi-panel .network-password-panel {
+    width: min(460px, 100%);
+  }
 }
 
 .speaker-device-list {
@@ -2503,6 +2585,7 @@ label.touch-pressed {
   .settings-overview .settings-status-row,
   .network-actions,
   .network-list,
+  .network-step-panel,
   .network-flow-row {
     grid-template-columns: 1fr;
   }

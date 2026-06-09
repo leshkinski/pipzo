@@ -1382,6 +1382,12 @@ export function App() {
       setWifiMessage("Select a Wi-Fi network first.");
       return;
     }
+    const selectedNetwork = wifiNetworks.find((network) => network.ssid === selectedWifiSsid);
+    const needsPassword = selectedNetwork?.security !== "open";
+    if (needsPassword && wifiPassword.trim().length === 0) {
+      setWifiMessage("Enter the Wi-Fi password before connecting.");
+      return;
+    }
     setWifiBusy(true);
     setWifiMessage(`Connecting to ${selectedWifiSsid}.`);
     try {
@@ -3478,7 +3484,9 @@ function SettingsWifiPanel({
   });
   const selectedNetwork = controls.networks.find((network) => network.ssid === controls.selectedSsid);
   const needsPassword = selectedNetwork ? selectedNetwork.security !== "open" : true;
-  const scanLabel = controls.busy && controls.message.toLowerCase().includes("scanning") ? "Scanning" : "Scan again";
+  const connectBlocked = view.showPasswordInput && Boolean(controls.selectedSsid) && needsPassword && controls.password.trim().length === 0;
+  const connectHelp = !controls.selectedSsid ? view.connectHelp : connectBlocked ? "Enter the Wi-Fi password before Connect is available." : needsPassword ? view.connectHelp : null;
+  const scanLabel = controls.busy && controls.message.toLowerCase().includes("scanning") ? "Scanning" : "Scan networks";
   const connectLabel = controls.busy && controls.message.toLowerCase().includes("connecting") ? "Connecting" : "Connect";
   const showConnectFirst = view.actions.includes("connect") && Boolean(controls.selectedSsid);
 
@@ -3528,15 +3536,17 @@ function SettingsWifiPanel({
           </button>
         )}
         {showConnectFirst && (
-          <button disabled={controls.busy || !controls.selectedSsid} type="button" onClick={controls.onConnect}>
+          <button disabled={controls.busy || !controls.selectedSsid || connectBlocked} type="button" onClick={controls.onConnect}>
             {connectLabel}
           </button>
         )}
-        <button disabled={controls.busy} type="button" onClick={controls.onScan}>
-          {scanLabel}
-        </button>
+        {view.actions.includes("scan") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onScan}>
+            {scanLabel}
+          </button>
+        )}
         {view.actions.includes("connect") && !showConnectFirst && (
-          <button disabled={controls.busy || !controls.selectedSsid} type="button" onClick={controls.onConnect}>
+          <button disabled={controls.busy || !controls.selectedSsid || connectBlocked} type="button" onClick={controls.onConnect}>
             {connectLabel}
           </button>
         )}
@@ -3547,35 +3557,47 @@ function SettingsWifiPanel({
         )}
       </div>
 
-      <div className="network-list-panel">
-        <div className="network-list-heading">
-          <h3>Nearby networks</h3>
-          <span>{controls.networks.length > 0 ? `${controls.networks.length} found` : "Not scanned"}</span>
-        </div>
-        <div className="network-list" aria-label="Nearby Wi-Fi networks">
-          {view.networkRows.map((network) => (
-            <button
-              className={[
-                "network-row",
-                network.selected ? "selected" : "",
-                network.connected ? "connected" : "",
-              ].filter(Boolean).join(" ")}
-              disabled={controls.busy}
-              key={network.ssid}
-              type="button"
-              onClick={() => controls.onSelect(network.ssid)}
-            >
-              <span>
-                <strong>{network.ssid}</strong>
-                <small>{network.detail}</small>
-              </span>
-              <b>{network.connected ? "Connected" : network.selected ? "Selected" : "Choose"}</b>
-            </button>
-          ))}
-          {view.emptyNetworksCopy && <p className="subtle">{view.emptyNetworksCopy}</p>}
-        </div>
+      <div className="network-step-panel">
+        {view.steps.map((step, index) => (
+          <span key={step}>
+            <b>{index + 1}</b>
+            {step}
+          </span>
+        ))}
       </div>
 
+      {view.showNetworkList && (
+        <div className="network-list-panel">
+          <div className="network-list-heading">
+            <h3>Nearby networks</h3>
+            <span>{controls.networks.length > 0 ? `${controls.networks.length} found` : "Not scanned"}</span>
+          </div>
+          <div className="network-list" aria-label="Nearby Wi-Fi networks">
+            {view.networkRows.map((network) => (
+              <button
+                className={[
+                  "network-row",
+                  network.selected ? "selected" : "",
+                  network.connected ? "connected" : "",
+                ].filter(Boolean).join(" ")}
+                disabled={controls.busy}
+                key={network.ssid}
+                type="button"
+                onClick={() => controls.onSelect(network.ssid)}
+              >
+                <span>
+                  <strong>{network.ssid}</strong>
+                  <small>{network.detail}</small>
+                </span>
+                <b>{network.connected ? "Connected" : network.selected ? "Selected" : "Choose"}</b>
+              </button>
+            ))}
+            {view.emptyNetworksCopy && <p className="subtle">{view.emptyNetworksCopy}</p>}
+          </div>
+        </div>
+      )}
+
+      {view.showPasswordInput && (
       <div className="wifi-form network-password-panel">
         <label>
           <span>Password</span>
@@ -3600,8 +3622,14 @@ function SettingsWifiPanel({
               <span className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"} aria-hidden="true" />
             </button>
           </div>
+          {connectHelp && (
+            <span className="network-connect-help">
+              {connectHelp}
+            </span>
+          )}
         </label>
       </div>
+      )}
     </section>
   );
 }
