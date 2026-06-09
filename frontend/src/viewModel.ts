@@ -56,9 +56,13 @@ export type ShellNavigationItem = {
 };
 
 export type SettingsPageId = "overview" | "wifi" | "spotify" | "audio" | "device";
+export type ShellNavigationState = {
+  surface: AppSurfaceId;
+  settingsPage: SettingsPageId;
+};
 export type SettingsStatusTone = "ready" | "warning" | "error" | "action_needed";
 export type SettingsStatusRow = {
-  id: Exclude<SettingsPageId, "overview"> | "internet";
+  id: Exclude<SettingsPageId, "overview" | "wifi"> | "network";
   title: string;
   status: string;
   detail: string;
@@ -114,23 +118,29 @@ export function shellNavigationItems(): ShellNavigationItem[] {
   ];
 }
 
+export function shellNavigationSelection(current: ShellNavigationState, surface: AppSurfaceId): ShellNavigationState {
+  return {
+    surface,
+    settingsPage: surface === "settings" ? "overview" : current.settingsPage,
+  };
+}
+
 export function settingsStatusRows(snapshot: AppSnapshot, authSession?: SpotifyAuthSession | null): SettingsStatusRow[] {
   return [
-    wifiSettingsStatusRow(snapshot),
-    internetSettingsStatusRow(snapshot),
+    networkSettingsStatusRow(snapshot),
     spotifySettingsStatusRow(snapshot, authSession),
     audioSettingsStatusRow(snapshot),
     deviceSettingsStatusRow(snapshot),
   ];
 }
 
-function wifiSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
+function networkSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
   const network = snapshot.health.network;
   const setupRequired = isSetupGated(snapshot) && !snapshot.readiness.networkConfigured;
   if (setupRequired) {
     return {
-      id: "wifi",
-      title: "Wi-Fi",
+      id: "network",
+      title: "Network",
       status: "Required for setup",
       detail: "Connect Wi-Fi to continue",
       tone: "action_needed",
@@ -140,8 +150,8 @@ function wifiSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
   }
   if (network.status === "online") {
     return {
-      id: "wifi",
-      title: "Wi-Fi",
+      id: "network",
+      title: "Network",
       status: "Connected",
       detail: network.ssid ?? "Network ready",
       tone: "ready",
@@ -150,66 +160,34 @@ function wifiSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
   }
   if (network.status === "local_only") {
     return {
-      id: "wifi",
-      title: "Wi-Fi",
-      status: "Connected, no internet",
+      id: "network",
+      title: "Network",
+      status: "No internet",
       detail: network.ssid ?? "Local network",
       tone: "warning",
       targetPage: "wifi",
-      actionLabel: "Check network",
+      actionLabel: "Check",
     };
   }
   if (network.status === "starting") {
     return {
-      id: "wifi",
-      title: "Wi-Fi",
+      id: "network",
+      title: "Network",
       status: "Checking",
-      detail: "Device is checking Wi-Fi",
+      detail: "Checking Wi-Fi and internet",
       tone: "warning",
       targetPage: "wifi",
+      actionLabel: "Open",
     };
   }
   return {
-    id: "wifi",
-    title: "Wi-Fi",
+    id: "network",
+    title: "Network",
     status: "Not connected",
     detail: "Tap to connect",
     tone: "error",
     targetPage: "wifi",
     actionLabel: "Connect",
-  };
-}
-
-function internetSettingsStatusRow(snapshot: AppSnapshot): SettingsStatusRow {
-  const network = snapshot.health.network;
-  if (network.status === "online" && network.internetReachable !== false) {
-    return {
-      id: "internet",
-      title: "Internet",
-      status: "Online",
-      detail: "Spotify can connect",
-      tone: "ready",
-      targetPage: "wifi",
-    };
-  }
-  if (network.status === "starting" || network.reason === "boot_probe_pending") {
-    return {
-      id: "internet",
-      title: "Internet",
-      status: "Checking",
-      detail: "Device is still checking internet access",
-      tone: "warning",
-      targetPage: "wifi",
-    };
-  }
-  return {
-    id: "internet",
-    title: "Internet",
-    status: "Offline",
-    detail: "Playback and Spotify setup are unavailable",
-    tone: "error",
-    targetPage: "wifi",
-    actionLabel: "Open Wi-Fi",
   };
 }
 
@@ -1091,6 +1069,45 @@ export type WifiSetupViewModel = {
   actions: WifiAction[];
 };
 
+export type NetworkFlowState = "success" | "pending" | "idle" | "error";
+export type NetworkSettingsState = "online" | "local_only" | "disconnected" | "checking" | "connecting" | "connect_failed";
+
+export type NetworkFlowNode = {
+  id: "device" | "router" | "internet";
+  label: string;
+  state: NetworkFlowState;
+};
+
+export type NetworkFlowConnector = {
+  id: "device-router" | "router-internet";
+  state: NetworkFlowState;
+};
+
+export type NetworkSettingsNetworkRow = {
+  ssid: string;
+  detail: string;
+  selected: boolean;
+  connected: boolean;
+  security: WifiNetwork["security"];
+};
+
+export type NetworkSettingsViewModel = {
+  state: NetworkSettingsState;
+  title: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention" | "error";
+  ssidLabel: string;
+  ipAddressLabel: string;
+  actions: WifiAction[];
+  flow: {
+    nodes: NetworkFlowNode[];
+    connectors: NetworkFlowConnector[];
+    caption: string;
+  };
+  networkRows: NetworkSettingsNetworkRow[];
+  emptyNetworksCopy: string | null;
+};
+
 export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[] = []): WifiSetupViewModel {
   const network = snapshot.health.network;
   if (network.status === "online") {
@@ -1135,6 +1152,164 @@ export function wifiSetupViewModel(snapshot: AppSnapshot, networks: WifiNetwork[
     ipAddressLabel: "Unknown",
     tone: "attention",
     actions: ["scan"],
+  };
+}
+
+export function networkSettingsViewModel(
+  snapshot: AppSnapshot,
+  networks: WifiNetwork[] = [],
+  options: { selectedSsid?: string; busy?: boolean; message?: string } = {},
+): NetworkSettingsViewModel {
+  const network = snapshot.health.network;
+  const selectedSsid = options.selectedSsid ?? "";
+  const busyMessage = options.message ?? "";
+  const connecting = Boolean(options.busy && selectedSsid && busyMessage.toLowerCase().includes("connecting"));
+  const connectFailed = Boolean(busyMessage.toLowerCase().includes("connection failed") || busyMessage.toLowerCase().includes("connect is unavailable"));
+  const badPassword = Boolean(connectFailed && (busyMessage.toLowerCase().includes("credential") || busyMessage.toLowerCase().includes("password")));
+  const currentSsid = network.ssid ?? "";
+
+  const networkRows = networks.map((candidate) => ({
+    ssid: candidate.ssid,
+    detail: `${candidate.signal}% / ${labelFromId(candidate.security)}${candidate.known ? " / known" : ""}`,
+    selected: candidate.ssid === selectedSsid,
+    connected: Boolean(currentSsid && candidate.ssid === currentSsid && ["online", "local_only"].includes(network.status)),
+    security: candidate.security,
+  }));
+
+  if (connecting) {
+    return networkSettingsView({
+      state: "connecting",
+      title: selectedSsid ? `Connecting to ${selectedSsid}` : "Connecting Wi-Fi",
+      detail: "Pipzo is trying to join the selected network.",
+      tone: "waiting",
+      ssidLabel: selectedSsid || "Selected network",
+      ipAddressLabel: network.ipAddress ?? "Not connected",
+      actions: ["scan", "connect"],
+      flowStates: ["success", "pending", "idle"],
+      caption: "Trying to join the selected network.",
+      networkRows,
+      emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+    });
+  }
+
+  if (connectFailed) {
+    return networkSettingsView({
+      state: "connect_failed",
+      title: selectedSsid ? `Couldn't join ${selectedSsid}` : "Couldn't join Wi-Fi",
+      detail: badPassword
+        ? "The password looks wrong. Check it and try again."
+        : "Pipzo could not connect to this network. Try again or choose another network.",
+      tone: "error",
+      ssidLabel: selectedSsid || "Selected network",
+      ipAddressLabel: network.ipAddress ?? "Not connected",
+      actions: ["scan", "connect"],
+      flowStates: ["success", "error", "idle"],
+      caption: "Pipzo is not connected to a Wi-Fi router.",
+      networkRows,
+      emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+    });
+  }
+
+  if (network.status === "online") {
+    return networkSettingsView({
+      state: "online",
+      title: network.ssid ? `Connected to ${network.ssid}` : "Wi-Fi connected",
+      detail: "Internet is reachable. Spotify and playback can connect.",
+      tone: "ready",
+      ssidLabel: network.ssid ?? "Connected",
+      ipAddressLabel: network.ipAddress ?? "Unknown",
+      actions: ["scan", "forget"],
+      flowStates: ["success", "success", "success"],
+      caption: "Pipzo can reach Spotify.",
+      networkRows,
+      emptyNetworksCopy: networks.length === 0 ? "Scan to show nearby Wi-Fi networks." : null,
+    });
+  }
+
+  if (network.status === "local_only") {
+    return networkSettingsView({
+      state: "local_only",
+      title: network.ssid ? `${network.ssid} connected` : "Wi-Fi connected",
+      detail: "Wi-Fi is connected, but internet is not reachable.",
+      tone: "attention",
+      ssidLabel: network.ssid ?? "Connected",
+      ipAddressLabel: network.ipAddress ?? "Unknown",
+      actions: ["retry", "scan", "forget"],
+      flowStates: ["success", "success", "error"],
+      caption: "Wi-Fi is connected, but the internet check failed.",
+      networkRows,
+      emptyNetworksCopy: networks.length === 0 ? "Scan to show nearby Wi-Fi networks." : null,
+    });
+  }
+
+  if (network.status === "starting") {
+    return networkSettingsView({
+      state: "checking",
+      title: "Checking Wi-Fi",
+      detail: "Pipzo is checking Wi-Fi and internet reachability.",
+      tone: "waiting",
+      ssidLabel: network.ssid ?? "Checking",
+      ipAddressLabel: network.ipAddress ?? "Unknown",
+      actions: ["scan"],
+      flowStates: ["success", "pending", "pending"],
+      caption: "Pipzo is checking the network path.",
+      networkRows,
+      emptyNetworksCopy: networks.length === 0 ? "Scan for nearby Wi-Fi networks." : null,
+    });
+  }
+
+  const hasNetworks = networks.length > 0;
+  return networkSettingsView({
+    state: "disconnected",
+    title: "Connect Wi-Fi",
+    detail: hasNetworks ? "Choose a nearby network to reconnect Pipzo." : "Choose a nearby network to reconnect Pipzo.",
+    tone: "attention",
+    ssidLabel: "Not connected",
+    ipAddressLabel: "Not connected",
+    actions: hasNetworks ? ["scan", "connect"] : ["scan"],
+    flowStates: ["success", "idle", "idle"],
+    caption: "Pipzo is not connected to a Wi-Fi router.",
+    networkRows,
+    emptyNetworksCopy: hasNetworks ? null : "Scan for nearby Wi-Fi networks.",
+  });
+}
+
+function networkSettingsView(input: {
+  state: NetworkSettingsState;
+  title: string;
+  detail: string;
+  tone: "ready" | "waiting" | "attention" | "error";
+  ssidLabel: string;
+  ipAddressLabel: string;
+  actions: WifiAction[];
+  flowStates: [NetworkFlowState, NetworkFlowState, NetworkFlowState];
+  caption: string;
+  networkRows: NetworkSettingsNetworkRow[];
+  emptyNetworksCopy: string | null;
+}): NetworkSettingsViewModel {
+  const [device, router, internet] = input.flowStates;
+  return {
+    state: input.state,
+    title: input.title,
+    detail: input.detail,
+    tone: input.tone,
+    ssidLabel: input.ssidLabel,
+    ipAddressLabel: input.ipAddressLabel,
+    actions: input.actions,
+    flow: {
+      nodes: [
+        { id: "device", label: "Device", state: device },
+        { id: "router", label: "Router", state: router },
+        { id: "internet", label: "Internet", state: internet },
+      ],
+      connectors: [
+        { id: "device-router", state: router },
+        { id: "router-internet", state: internet },
+      ],
+      caption: input.caption,
+    },
+    networkRows: input.networkRows,
+    emptyNetworksCopy: input.emptyNetworksCopy,
   };
 }
 

@@ -1670,6 +1670,10 @@ label.touch-pressed {
   border-color: #d59c6a;
 }
 
+.wifi-error {
+  border-color: #d66d6d;
+}
+
 .speaker-ready {
   border-color: #8dbb96;
 }
@@ -1852,7 +1856,8 @@ label.touch-pressed {
   font-weight: 800;
 }
 
-.spotify-actions button.destructive-secondary {
+.spotify-actions button.destructive-secondary,
+.wifi-actions button.destructive-secondary {
   border-color: #c58b84;
   background: #f4e2df;
   color: #6c241d;
@@ -1954,6 +1959,195 @@ label.touch-pressed {
 .volume-controls span {
   color: #65716b;
   font-weight: 700;
+}
+
+.settings-wifi-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.network-status-card,
+.network-flow-card,
+.network-list-panel,
+.network-password-panel {
+  min-width: 0;
+}
+
+.network-status-card,
+.network-flow-card,
+.network-list-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.network-status-card,
+.network-flow-card {
+  min-height: 170px;
+}
+
+.network-flow-card {
+  align-content: center;
+}
+
+.network-flow-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) 42px minmax(88px, 1fr) 42px minmax(88px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.network-flow-node {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-height: 86px;
+  border: 2px solid #aaa497;
+  border-radius: 8px;
+  padding: 10px 8px;
+  background: #fffdf7;
+  color: #17211c;
+  text-align: center;
+}
+
+.network-flow-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.9;
+}
+
+.network-flow-connector {
+  height: 6px;
+  border-radius: 999px;
+  background: #aaa497;
+}
+
+.flow-success {
+  border-color: #5f9f70;
+  color: #245c32;
+  background: #e5f2e7;
+}
+
+.network-flow-connector.flow-success {
+  background: #5f9f70;
+}
+
+.flow-pending {
+  border-color: #2f6f73;
+  color: #1e5559;
+  background: #dfeff0;
+}
+
+.network-flow-connector.flow-pending {
+  background: #2f6f73;
+}
+
+.flow-error {
+  border-color: #c35e58;
+  color: #7a2d28;
+  background: #f4e2df;
+}
+
+.network-flow-connector.flow-error {
+  background: #c35e58;
+}
+
+.flow-idle {
+  border-color: #c9c2b4;
+  color: #65716b;
+  background: #f4f1ea;
+}
+
+.network-flow-connector.flow-idle {
+  background: #c9c2b4;
+}
+
+.network-actions {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.network-actions button {
+  min-height: 58px;
+}
+
+.network-list-panel {
+  grid-column: 1 / -1;
+}
+
+.network-list-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+
+.network-list-heading h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.network-list-heading span {
+  color: #65716b;
+  font-weight: 800;
+}
+
+.network-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.network-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 72px;
+  border: 1px solid #d5cec0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fffdf7;
+  color: #17211c;
+  text-align: left;
+}
+
+.network-row.selected {
+  border-color: #2f6f73;
+  background: #dfeff0;
+}
+
+.network-row.connected {
+  border-color: #5f9f70;
+  background: #e5f2e7;
+}
+
+.network-row span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.network-row strong,
+.network-row small,
+.network-row b {
+  overflow-wrap: anywhere;
+}
+
+.network-row small {
+  color: #65716b;
+  font-weight: 700;
+}
+
+.network-row b {
+  font-size: 13px;
+}
+
+.network-password-panel {
+  grid-column: 1 / -1;
+  max-width: 520px;
 }
 
 .speaker-device-list {
@@ -2306,8 +2500,17 @@ label.touch-pressed {
   }
 
   .settings-overview .settings-status-list,
-  .settings-overview .settings-status-row {
+  .settings-overview .settings-status-row,
+  .network-actions,
+  .network-list,
+  .network-flow-row {
     grid-template-columns: 1fr;
+  }
+
+  .network-flow-connector {
+    width: 6px;
+    height: 24px;
+    justify-self: center;
   }
 
   .sleep-presets {

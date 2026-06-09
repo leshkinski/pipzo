@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   activateBackendScenario,
@@ -65,6 +65,7 @@ import {
   nowPlayingEmptyState,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingRefreshIntervalMs,
+  networkSettingsViewModel,
   preferredSpeakerSelection,
   preferredSurface,
   playbackQueueAfterSelection,
@@ -72,6 +73,7 @@ import {
   playbackQueueAfterRefreshRequest,
   playbackQueueViewModel,
   queueSelectionPlayback,
+  shellNavigationSelection,
   shellNavigationItems,
   settingsStatusRows,
   shouldRenderQueuePanel,
@@ -2091,6 +2093,14 @@ export function App() {
     setSelectedSurface("settings");
   }
 
+  function selectShellNavigationSurface(surface: AppSurfaceId) {
+    setIdleActive(false);
+    setLastActivityAt(Date.now());
+    const next = shellNavigationSelection({ surface: selectedSurface, settingsPage }, surface);
+    setSettingsPage(next.settingsPage);
+    setSelectedSurface(next.surface);
+  }
+
   function selectWifiNetwork(ssid: string) {
     setSelectedWifiSsid(ssid);
     const network = wifiNetworks.find((candidate) => candidate.ssid === ssid);
@@ -2268,7 +2278,7 @@ export function App() {
                 ].filter(Boolean).join(" ")}
                 disabled={disabled}
                 key={surface}
-                onClick={() => setSelectedSurface(surface)}
+                onClick={() => selectShellNavigationSurface(surface)}
                 type="button"
                 aria-label={navLabels[surface]}
               >
@@ -2296,7 +2306,7 @@ export function App() {
                   ].filter(Boolean).join(" ")}
                   disabled={disabled}
                   key={surface}
-                  onClick={() => setSelectedSurface(surface)}
+                  onClick={() => selectShellNavigationSurface(surface)}
                   type="button"
                   aria-label={navLabels[surface]}
                 >
@@ -2886,23 +2896,23 @@ function SettingsSurface({
         <SettingsOverview rows={rows} onOpen={onPageChange} />
       )}
       {page === "wifi" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "wifi") ?? rows[0]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "network") ?? rows[0]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <WifiPanel snapshot={snapshot} controls={wifi} context="settings" />
         </SettingsSubPageSummary>
       )}
       {page === "spotify" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[2]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "spotify") ?? rows[1]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <SpotifyAuthPanel snapshot={snapshot} controls={spotifyAuth} context="settings" onFinishSetup={onActivateSpotify} />
         </SettingsSubPageSummary>
       )}
       {page === "audio" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "audio") ?? rows[3]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "audio") ?? rows[2]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <SpeakerPanel snapshot={snapshot} controls={speaker} context="settings" />
           <VolumeControlPanel snapshot={snapshot} controls={volume} />
         </SettingsSubPageSummary>
       )}
       {page === "device" && (
-        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[4]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
+        <SettingsSubPageSummary row={rows.find((row) => row.id === "device") ?? rows[3]} title={settingsPageTitle(page)} onBack={() => onPageChange("overview")}>
           <ScreenBrightnessPanel display={snapshot.health.display} onChange={onDisplayChange} />
           <IdleSettingsPanel snapshot={snapshot} onChange={onIdleSettingsChange} />
           <SleepTimerPanel snapshot={snapshot} controls={sleepTimer} />
@@ -3363,6 +3373,10 @@ function WifiPanel({
   controls: WifiControls;
   context: "setup" | "settings";
 }) {
+  if (context === "settings") {
+    return <SettingsWifiPanel snapshot={snapshot} controls={controls} />;
+  }
+
   const view = wifiSetupViewModel(snapshot, controls.networks);
   const selectedNetwork = controls.networks.find((network) => network.ssid === controls.selectedSsid);
   const needsPassword = selectedNetwork ? selectedNetwork.security !== "open" : true;
@@ -3445,6 +3459,148 @@ function WifiPanel({
             </button>
           )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsWifiPanel({
+  snapshot,
+  controls,
+}: {
+  snapshot: AppSnapshot;
+  controls: WifiControls;
+}) {
+  const view = networkSettingsViewModel(snapshot, controls.networks, {
+    selectedSsid: controls.selectedSsid,
+    busy: controls.busy,
+    message: controls.message,
+  });
+  const selectedNetwork = controls.networks.find((network) => network.ssid === controls.selectedSsid);
+  const needsPassword = selectedNetwork ? selectedNetwork.security !== "open" : true;
+  const scanLabel = controls.busy && controls.message.toLowerCase().includes("scanning") ? "Scanning" : "Scan again";
+  const connectLabel = controls.busy && controls.message.toLowerCase().includes("connecting") ? "Connecting" : "Connect";
+  const showConnectFirst = view.actions.includes("connect") && Boolean(controls.selectedSsid);
+
+  return (
+    <section className={`wifi-panel settings-wifi-panel wifi-${view.tone}`} aria-label="Wi-Fi settings">
+      <div className="network-status-card">
+        <p className="eyebrow">Current network</p>
+        <h2>{view.title}</h2>
+        <p>{view.detail}</p>
+        <div className="wifi-status-grid">
+          <div className="spotify-status">
+            <span>Network</span>
+            <strong>{view.ssidLabel}</strong>
+          </div>
+          <div className="spotify-status">
+            <span>IP address</span>
+            <strong>{view.ipAddressLabel}</strong>
+          </div>
+        </div>
+        {controls.message && <p className="subtle">{controls.message}</p>}
+      </div>
+
+      <div className="network-flow-card" aria-label="Network path">
+        <div className="network-flow-row">
+          {view.flow.nodes.map((node, index) => (
+            <Fragment key={node.id}>
+              {index > 0 && (
+                <span
+                  className={`network-flow-connector flow-${view.flow.connectors[index - 1]?.state ?? "idle"}`}
+                  aria-hidden="true"
+                />
+              )}
+              <div className={`network-flow-node flow-${node.state}`}>
+                <span className="network-flow-icon" aria-hidden="true" />
+                <strong>{node.label}</strong>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <p>{view.flow.caption}</p>
+      </div>
+
+      <div className="wifi-actions network-actions">
+        {view.actions.includes("retry") && (
+          <button disabled={controls.busy} type="button" onClick={controls.onRetry}>
+            Retry internet
+          </button>
+        )}
+        {showConnectFirst && (
+          <button disabled={controls.busy || !controls.selectedSsid} type="button" onClick={controls.onConnect}>
+            {connectLabel}
+          </button>
+        )}
+        <button disabled={controls.busy} type="button" onClick={controls.onScan}>
+          {scanLabel}
+        </button>
+        {view.actions.includes("connect") && !showConnectFirst && (
+          <button disabled={controls.busy || !controls.selectedSsid} type="button" onClick={controls.onConnect}>
+            {connectLabel}
+          </button>
+        )}
+        {view.actions.includes("forget") && (
+          <button className="destructive-secondary" disabled={controls.busy} type="button" onClick={controls.onForget}>
+            Forget network
+          </button>
+        )}
+      </div>
+
+      <div className="network-list-panel">
+        <div className="network-list-heading">
+          <h3>Nearby networks</h3>
+          <span>{controls.networks.length > 0 ? `${controls.networks.length} found` : "Not scanned"}</span>
+        </div>
+        <div className="network-list" aria-label="Nearby Wi-Fi networks">
+          {view.networkRows.map((network) => (
+            <button
+              className={[
+                "network-row",
+                network.selected ? "selected" : "",
+                network.connected ? "connected" : "",
+              ].filter(Boolean).join(" ")}
+              disabled={controls.busy}
+              key={network.ssid}
+              type="button"
+              onClick={() => controls.onSelect(network.ssid)}
+            >
+              <span>
+                <strong>{network.ssid}</strong>
+                <small>{network.detail}</small>
+              </span>
+              <b>{network.connected ? "Connected" : network.selected ? "Selected" : "Choose"}</b>
+            </button>
+          ))}
+          {view.emptyNetworksCopy && <p className="subtle">{view.emptyNetworksCopy}</p>}
+        </div>
+      </div>
+
+      <div className="wifi-form network-password-panel">
+        <label>
+          <span>Password</span>
+          <div className="wifi-password-control">
+            <input
+              autoComplete="current-password"
+              disabled={!needsPassword || !controls.selectedSsid}
+              inputMode="text"
+              placeholder={needsPassword ? "Wi-Fi password" : "Open network"}
+              type={controls.passwordVisible ? "text" : "password"}
+              value={controls.password}
+              onChange={(event) => controls.onPassword(event.target.value)}
+            />
+            <button
+              aria-label={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+              aria-pressed={controls.passwordVisible}
+              title={controls.passwordVisible ? "Hide Wi-Fi password" : "Show Wi-Fi password"}
+              disabled={!needsPassword || !controls.selectedSsid}
+              type="button"
+              onClick={controls.onTogglePasswordVisibility}
+            >
+              <span className={controls.passwordVisible ? "wifi-password-eye is-visible" : "wifi-password-eye"} aria-hidden="true" />
+            </button>
+          </div>
+        </label>
       </div>
     </section>
   );

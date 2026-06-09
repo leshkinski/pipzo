@@ -16,6 +16,7 @@ import {
   libraryAvailability,
   homeLibraryCategoryOrder,
   nextNowPlayingBoundaryRefreshDelayMs,
+  networkSettingsViewModel,
   nowPlayingCommandRefreshDelaysMs,
   nowPlayingSubviewAfterLibraryPlaybackStart,
   nowPlayingSubviewAfterSurfaceChange,
@@ -38,6 +39,7 @@ import {
   shouldRefreshHomeOnOpen,
   shouldShowDeveloperPanel,
   shellNavigationItems,
+  shellNavigationSelection,
   settingsStatusRows,
   shouldEnterIdleMode,
   shouldSuppressBluetoothSuccessAlert,
@@ -262,10 +264,38 @@ describe("kiosk shell view model", () => {
     ]);
   });
 
+  it("returns every Settings sub-page to overview when the Settings rail item is selected", () => {
+    for (const settingsPage of ["wifi", "spotify", "audio", "device"] as const) {
+      expect(shellNavigationSelection({ surface: "settings", settingsPage }, "settings")).toEqual({
+        surface: "settings",
+        settingsPage: "overview",
+      });
+    }
+  });
+
+  it("opens Settings overview from the main app surfaces", () => {
+    for (const surface of ["home", "now_playing", "setup"] as const) {
+      expect(shellNavigationSelection({ surface, settingsPage: "device" }, "settings")).toEqual({
+        surface: "settings",
+        settingsPage: "overview",
+      });
+    }
+  });
+
+  it("preserves the current Settings page when selecting non-Settings rail destinations", () => {
+    expect(shellNavigationSelection({ surface: "settings", settingsPage: "spotify" }, "home")).toEqual({
+      surface: "home",
+      settingsPage: "spotify",
+    });
+    expect(shellNavigationSelection({ surface: "settings", settingsPage: "audio" }, "now_playing")).toEqual({
+      surface: "now_playing",
+      settingsPage: "audio",
+    });
+  });
+
   it("models ready Settings landing status rows", () => {
     expect(settingsStatusRows(localScenarios.ready_healthy.snapshot)).toEqual([
-      expect.objectContaining({ id: "wifi", status: "Connected", tone: "ready", targetPage: "wifi" }),
-      expect.objectContaining({ id: "internet", status: "Online", tone: "ready", targetPage: "wifi" }),
+      expect.objectContaining({ id: "network", title: "Network", status: "Connected", tone: "ready", targetPage: "wifi" }),
       expect.objectContaining({ id: "spotify", status: "Connected", tone: "ready", targetPage: "spotify" }),
       expect.objectContaining({ id: "audio", status: "Connected", tone: "ready", targetPage: "audio" }),
       expect.objectContaining({ id: "device", status: "Ready", tone: "ready", targetPage: "device" }),
@@ -318,7 +348,7 @@ describe("kiosk shell view model", () => {
   it("marks first-run setup dependencies as action needed on Settings landing", () => {
     const rows = settingsStatusRows(localScenarios.first_boot_empty.snapshot);
 
-    expect(rows.find((row) => row.id === "wifi")).toMatchObject({
+    expect(rows.find((row) => row.id === "network")).toMatchObject({
       status: "Required for setup",
       tone: "action_needed",
       actionLabel: "Connect",
@@ -338,17 +368,13 @@ describe("kiosk shell view model", () => {
   it("models post-setup Wi-Fi and internet recovery as focused warning/error rows", () => {
     const rows = settingsStatusRows(localScenarios.wifi_local_only.snapshot);
 
-    expect(rows.find((row) => row.id === "wifi")).toMatchObject({
-      status: "Connected, no internet",
+    expect(rows.find((row) => row.id === "network")).toMatchObject({
+      title: "Network",
+      status: "No internet",
       detail: "PipzoNet",
       tone: "warning",
       targetPage: "wifi",
-    });
-    expect(rows.find((row) => row.id === "internet")).toMatchObject({
-      status: "Offline",
-      tone: "error",
-      actionLabel: "Open Wi-Fi",
-      targetPage: "wifi",
+      actionLabel: "Check",
     });
   });
 
@@ -502,6 +528,91 @@ describe("kiosk shell view model", () => {
     expect(wifiSetupViewModel(ready).ipAddressLabel).toBe("192.168.1.42");
     expect(wifiSetupViewModel(localOnly).actions).toEqual(["retry", "scan", "forget"]);
     expect(wifiSetupViewModel(localOnly).ipAddressLabel).toBe("192.168.1.42");
+  });
+
+  it("models connected Settings Wi-Fi as current network plus full network path", () => {
+    const view = networkSettingsViewModel(localScenarios.ready_healthy.snapshot, [
+      { ssid: "PipzoNet", signal: 90, security: "wpa2", known: true },
+      { ssid: "Guest", signal: 62, security: "open", known: false },
+    ]);
+
+    expect(view).toMatchObject({
+      state: "online",
+      title: "Connected to PipzoNet",
+      detail: "Internet is reachable. Spotify and playback can connect.",
+      tone: "ready",
+      ssidLabel: "PipzoNet",
+      ipAddressLabel: "192.168.1.42",
+      actions: ["scan", "forget"],
+    });
+    expect(view.flow.nodes.map((node) => node.state)).toEqual(["success", "success", "success"]);
+    expect(view.flow.caption).toBe("Pipzo can reach Spotify.");
+    expect(view.networkRows[0]).toMatchObject({ ssid: "PipzoNet", connected: true });
+  });
+
+  it("models local-only Settings Wi-Fi with retry and an internet-path failure", () => {
+    const view = networkSettingsViewModel(localScenarios.wifi_local_only.snapshot, [
+      { ssid: "PipzoNet", signal: 88, security: "wpa2", known: true },
+    ]);
+
+    expect(view).toMatchObject({
+      state: "local_only",
+      title: "PipzoNet connected",
+      detail: "Wi-Fi is connected, but internet is not reachable.",
+      tone: "attention",
+      actions: ["retry", "scan", "forget"],
+    });
+    expect(view.flow.nodes.map((node) => node.state)).toEqual(["success", "success", "error"]);
+    expect(view.flow.connectors.map((connector) => connector.state)).toEqual(["success", "error"]);
+  });
+
+  it("models disconnected Settings Wi-Fi around scan/select/connect", () => {
+    const firstBoot = localScenarios.first_boot_empty.snapshot;
+
+    expect(networkSettingsViewModel(firstBoot)).toMatchObject({
+      state: "disconnected",
+      title: "Connect Wi-Fi",
+      actions: ["scan"],
+      emptyNetworksCopy: "Scan for nearby Wi-Fi networks.",
+    });
+
+    const withNetworks = networkSettingsViewModel(firstBoot, [
+      { ssid: "PipzoNet", signal: 90, security: "wpa2", known: false },
+    ], { selectedSsid: "PipzoNet" });
+
+    expect(withNetworks.actions).toEqual(["scan", "connect"]);
+    expect(withNetworks.flow.nodes.map((node) => node.state)).toEqual(["success", "idle", "idle"]);
+    expect(withNetworks.networkRows[0]).toMatchObject({ ssid: "PipzoNet", selected: true, connected: false });
+  });
+
+  it("models Settings Wi-Fi connecting and failed join states without backend-only state", () => {
+    const firstBoot = localScenarios.first_boot_empty.snapshot;
+    const networks = [{ ssid: "PipzoNet", signal: 90, security: "wpa2" as const, known: false }];
+
+    const connecting = networkSettingsViewModel(firstBoot, networks, {
+      selectedSsid: "PipzoNet",
+      busy: true,
+      message: "Connecting to PipzoNet.",
+    });
+    expect(connecting).toMatchObject({
+      state: "connecting",
+      title: "Connecting to PipzoNet",
+      actions: ["scan", "connect"],
+    });
+    expect(connecting.flow.nodes.map((node) => node.state)).toEqual(["success", "pending", "idle"]);
+
+    const badPassword = networkSettingsViewModel(firstBoot, networks, {
+      selectedSsid: "PipzoNet",
+      message: "Wi-Fi connection failed: bad credentials.",
+    });
+    expect(badPassword).toMatchObject({
+      state: "connect_failed",
+      title: "Couldn't join PipzoNet",
+      detail: "The password looks wrong. Check it and try again.",
+      tone: "error",
+      actions: ["scan", "connect"],
+    });
+    expect(badPassword.flow.nodes.map((node) => node.state)).toEqual(["success", "error", "idle"]);
   });
 
   it("describes Bluetooth speaker setup actions from speaker health and scan results", () => {
