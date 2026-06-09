@@ -33,6 +33,7 @@ type KeyboardTestApi = {
     command: { kind: string },
   ) => { mode: string; shift: boolean; caps: boolean };
   rowLabels: (state: { mode: string; shift: boolean; caps: boolean }) => string[][];
+  setTargetValue: (target: FakeInput, command: { kind: string; value?: string }) => void;
   spotifyChallengeTarget: (documentRef: unknown) => unknown | null;
   spotifyFallbackTarget: (documentRef: unknown) => unknown | null;
   sendExtensionDiagnostic: (documentRef: unknown) => void;
@@ -53,12 +54,17 @@ type SessionResetTestApi = {
 class FakeInput {
   autocomplete = "";
   disabled = false;
+  events: Array<{ type: string; data?: string | null; inputType?: string; key?: string }> = [];
   inputMode = "";
   isConnected = true;
   maxLength = -1;
   name = "";
+  nativeSetterCalls = 0;
+  ownerDocument: { querySelectorAll: (selector: string) => FakeInput[] } | null = null;
   pattern = "";
   readOnly = false;
+  selectionEnd: number | null = null;
+  selectionStart: number | null = null;
   type = "text";
   value = "";
   nextElementSibling: FakeInput | null = null;
@@ -69,11 +75,19 @@ class FakeInput {
     this.focusCalls += 1;
   }
 
-  dispatchEvent(): boolean {
+  dispatchEvent(event: { type: string; data?: string | null; inputType?: string; key?: string }): boolean {
+    this.events.push({
+      type: event.type,
+      data: event.data,
+      inputType: event.inputType,
+      key: event.key,
+    });
     return true;
   }
 
-  setSelectionRange(): void {
+  setSelectionRange(start: number, end: number): void {
+    this.selectionStart = start;
+    this.selectionEnd = end;
     return;
   }
 }
@@ -96,12 +110,34 @@ class FakeButton {
   }
 }
 
+class FakeEvent {
+  type: string;
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
+  data?: string | null;
+  inputType?: string;
+  key?: string;
+  code?: string;
+  keyCode?: number;
+  which?: number;
+
+  constructor(type: string, options: Record<string, unknown> = {}) {
+    this.type = type;
+    Object.assign(this, options);
+  }
+}
+
 function loadKeyboardApi(location?: { protocol: string; host: string; pathname?: string }): KeyboardTestApi {
   const source = readFileSync("../provisioning/chromium-extension/virtual-keyboard/pipzo-keyboard.js", "utf8");
   const context: {
     HTMLInputElement: typeof FakeInput;
     HTMLButtonElement: typeof FakeButton;
     HTMLTextAreaElement: typeof FakeTextArea;
+    Event: typeof FakeEvent;
+    InputEvent: typeof FakeEvent;
+    KeyboardEvent: typeof FakeEvent;
+    CompositionEvent: typeof FakeEvent;
     __pipzoKeyboardTestApi?: KeyboardTestApi;
     location?: { protocol: string; host: string; pathname?: string };
     globalThis?: unknown;
@@ -109,6 +145,10 @@ function loadKeyboardApi(location?: { protocol: string; host: string; pathname?:
     HTMLInputElement: FakeInput,
     HTMLButtonElement: FakeButton,
     HTMLTextAreaElement: FakeTextArea,
+    Event: FakeEvent,
+    InputEvent: FakeEvent,
+    KeyboardEvent: FakeEvent,
+    CompositionEvent: FakeEvent,
     location,
   };
   runInNewContext(source, context);
@@ -262,6 +302,87 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.focusNextOtpTarget(first)).toBeNull();
   });
 
+  it("dispatches browser-like input events and advances after a Spotify OTP digit press", () => {
+    const keyboard = loadKeyboardApi();
+    const first = new FakeInput();
+    const second = new FakeInput();
+    first.inputMode = "numeric";
+    first.maxLength = 1;
+    first.name = "otp-0";
+    second.inputMode = "numeric";
+    second.maxLength = 1;
+    second.name = "otp-1";
+    first.ownerDocument = { querySelectorAll: (selector: string) => (selector === "input" || selector === "*" ? [first, second] : []) };
+
+    keyboard.setTargetValue(first, { kind: "text", value: "4" });
+
+    expect(first.value).toBe("4");
+    expect(first.selectionStart).toBe(1);
+    expect(first.selectionEnd).toBe(1);
+    expect(second.focusCalls).toBe(1);
+    expect(first.events.map((event) => event.type)).toEqual([
+      "keydown",
+      "beforeinput",
+      "compositionstart",
+      "compositionupdate",
+      "compositionend",
+      "input",
+      "change",
+      "keyup",
+    ]);
+    expect(first.events.find((event) => event.type === "keydown")).toMatchObject({ key: "4" });
+    expect(first.events.find((event) => event.type === "beforeinput")).toMatchObject({
+      data: "4",
+      inputType: "insertText",
+    });
+    expect(first.events.find((event) => event.type === "input")).toMatchObject({
+      data: "4",
+      inputType: "insertText",
+    });
+  });
+
+  it("uses the native input value setter so React-controlled OTP fields observe the change", () => {
+    const keyboard = loadKeyboardApi();
+    const originalValueDescriptor = Object.getOwnPropertyDescriptor(FakeInput.prototype, "value");
+    Object.defineProperty(FakeInput.prototype, "value", {
+      configurable: true,
+      get(this: FakeInput) {
+        return "";
+      },
+      set(this: FakeInput, value: string) {
+        this.nativeSetterCalls += 1;
+        Object.defineProperty(this, "value", {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value,
+        });
+      },
+    });
+    try {
+      const input = new FakeInput();
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.name = "code-0";
+      input.value = "1";
+
+      keyboard.setTargetValue(input, { kind: "text", value: "5" });
+
+      expect(input.nativeSetterCalls).toBe(1);
+      expect(input.value).toBe("5");
+      expect(input.events.find((event) => event.type === "input")).toMatchObject({
+        data: "5",
+        inputType: "insertText",
+      });
+    } finally {
+      if (originalValueDescriptor) {
+        Object.defineProperty(FakeInput.prototype, "value", originalValueDescriptor);
+      } else {
+        delete (FakeInput.prototype as { value?: string }).value;
+      }
+    }
+  });
+
   it("recognizes the live Spotify six-digit challenge page and binds to the active code input", () => {
     const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
     const inputs = Array.from({ length: 6 }, (_, index) => {
@@ -322,6 +443,26 @@ describe("Chromium extension keyboard", () => {
 
     const noActiveDocumentRef = { ...documentRef, activeElement: {} };
     expect(keyboard.spotifyFallbackTarget(noActiveDocumentRef)).toBe(empty);
+  });
+
+  it("finds Spotify OTP inputs inside open shadow roots", () => {
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
+    const shadowedCodeInput = new FakeInput();
+    shadowedCodeInput.inputMode = "numeric";
+    shadowedCodeInput.maxLength = 1;
+    shadowedCodeInput.name = "code-0";
+    const host = {
+      shadowRoot: {
+        querySelectorAll: (selector: string) => (selector === "input" ? [shadowedCodeInput] : []),
+      },
+    };
+    const documentRef = {
+      activeElement: {},
+      body: { innerText: "Enter the 6 digit code sent to you" },
+      querySelectorAll: (selector: string) => (selector === "*" ? [host] : []),
+    };
+
+    expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(shadowedCodeInput);
   });
 
   it("recognizes related-frame code challenges from their OTP shape", () => {
@@ -521,7 +662,7 @@ describe("Chromium extension keyboard", () => {
     expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
-    expect(manifest).toContain('"version": "0.1.5"');
+    expect(manifest).toContain('"version": "0.1.6"');
     expect(manifest).toContain('"match_about_blank": true');
     expect(manifest).toContain('"match_origin_as_fallback": true');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");

@@ -87,6 +87,17 @@
     return !element.disabled && !element.readOnly && EDITABLE_INPUT_TYPES.has(element.type || "text");
   }
 
+  function querySelectorAllDeep(root, selector) {
+    if (!root?.querySelectorAll) return [];
+    const results = Array.from(root.querySelectorAll(selector) || []);
+    const descendants = Array.from(root.querySelectorAll("*") || []);
+    descendants.forEach((element) => {
+      if (!element?.shadowRoot) return;
+      results.push(...querySelectorAllDeep(element.shadowRoot, selector));
+    });
+    return results;
+  }
+
   function normalizedAttr(element, name, propertyName = name) {
     const propertyValue = element?.[propertyName];
     if (typeof propertyValue === "string" && propertyValue) return propertyValue.toLowerCase();
@@ -119,13 +130,13 @@
     const spotifyTopPage = isSpotifyAuthPage();
     const text = documentRef?.body?.innerText || "";
     const hasChallengeText = /(?:6|six)[-\s]?digit|verification code|login code|security code|enter(?:\s+the)?\s+code/i.test(text);
-    const inputs = Array.from(documentRef.querySelectorAll?.("input") || []);
+    const inputs = querySelectorAllDeep(documentRef, "input");
     const numericInputs = inputs.filter((input) => isEditableTarget(input) && isNumericTarget(input));
     const otpInputs = inputs.filter((input) => isEditableTarget(input) && (isOtpLikeTarget(input) || Number(input.maxLength) === 1));
     if ((spotifyTopPage || hasChallengeText) && otpInputs.length >= 4) return true;
     if ((spotifyTopPage || hasChallengeText) && numericInputs.length >= 1 && inputs.length <= 8) return true;
     const digitBoxControls = Array.from(
-      documentRef.querySelectorAll?.("input,button,[role='textbox'],[role='spinbutton'],[contenteditable='true']") || [],
+      querySelectorAllDeep(documentRef, "input,button,[role='textbox'],[role='spinbutton'],[contenteditable='true']"),
     ).filter((element) => {
       if (element instanceof HTMLInputElement) return isEditableTarget(element);
       if (element instanceof HTMLButtonElement) return !element.disabled;
@@ -140,7 +151,7 @@
     if (!isSpotifySixDigitChallengePage(documentRef)) return null;
     const active = documentRef.activeElement;
     if (isEditableTarget(active)) return active;
-    const candidates = Array.from(documentRef.querySelectorAll?.("input") || []);
+    const candidates = querySelectorAllDeep(documentRef, "input");
     return candidates.find((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate) && !candidate.value)
       || candidates.find((candidate) => isEditableTarget(candidate) && isNumericTarget(candidate))
       || candidates.find((candidate) => isEditableTarget(candidate))
@@ -152,7 +163,7 @@
     if (challengeTarget) return challengeTarget;
     const active = documentRef.activeElement;
     if (isEditableTarget(active)) return active;
-    const candidates = Array.from(documentRef.querySelectorAll?.("input,textarea") || []);
+    const candidates = querySelectorAllDeep(documentRef, "input,textarea");
     return candidates.find((candidate) => isEditableTarget(candidate) && !candidate.value)
       || candidates.find((candidate) => isEditableTarget(candidate))
       || null;
@@ -286,21 +297,118 @@
     return { value: nextValue, caret: start + text.length };
   }
 
-  function dispatchInputEvents(target) {
-    target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  function eventForTarget(type, options = {}) {
+    const EventConstructor =
+      (type === "beforeinput" || type === "input" ? globalScope.InputEvent : null)
+      || (type.startsWith("key") ? globalScope.KeyboardEvent : null)
+      || (type.startsWith("composition") ? globalScope.CompositionEvent : null)
+      || globalScope.Event
+      || Event;
+    try {
+      return new EventConstructor(type, options);
+    } catch {
+      const event = new Event(type, { bubbles: Boolean(options.bubbles), cancelable: Boolean(options.cancelable) });
+      Object.entries(options).forEach(([key, value]) => {
+        if (key === "bubbles" || key === "cancelable" || key === "composed") return;
+        try {
+          Object.defineProperty(event, key, { configurable: true, value });
+        } catch {
+          // Some browser event properties are read-only; best-effort payload is enough.
+        }
+      });
+      return event;
+    }
+  }
+
+  function inputTypeForCommand(command) {
+    if (command.kind === "backspace") return "deleteContentBackward";
+    if (command.kind === "clear") return "deleteContentBackward";
+    return "insertText";
+  }
+
+  function keyPayloadForCommand(command, currentState) {
+    if (command.kind === "backspace") return { key: "Backspace", code: "Backspace", keyCode: 8, which: 8, data: null };
+    if (command.kind === "clear") return { key: "Delete", code: "Delete", keyCode: 46, which: 46, data: null };
+    const text = insertedText(command, currentState);
+    if (text === " ") return { key: " ", code: "Space", keyCode: 32, which: 32, data: " " };
+    const digit = /^[0-9]$/.test(text);
+    const letter = /^[a-z]$/i.test(text);
+    return {
+      key: text,
+      code: digit ? `Digit${text}` : letter ? `Key${text.toUpperCase()}` : "",
+      keyCode: text.length === 1 ? text.toUpperCase().charCodeAt(0) : 0,
+      which: text.length === 1 ? text.toUpperCase().charCodeAt(0) : 0,
+      data: text || null,
+    };
+  }
+
+  function dispatchKeyEvent(target, type, payload) {
+    target.dispatchEvent(eventForTarget(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      key: payload.key,
+      code: payload.code,
+      keyCode: payload.keyCode,
+      which: payload.which,
+    }));
+  }
+
+  function dispatchBeforeInputEvent(target, inputType, data) {
+    target.dispatchEvent(eventForTarget("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      data,
+      inputType,
+    }));
+  }
+
+  function dispatchCompositionEvents(target, data) {
+    if (!data) return;
+    target.dispatchEvent(eventForTarget("compositionstart", { bubbles: true, cancelable: true, composed: true, data: "" }));
+    target.dispatchEvent(eventForTarget("compositionupdate", { bubbles: true, cancelable: true, composed: true, data }));
+    target.dispatchEvent(eventForTarget("compositionend", { bubbles: true, cancelable: true, composed: true, data }));
+  }
+
+  function dispatchInputEvents(target, inputType, data) {
+    target.dispatchEvent(eventForTarget("input", { bubbles: true, cancelable: false, composed: true, data, inputType }));
     target.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function writeTargetValue(target, value) {
+    const prototype = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+    if (typeof descriptor?.set === "function") {
+      descriptor.set.call(target, value);
+      return;
+    }
+    target.value = value;
+  }
+
+  function selectionForCommand(target, command) {
+    if (command.kind === "text" && /^[0-9]$/.test(command.value) && isOtpLikeTarget(target) && Number(target.maxLength) === 1) {
+      return { start: 0, end: (target.value || "").length };
+    }
+    return { start: target.selectionStart, end: target.selectionEnd };
   }
 
   function setTargetValue(target, command) {
     state.mode = keyboardModeForTarget(target);
+    const selection = selectionForCommand(target, command);
     const result = applyCommandValue(
       target.value || "",
-      target.selectionStart,
-      target.selectionEnd,
+      selection.start,
+      selection.end,
       command,
       state,
     );
-    target.value = result.value;
+    const inputType = inputTypeForCommand(command);
+    const keyPayload = keyPayloadForCommand(command, state);
+    dispatchKeyEvent(target, "keydown", keyPayload);
+    dispatchBeforeInputEvent(target, inputType, keyPayload.data);
+    if (isOtpLikeTarget(target)) dispatchCompositionEvents(target, keyPayload.data);
+    writeTargetValue(target, result.value);
     if (typeof target.setSelectionRange === "function") {
       try {
         target.setSelectionRange(result.caret, result.caret);
@@ -308,7 +416,8 @@
         // Some numeric input types reject selection APIs even though value mutation works.
       }
     }
-    dispatchInputEvents(target);
+    dispatchInputEvents(target, inputType, keyPayload.data);
+    dispatchKeyEvent(target, "keyup", keyPayload);
     if (command.kind === "text" && /^[0-9]$/.test(command.value) && shouldAdvanceOtpTarget(target, result)) {
       focusNextOtpTarget(target);
     }
@@ -324,7 +433,7 @@
   function focusNextOtpTarget(target) {
     const candidates = [];
     if (target?.ownerDocument && typeof target.ownerDocument.querySelectorAll === "function") {
-      candidates.push(...target.ownerDocument.querySelectorAll("input"));
+      candidates.push(...querySelectorAllDeep(target.ownerDocument, "input"));
     } else {
       let next = target?.nextElementSibling;
       while (next) {
@@ -588,7 +697,7 @@
   }
 
   function hasOtpLikeTarget(documentRef) {
-    const candidates = Array.from(documentRef.querySelectorAll?.("input") || []);
+    const candidates = querySelectorAllDeep(documentRef, "input");
     return candidates.some((candidate) => isEditableTarget(candidate) && isOtpLikeTarget(candidate));
   }
 
@@ -780,6 +889,7 @@
     spotifyFallbackTarget,
     rowLabels,
     sendExtensionDiagnostic,
+    setTargetValue,
   };
 
   if (globalScope.document?.readyState === "loading") {
