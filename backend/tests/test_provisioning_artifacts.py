@@ -141,8 +141,12 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
         "background",
         "content_scripts",
     }
-    assert manifest["permissions"] == ["browsingData", "cookies"]
-    assert manifest["host_permissions"] == ["https://*.spotify.com/*"]
+    assert manifest["permissions"] == ["browsingData", "cookies", "scripting"]
+    assert manifest["host_permissions"] == [
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*",
+        "https://*.spotify.com/*",
+    ]
     assert manifest["background"] == {"service_worker": "pipzo-session-reset.js"}
     assert "externally_connectable" not in manifest
 
@@ -158,6 +162,8 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert script["css"] == ["pipzo-keyboard.css"]
     assert script["run_at"] == "document_start"
     assert script["all_frames"] is True
+    assert script["match_about_blank"] is True
+    assert script["match_origin_as_fallback"] is True
 
     forbidden_tokens = ["fetch(", "XMLHttpRequest", "sessionStorage", "analytics"]
     for token in forbidden_tokens:
@@ -166,6 +172,7 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert "pointerdown" in content_script
     assert "touchstart" in content_script
     assert "dataset.pipzoKeyboardExtension" in content_script
+    assert "SPOTIFY_CODE_LAUNCHER_ID" in content_script
     assert "pipzo:spotify-session-reset-request" in content_script
     assert "pipzo:spotify-session-reset-response" in content_script
     assert "runtime?.sendMessage" in content_script
@@ -176,5 +183,7 @@ def test_keyboard_extension_manifest_is_narrow_and_static():
     assert "SPOTIFY_COOKIE_DOMAIN = \"spotify.com\"" in session_reset_worker
     assert "chrome.cookies.getAll" in session_reset_worker
     assert "chrome.browsingData.remove" in session_reset_worker
+    assert "chrome?.scripting" in session_reset_worker
+    assert "chrome?.tabs" in session_reset_worker
     assert "onMessageExternal" not in session_reset_worker
     assert "#pipzo-extension-keyboard" in stylesheet

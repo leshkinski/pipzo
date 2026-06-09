@@ -3,6 +3,7 @@
 
   const ROOT_ID = "pipzo-extension-keyboard";
   const SPOTIFY_SCROLL_ROOT_ID = "pipzo-spotify-scroll-controls";
+  const SPOTIFY_CODE_LAUNCHER_ID = "pipzo-spotify-code-launcher";
   const SPOTIFY_SESSION_RESET_REQUEST = "pipzo:spotify-session-reset-request";
   const SPOTIFY_SESSION_RESET_RESPONSE = "pipzo:spotify-session-reset-response";
   const EDITABLE_INPUT_TYPES = new Set(["text", "password", "email", "search", "number", "tel"]);
@@ -103,12 +104,15 @@
   }
 
   function isSpotifySixDigitChallengePage(documentRef) {
-    if (!isSpotifyAccountsPage()) return false;
+    if (!documentRef?.querySelectorAll) return false;
+    const spotifyTopPage = isSpotifyAccountsPage();
     const text = documentRef?.body?.innerText || "";
-    if (!/6[-\s]?digit code/i.test(text)) return false;
+    const hasChallengeText = /(?:6|six)[-\s]?digit|verification code|login code|security code|enter(?:\s+the)?\s+code/i.test(text);
     const inputs = Array.from(documentRef.querySelectorAll?.("input") || []);
-    const otpInputs = inputs.filter((input) => isEditableTarget(input) && isOtpLikeTarget(input));
-    if (otpInputs.length >= 6) return true;
+    const numericInputs = inputs.filter((input) => isEditableTarget(input) && isNumericTarget(input));
+    const otpInputs = inputs.filter((input) => isEditableTarget(input) && (isOtpLikeTarget(input) || Number(input.maxLength) === 1));
+    if ((spotifyTopPage || hasChallengeText) && otpInputs.length >= 4) return true;
+    if ((spotifyTopPage || hasChallengeText) && numericInputs.length >= 1 && inputs.length <= 8) return true;
     const digitBoxControls = Array.from(
       documentRef.querySelectorAll?.("input,button,[role='textbox'],[role='spinbutton'],[contenteditable='true']") || [],
     ).filter((element) => {
@@ -118,7 +122,7 @@
       const role = normalizedAttr(element, "role");
       return role === "textbox" || role === "spinbutton";
     });
-    return digitBoxControls.length >= 6;
+    return (spotifyTopPage || hasChallengeText) && digitBoxControls.length >= 6;
   }
 
   function spotifyChallengeTarget(documentRef) {
@@ -402,6 +406,11 @@
       state.target = active;
       return active;
     }
+    const spotifyTarget = spotifyChallengeTarget(documentRef);
+    if (spotifyTarget) {
+      state.target = spotifyTarget;
+      return spotifyTarget;
+    }
     return null;
   }
 
@@ -466,6 +475,20 @@
 
     root.append(up, down);
     documentRef.body.appendChild(root);
+  }
+
+  function ensureSpotifyCodeLauncher(documentRef) {
+    if (!isSpotifySixDigitChallengePage(documentRef)) return;
+    if (!documentRef.body) return;
+    if (documentRef.getElementById(SPOTIFY_CODE_LAUNCHER_ID)) return;
+    const button = documentRef.createElement("button");
+    button.id = SPOTIFY_CODE_LAUNCHER_ID;
+    button.type = "button";
+    button.textContent = "123";
+    button.setAttribute("aria-label", "Show Pipzo numeric keypad");
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+    button.addEventListener("click", () => showSpotifyChallengeKeyboard(documentRef));
+    documentRef.body.appendChild(button);
   }
 
   function dispatchSpotifySessionResetResponse(documentRef, detail) {
@@ -578,6 +601,7 @@
     markInstalled(documentRef);
     ensureRoot(documentRef);
     ensureSpotifyScrollControls(documentRef);
+    ensureSpotifyCodeLauncher(documentRef);
     installSpotifySessionResetBridge(documentRef);
     const handleActivation = (event) => {
       const target = editableTargetFromEvent(event);
@@ -615,6 +639,8 @@
     }
     if (typeof globalScope.MutationObserver === "function") {
       const observer = new globalScope.MutationObserver(() => {
+        ensureSpotifyScrollControls(documentRef);
+        ensureSpotifyCodeLauncher(documentRef);
         scheduleStaleTargetCheck(documentRef);
       });
       if (documentRef.documentElement) {

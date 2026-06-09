@@ -278,6 +278,45 @@ describe("Chromium extension keyboard", () => {
     expect(keyboard.keyboardModeForTarget(keyboard.spotifyChallengeTarget(documentRef))).toBe("numeric");
   });
 
+  it("recognizes segmented Spotify code controls without relying on exact page copy", () => {
+    const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
+    const inputs = Array.from({ length: 6 }, (_, index) => {
+      const input = new FakeInput();
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.name = `digit-${index}`;
+      return input;
+    });
+    const documentRef = {
+      activeElement: inputs[0],
+      body: { innerText: "Check your email" },
+      querySelectorAll: (selector: string) => (selector === "input" ? inputs : inputs),
+    };
+
+    expect(keyboard.isSpotifySixDigitChallengePage(documentRef)).toBe(true);
+    expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(inputs[0]);
+  });
+
+  it("recognizes related-frame code challenges from their OTP shape", () => {
+    const keyboard = loadKeyboardApi({ protocol: "about:", host: "" });
+    const inputs = Array.from({ length: 6 }, (_, index) => {
+      const input = new FakeInput();
+      input.inputMode = "numeric";
+      input.maxLength = 1;
+      input.name = `verification-${index}`;
+      return input;
+    });
+    const documentRef = {
+      activeElement: inputs[2],
+      body: { innerText: "Enter the verification code" },
+      querySelectorAll: (selector: string) => (selector === "input" ? inputs : inputs),
+    };
+
+    expect(keyboard.isSpotifyAccountsPage()).toBe(false);
+    expect(keyboard.isSpotifySixDigitChallengePage(documentRef)).toBe(true);
+    expect(keyboard.spotifyChallengeTarget(documentRef)).toBe(inputs[2]);
+  });
+
   it("falls back to the first empty OTP input when a visual Spotify code box receives focus", () => {
     const keyboard = loadKeyboardApi({ protocol: "https:", host: "accounts.spotify.com" });
     const visualBoxes = Array.from({ length: 6 }, () => new FakeButton());
@@ -418,9 +457,12 @@ describe("Chromium extension keyboard", () => {
 
     expect(keyboard.isSpotifyAccountsPage()).toBe(false);
     expect(script).toContain("SPOTIFY_SCROLL_ROOT_ID");
+    expect(script).toContain("SPOTIFY_CODE_LAUNCHER_ID");
     expect(script).toContain('host === "accounts.spotify.com"');
     expect(script).toContain("scrollSpotifyPage");
+    expect(script).toContain("ensureSpotifyCodeLauncher");
     expect(stylesheet).toContain("#pipzo-spotify-scroll-controls");
+    expect(stylesheet).toContain("#pipzo-spotify-code-launcher");
   });
 
   it("declares a minimal Spotify session reset extension surface", () => {
@@ -435,6 +477,8 @@ describe("Chromium extension keyboard", () => {
     expect(manifest).toContain('"http://localhost:8000/*"');
     expect(manifest).toContain('"https://*.spotify.com/*"');
     expect(manifest).toContain('"service_worker": "pipzo-session-reset.js"');
+    expect(manifest).toContain('"match_about_blank": true');
+    expect(manifest).toContain('"match_origin_as_fallback": true');
     expect(bridge).toContain("pipzo:spotify-session-reset-request");
     expect(bridge).toContain("pipzo:spotify-session-reset-response");
     expect(bridge).toContain("isPipzoAppPage");
